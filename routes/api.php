@@ -35,6 +35,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::get('/map', [MapController::class, 'show'])->name('map.show');
         Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
+        Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
     });
 
 });

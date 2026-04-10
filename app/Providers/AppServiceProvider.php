@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
+use App\Domain\Drilling\DrillService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\MoveRegenService;
 use App\Domain\Player\TravelService;
@@ -26,6 +27,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MoveRegenService::class);
         $this->app->singleton(TravelService::class);
         $this->app->singleton(MapStateBuilder::class);
+        $this->app->singleton(DrillService::class);
     }
 
     /**

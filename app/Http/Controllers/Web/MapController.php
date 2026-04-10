@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Drilling\DrillService;
+use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\DrillRequest;
 use App\Http\Requests\TravelRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,6 +31,7 @@ class MapController extends Controller
     public function __construct(
         private readonly WorldService $world,
         private readonly TravelService $travel,
+        private readonly DrillService $drillSvc,
         private readonly MapStateBuilder $mapState,
     ) {}
 
@@ -53,5 +57,26 @@ class MapController extends Controller
         }
 
         return redirect()->route('map.show');
+    }
+
+    public function drill(DrillRequest $request): RedirectResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $result = $this->drillSvc->drill(
+                $player->id,
+                (int) $request->validated('grid_x'),
+                (int) $request->validated('grid_y'),
+            );
+        } catch (InsufficientMovesException | CannotDrillException $e) {
+            return redirect()->route('map.show')->withErrors(['drill' => $e->getMessage()]);
+        }
+
+        return redirect()->route('map.show')->with(
+            'drill_result',
+            "Drilled a {$result['quality']} point: +{$result['barrels']} barrels.",
+        );
     }
 }

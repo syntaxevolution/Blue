@@ -34,6 +34,9 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            'flash' => [
+                'drill_result' => fn () => $request->session()->get('drill_result'),
+            ],
         ];
     }
 }
