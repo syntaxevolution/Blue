@@ -39,12 +39,23 @@ class MapStateBuilder
         /** @var Tile $current */
         $current = $player->currentTile;
 
+        // Fetch the 4 cardinal-adjacent tiles. Each neighbor is a separate
+        // (x = ? AND y = ?) pair — we use nested closures because
+        // orWhere(['x' => ..., 'y' => ...]) with an array silently FLATTENS
+        // the pairs into separate OR clauses instead of grouping them,
+        // which would return entire rows and columns instead of just the
+        // four neighbors. Do NOT change this back to the array shorthand.
         $neighbors = Tile::query()
             ->where(function ($q) use ($current) {
-                $q->where(['x' => $current->x + 1, 'y' => $current->y])
-                    ->orWhere(['x' => $current->x - 1, 'y' => $current->y])
-                    ->orWhere(['x' => $current->x, 'y' => $current->y + 1])
-                    ->orWhere(['x' => $current->x, 'y' => $current->y - 1]);
+                $q->where(function ($q2) use ($current) {
+                    $q2->where('x', $current->x + 1)->where('y', $current->y);
+                })->orWhere(function ($q2) use ($current) {
+                    $q2->where('x', $current->x - 1)->where('y', $current->y);
+                })->orWhere(function ($q2) use ($current) {
+                    $q2->where('x', $current->x)->where('y', $current->y + 1);
+                })->orWhere(function ($q2) use ($current) {
+                    $q2->where('x', $current->x)->where('y', $current->y - 1);
+                });
             })
             ->get(['id', 'x', 'y', 'type']);
 
@@ -77,11 +88,13 @@ class MapStateBuilder
                 'x' => $t->x,
                 'y' => $t->y,
                 'type' => $t->type,
+                // Defensive: check BOTH coordinates so a stray tile never
+                // gets mis-tagged into a cardinal slot.
                 'direction' => match (true) {
-                    $t->x === $current->x + 1 => 'e',
-                    $t->x === $current->x - 1 => 'w',
-                    $t->y === $current->y + 1 => 'n',
-                    $t->y === $current->y - 1 => 's',
+                    $t->x === $current->x + 1 && $t->y === $current->y => 'e',
+                    $t->x === $current->x - 1 && $t->y === $current->y => 'w',
+                    $t->x === $current->x && $t->y === $current->y + 1 => 'n',
+                    $t->x === $current->x && $t->y === $current->y - 1 => 's',
                     default => null,
                 },
             ])->values()->all(),
