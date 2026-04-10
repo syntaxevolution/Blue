@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import TileIcon from '@/Components/TileIcon.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
@@ -114,6 +115,21 @@ function tileLabel(tile: TileInfo): string {
     if (tile.is_own_base) return 'Your base';
     if (tile.subtype) return `${tile.type} / ${tile.subtype}`;
     return tile.type;
+}
+
+// Tile type → themed color class. Used for both the hero icon and the
+// compass neighbor icons so every tile type has a consistent palette
+// across the map view.
+function tileColor(type: string): string {
+    return {
+        base: 'text-emerald-400',
+        oil_field: 'text-amber-400',
+        post: 'text-sky-400',
+        landmark: 'text-violet-400',
+        auction: 'text-rose-400',
+        ruin: 'text-zinc-500',
+        wasteland: 'text-zinc-600',
+    }[type] ?? 'text-zinc-500';
 }
 
 const immunityActive = computed(() => {
@@ -232,15 +248,36 @@ function qualityLabel(cell: DrillCell | undefined): string {
                     {{ drillError }}
                 </div>
 
-                <!-- Current tile + interaction panel + compass -->
-                <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-6 font-mono">
-                    <div class="text-zinc-500 text-xs uppercase mb-1">Current tile</div>
-                    <div class="text-amber-400 text-lg mb-1">
-                        ({{ state.current_tile.x }}, {{ state.current_tile.y }})
+                <!-- YOU ARE HERE — hero card showing the tile the player is currently standing on -->
+                <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-6 font-mono shadow-xl shadow-amber-900/10">
+                    <div class="text-amber-400 text-xs uppercase tracking-[0.3em] mb-4 flex items-center gap-2">
+                        <span class="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        You are here
                     </div>
-                    <div class="text-zinc-100 text-2xl mb-2">{{ tileLabel(state.current_tile) }}</div>
-                    <div v-if="state.current_tile.flavor_text" class="text-zinc-400 italic mb-4">
-                        {{ state.current_tile.flavor_text }}
+
+                    <div class="flex items-start gap-6">
+                        <!-- Big tile icon -->
+                        <div
+                            class="shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/5 p-5"
+                            :class="tileColor(state.current_tile.is_own_base ? 'base' : state.current_tile.type)"
+                        >
+                            <TileIcon
+                                :type="state.current_tile.is_own_base ? 'base' : state.current_tile.type"
+                                class="w-24 h-24"
+                            />
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="text-zinc-500 text-xs uppercase mb-1">Coordinates</div>
+                            <div class="text-amber-400 text-lg mb-3">
+                                ({{ state.current_tile.x }}, {{ state.current_tile.y }})
+                            </div>
+                            <div class="text-zinc-500 text-xs uppercase mb-1">Tile type</div>
+                            <div class="text-zinc-100 text-3xl font-bold mb-2">{{ tileLabel(state.current_tile) }}</div>
+                            <div v-if="state.current_tile.flavor_text" class="text-zinc-400 italic">
+                                {{ state.current_tile.flavor_text }}
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Tile-specific interaction panel -->
@@ -323,61 +360,92 @@ function qualityLabel(cell: DrillCell | undefined): string {
                         </div>
                     </div>
 
-                    <!-- Compass pad -->
-                    <div class="mt-8 grid grid-cols-3 gap-2 max-w-xs mx-auto">
-                        <div></div>
-                        <button
-                            type="button"
-                            class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 py-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition"
-                            :disabled="!neighborByDirection.n"
-                            @click="travel('n')"
-                        >
-                            N
-                            <div class="text-xs text-zinc-500" v-if="neighborByDirection.n">
-                                {{ neighborByDirection.n.type }}
-                            </div>
-                        </button>
-                        <div></div>
-
-                        <button
-                            type="button"
-                            class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 py-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition"
-                            :disabled="!neighborByDirection.w"
-                            @click="travel('w')"
-                        >
-                            W
-                            <div class="text-xs text-zinc-500" v-if="neighborByDirection.w">
-                                {{ neighborByDirection.w.type }}
-                            </div>
-                        </button>
-                        <div class="flex items-center justify-center text-zinc-600 text-xs">
-                            YOU
+                    <!-- Compass pad — purely for navigation. Center is a compass rose, not
+                         a duplicate of the hero card above. -->
+                    <div class="mt-8">
+                        <div class="text-zinc-500 text-xs uppercase tracking-widest mb-3 text-center">
+                            Travel (1 move per step)
                         </div>
-                        <button
-                            type="button"
-                            class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 py-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition"
-                            :disabled="!neighborByDirection.e"
-                            @click="travel('e')"
-                        >
-                            E
-                            <div class="text-xs text-zinc-500" v-if="neighborByDirection.e">
-                                {{ neighborByDirection.e.type }}
-                            </div>
-                        </button>
+                        <div class="grid grid-cols-3 gap-2 max-w-sm mx-auto">
+                            <div></div>
+                            <button
+                                type="button"
+                                class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 rounded flex flex-col items-center justify-center gap-1 py-2 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                :disabled="!neighborByDirection.n"
+                                @click="travel('n')"
+                            >
+                                <TileIcon
+                                    v-if="neighborByDirection.n"
+                                    :type="neighborByDirection.n.type"
+                                    class="w-7 h-7"
+                                    :class="tileColor(neighborByDirection.n.type)"
+                                />
+                                <span class="text-xs text-zinc-400">N · {{ neighborByDirection.n?.type ?? '—' }}</span>
+                            </button>
+                            <div></div>
 
-                        <div></div>
-                        <button
-                            type="button"
-                            class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 py-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition"
-                            :disabled="!neighborByDirection.s"
-                            @click="travel('s')"
-                        >
-                            S
-                            <div class="text-xs text-zinc-500" v-if="neighborByDirection.s">
-                                {{ neighborByDirection.s.type }}
+                            <button
+                                type="button"
+                                class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 rounded flex flex-col items-center justify-center gap-1 py-2 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                :disabled="!neighborByDirection.w"
+                                @click="travel('w')"
+                            >
+                                <TileIcon
+                                    v-if="neighborByDirection.w"
+                                    :type="neighborByDirection.w.type"
+                                    class="w-7 h-7"
+                                    :class="tileColor(neighborByDirection.w.type)"
+                                />
+                                <span class="text-xs text-zinc-400">W · {{ neighborByDirection.w?.type ?? '—' }}</span>
+                            </button>
+                            <div class="flex items-center justify-center">
+                                <!-- Decorative compass rose — not clickable. The real
+                                     "you are here" display is the hero card above. -->
+                                <svg
+                                    viewBox="0 0 48 48"
+                                    class="w-8 h-8 text-zinc-700"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                >
+                                    <circle cx="24" cy="24" r="20" />
+                                    <path d="M24 6 L24 42 M6 24 L42 24" />
+                                    <path d="M24 6 L20 14 L24 12 L28 14 Z" fill="currentColor" />
+                                </svg>
                             </div>
-                        </button>
-                        <div></div>
+                            <button
+                                type="button"
+                                class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 rounded flex flex-col items-center justify-center gap-1 py-2 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                :disabled="!neighborByDirection.e"
+                                @click="travel('e')"
+                            >
+                                <TileIcon
+                                    v-if="neighborByDirection.e"
+                                    :type="neighborByDirection.e.type"
+                                    class="w-7 h-7"
+                                    :class="tileColor(neighborByDirection.e.type)"
+                                />
+                                <span class="text-xs text-zinc-400">E · {{ neighborByDirection.e?.type ?? '—' }}</span>
+                            </button>
+
+                            <div></div>
+                            <button
+                                type="button"
+                                class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 text-zinc-100 rounded flex flex-col items-center justify-center gap-1 py-2 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                :disabled="!neighborByDirection.s"
+                                @click="travel('s')"
+                            >
+                                <TileIcon
+                                    v-if="neighborByDirection.s"
+                                    :type="neighborByDirection.s.type"
+                                    class="w-7 h-7"
+                                    :class="tileColor(neighborByDirection.s.type)"
+                                />
+                                <span class="text-xs text-zinc-400">S · {{ neighborByDirection.s?.type ?? '—' }}</span>
+                            </button>
+                            <div></div>
+                        </div>
                     </div>
 
                     <div class="mt-6 text-zinc-500 text-xs text-center">
