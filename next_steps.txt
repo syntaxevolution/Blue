@@ -1,0 +1,17 @@
+A new Claude Code instance starts with zero memory of this conversation. However, you have three complete planning documents sitting in the project folder, so catching up is trivial. Here's exactly what to do:
+
+When You Resume
+Open a new console in the project folder:
+
+c:\Users\PC\Documents\Projects\Blue Tin Sultana
+
+Start your first prompt with something like:
+
+Read ultraplan.md, gameplay-ultraplan.md, and technical-ultraplan.md in this folder. These are the complete plans for a browser game remake called CashWars Reimagined (Laravel 11 + Vue 3 + Inertia + MySQL on a Debian/DirectAdmin VPS). Once you've read them, confirm you understand the scope and then [whatever you want to do next — e.g. "start Phase 0 by bootstrapping the Laravel project" or "resolve the open decisions in Technical Ultraplan §20"].
+
+That's it. The new instance will read the three files and have full context — the locked gameplay parameters, the full tech stack, the DB schema, the build phases, and the open decisions.
+
+Optional: Make It Even Smoother
+If you want the new instance to pick up automatically without you having to tell it to read the files, create a CLAUDE.md file in the project root. Claude Code reads this file automatically at the start of every session. Want me to create one before you pause? It would be a short pointer file that says "read these three planning docs first, here's the project state, here's where we left off."
+
+Say the word and I'll write it. Otherwise, the three-file approach above works fine — just paste that prompt when you come back.
