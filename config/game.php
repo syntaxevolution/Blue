@@ -127,6 +127,7 @@ return [
     */
     'world' => [
         'initial_radius' => 25,
+        'spawn_band_radius' => 12,
         'density' => [
             'oil_fields_per_tile' => 0.125,
             'posts_per_tile' => 0.025,

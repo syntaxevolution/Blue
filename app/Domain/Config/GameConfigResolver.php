@@ -2,6 +2,8 @@
 
 namespace App\Domain\Config;
 
+use App\Models\GameSetting;
+use App\Models\GameSettingAudit;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -51,19 +53,50 @@ class GameConfigResolver
     }
 
     /**
-     * Persist an override to the game_settings table and invalidate the in-memory cache.
-     * Phase B fleshes this out with audit-log writes; for now this is a stub.
+     * Persist an override to the game_settings table with an audit entry,
+     * and invalidate the in-memory cache so subsequent reads pick it up.
+     *
+     * Runs in a DB transaction so the setting write and the audit row
+     * commit together. If no DB is reachable (unit tests, fresh install),
+     * the override is staged in memory only so callers still see the new
+     * value for the duration of the request.
      */
     public function set(string $key, mixed $value, ?int $userId = null): void
     {
-        // Wired in Phase B once the game_settings migration exists.
-        // Intentionally minimal here so Phase A stays pure-PHP testable.
+        $previous = $this->dbOverrides[$key]
+            ?? $this->config->get('game.'.$key);
+
+        try {
+            DB::transaction(function () use ($key, $value, $userId, $previous) {
+                GameSetting::updateOrCreate(
+                    ['key' => $key],
+                    [
+                        'value' => $value,
+                        'type' => $this->detectType($value),
+                        'updated_by_user_id' => $userId,
+                    ],
+                );
+
+                GameSettingAudit::create([
+                    'key' => $key,
+                    'old_value' => $previous,
+                    'new_value' => $value,
+                    'changed_by_user_id' => $userId,
+                    'changed_at' => now(),
+                ]);
+            });
+        } catch (Throwable) {
+            // Fall through — DB unavailable. Override will live in memory
+            // for this request only, which is acceptable during tests/bootstrap.
+        }
+
         $this->dbOverrides[$key] = $value;
         unset($this->memoryCache[$key]);
     }
 
     /**
-     * Drop all caches. Called after admin-panel edits.
+     * Drop all caches. Called after bulk admin-panel edits or at the start
+     * of a test that needs a clean slate.
      */
     public function flush(): void
     {
@@ -85,13 +118,22 @@ class GameConfigResolver
         $this->dbLoaded = true;
 
         try {
-            $rows = DB::table('game_settings')->get(['key', 'value']);
-
-            foreach ($rows as $row) {
-                $this->dbOverrides[$row->key] = json_decode($row->value, true);
+            foreach (GameSetting::all(['key', 'value']) as $setting) {
+                $this->dbOverrides[$setting->key] = $setting->value;
             }
         } catch (Throwable) {
             // Table absent or DB unreachable — fall back to static config.
         }
+    }
+
+    private function detectType(mixed $value): string
+    {
+        return match (true) {
+            is_int($value) => 'int',
+            is_float($value) => 'float',
+            is_bool($value) => 'bool',
+            is_array($value) => 'array',
+            default => 'string',
+        };
     }
 }
