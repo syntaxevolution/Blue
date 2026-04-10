@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Domain\Combat\AttackService;
+use App\Domain\Combat\CombatFormula;
+use App\Domain\Combat\SpyService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
@@ -30,6 +33,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MapStateBuilder::class);
         $this->app->singleton(DrillService::class);
         $this->app->singleton(ShopService::class);
+        $this->app->singleton(CombatFormula::class);
+        $this->app->singleton(SpyService::class);
+        $this->app->singleton(AttackService::class);
     }
 
     /**

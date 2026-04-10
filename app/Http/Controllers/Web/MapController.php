@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Combat\AttackService;
+use App\Domain\Combat\SpyService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
+use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\CannotPurchaseException;
+use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
@@ -36,6 +40,8 @@ class MapController extends Controller
         private readonly TravelService $travel,
         private readonly DrillService $drillSvc,
         private readonly ShopService $shop,
+        private readonly SpyService $spySvc,
+        private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
     ) {}
 
@@ -129,5 +135,49 @@ class MapController extends Controller
             'purchase_result',
             "Purchased {$result['item']->name}. You now own {$result['quantity']}.",
         );
+    }
+
+    public function spy(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $result = $this->spySvc->spy($player->id);
+        } catch (InsufficientMovesException | CannotSpyException $e) {
+            return redirect()->route('map.show')->withErrors(['spy' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            return redirect()->route('map.show')->withErrors([
+                'spy' => 'Spy failed: '.$e->getMessage(),
+            ]);
+        }
+
+        $message = $result['outcome'] === 'success'
+            ? "Reconnaissance successful. +{$result['intel_gained']} intel. You may now attack this base for the next 24h."
+            : 'Reconnaissance failed. You gained nothing and the target may be alerted.';
+
+        return redirect()->route('map.show')->with('spy_result', $message);
+    }
+
+    public function attack(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $result = $this->attackSvc->attack($player->id);
+        } catch (InsufficientMovesException | CannotAttackException $e) {
+            return redirect()->route('map.show')->withErrors(['attack' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            return redirect()->route('map.show')->withErrors([
+                'attack' => 'Attack failed: '.$e->getMessage(),
+            ]);
+        }
+
+        $message = $result['outcome'] === 'success'
+            ? 'Raid successful! You took A'.number_format($result['cash_stolen'], 2).' from the defender.'
+            : 'Raid failed. The defenders held you off.';
+
+        return redirect()->route('map.show')->with('attack_result', $message);
     }
 }

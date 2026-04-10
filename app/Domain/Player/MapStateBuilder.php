@@ -9,22 +9,15 @@ use App\Models\Item;
 use App\Models\OilField;
 use App\Models\Player;
 use App\Models\Post;
+use App\Models\SpyAttempt;
 use App\Models\Tile;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Assembles the map-view payload (player state + current tile + edge
- * hint neighbors + tile-specific sub-payload + owned gear) from a Player.
- * Used by both the Web and Api/V1 MapControllers so the two layers return
- * the same shape without duplicating query logic.
- *
- * Sub-payloads keyed on current tile type:
- *   - oil_field: 5×5 drill grid + today's drill count against the
- *                configured per-field daily limit
- *   - post:      post metadata + list of items with per-item affordability
- *                AND per-item purchaseability (hard cap, drill upgrade)
- *   - base:      (own base) player's held cash/oil/intel summary
- *   - landmark / wasteland / ruin / auction: null
+ * Assembles the full map-view payload — player state, owned gear,
+ * current tile, edge-hint neighbors, tile-specific sub-payload, and
+ * feature unlocks (atlas, attack log). Consumed by both Web and
+ * Api/V1 MapControllers.
  */
 class MapStateBuilder
 {
@@ -45,12 +38,9 @@ class MapStateBuilder
         /** @var Tile $current */
         $current = $player->currentTile;
 
-        // Fetch the 4 cardinal-adjacent tiles. Each neighbor is a separate
-        // (x = ? AND y = ?) pair — we use nested closures because
-        // orWhere(['x' => ..., 'y' => ...]) with an array silently FLATTENS
-        // the pairs into separate OR clauses instead of grouping them,
-        // which would return entire rows and columns instead of just the
-        // four neighbors. Do NOT change this back to the array shorthand.
+        /** @var Tile $baseTile */
+        $baseTile = $player->baseTile;
+
         $neighbors = Tile::query()
             ->where(function ($q) use ($current) {
                 $q->where(function ($q2) use ($current) {
@@ -64,6 +54,8 @@ class MapStateBuilder
                 });
             })
             ->get(['id', 'x', 'y', 'type']);
+
+        $unlocks = $this->playerUnlocks($player);
 
         return [
             'player' => [
@@ -80,6 +72,9 @@ class MapStateBuilder
                 'immunity_expires_at' => $player->immunity_expires_at?->toIso8601String(),
                 'base_tile_id' => $player->base_tile_id,
                 'hard_cap' => (int) $this->config->get('stats.hard_cap'),
+                'base_coords' => ['x' => (int) $baseTile->x, 'y' => (int) $baseTile->y],
+                'owns_atlas' => in_array('atlas', $unlocks, true),
+                'owns_attack_log' => in_array('attack_log', $unlocks, true),
             ],
             'owned_items' => $this->ownedItems($player),
             'current_tile' => [
@@ -107,6 +102,35 @@ class MapStateBuilder
             'discovered_count' => $this->fogOfWar->countDiscovered($player->id),
             'bank_cap' => $this->moveRegen->bankCap(),
         ];
+    }
+
+    /**
+     * Collect every feature key unlocked by items the player owns.
+     *
+     * @return list<string>
+     */
+    private function playerUnlocks(Player $player): array
+    {
+        $rows = DB::table('player_items')
+            ->where('player_items.player_id', $player->id)
+            ->join('items_catalog', 'items_catalog.key', '=', 'player_items.item_key')
+            ->whereNotNull('items_catalog.effects')
+            ->pluck('items_catalog.effects')
+            ->all();
+
+        $unlocks = [];
+        foreach ($rows as $json) {
+            $effects = json_decode((string) $json, true);
+            if (is_array($effects) && isset($effects['unlocks']) && is_array($effects['unlocks'])) {
+                foreach ($effects['unlocks'] as $key) {
+                    if (is_string($key) && ! in_array($key, $unlocks, true)) {
+                        $unlocks[] = $key;
+                    }
+                }
+            }
+        }
+
+        return $unlocks;
     }
 
     /**
@@ -145,7 +169,7 @@ class MapStateBuilder
             'post' => $this->postDetail($tile, $player),
             'base' => $tile->id === $player->base_tile_id
                 ? $this->ownBaseDetail($player)
-                : ['kind' => 'enemy_base'],
+                : $this->enemyBaseDetail($tile, $player),
             default => null,
         };
     }
@@ -160,7 +184,14 @@ class MapStateBuilder
 
         $grid = [];
         $dailyCount = 0;
-        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field');
+        // Same defensive fallback as DrillService — if the config key
+        // isn't populated (stale config:cache, fresh deploy, etc.),
+        // default to 5 rather than 0 which would mis-report "limit reached".
+        $dailyLimitRaw = $this->config->get('drilling.daily_limit_per_field');
+        $dailyLimit = $dailyLimitRaw === null ? 5 : (int) $dailyLimitRaw;
+        if ($dailyLimit <= 0) {
+            $dailyLimit = 5;
+        }
 
         if ($field) {
             $points = DrillPoint::query()
@@ -253,26 +284,18 @@ class MapStateBuilder
         return true;
     }
 
-    /**
-     * Returns a short human-readable reason the purchase is blocked
-     * regardless of affordability, or null if it's allowed.
-     */
     private function purchaseBlockReason(Player $player, Item $item): ?string
     {
         $effects = $item->effects ?? [];
 
-        // Drill tier must be a strict upgrade
         if (isset($effects['set_drill_tier'])) {
             $newTier = (int) $effects['set_drill_tier'];
             $currentTier = (int) $player->drill_tier;
             if ($newTier <= $currentTier) {
-                return $newTier === $currentTier
-                    ? 'Already owned'
-                    : 'Downgrade';
+                return $newTier === $currentTier ? 'Already owned' : 'Downgrade';
             }
         }
 
-        // Stat-adding items must not push any stat over the hard cap
         if (isset($effects['stat_add']) && is_array($effects['stat_add'])) {
             $hardCap = (int) $this->config->get('stats.hard_cap');
             foreach (['strength', 'fortification', 'stealth', 'security'] as $stat) {
@@ -280,6 +303,17 @@ class MapStateBuilder
                 if ($delta > 0 && ((int) $player->$stat) + $delta > $hardCap) {
                     return "Hard cap ({$hardCap})";
                 }
+            }
+        }
+
+        // Already-owned feature unlocks (e.g. Explorer's Atlas, attack log)
+        if (isset($effects['unlocks']) && is_array($effects['unlocks'])) {
+            $owned = DB::table('player_items')
+                ->where('player_id', $player->id)
+                ->where('item_key', $item->key)
+                ->exists();
+            if ($owned) {
+                return 'Already owned';
             }
         }
 
@@ -296,6 +330,64 @@ class MapStateBuilder
             'stored_cash' => (float) $player->akzar_cash,
             'stored_oil_barrels' => $player->oil_barrels,
             'stored_intel' => $player->intel,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function enemyBaseDetail(Tile $tile, Player $player): array
+    {
+        /** @var Player|null $owner */
+        $owner = Player::query()
+            ->with('user:id,name')
+            ->where('base_tile_id', $tile->id)
+            ->first();
+
+        if ($owner === null) {
+            return [
+                'kind' => 'enemy_base',
+                'owner_username' => null,
+                'owner_immune' => false,
+                'spy_decay_hours' => (int) $this->config->get('combat.spy_decay_hours'),
+                'raid_cooldown_hours' => (int) $this->config->get('combat.raid_cooldown_hours'),
+                'has_active_spy' => false,
+                'latest_spy_at' => null,
+                'last_attack_at' => null,
+                'spy_move_cost' => (int) $this->config->get('actions.spy.move_cost'),
+                'attack_move_cost' => (int) $this->config->get('actions.attack.move_cost'),
+            ];
+        }
+
+        $spyDecayHours = (int) $this->config->get('combat.spy_decay_hours');
+        $raidCooldownHours = (int) $this->config->get('combat.raid_cooldown_hours');
+
+        $latestSpy = SpyAttempt::query()
+            ->where('spy_player_id', $player->id)
+            ->where('target_player_id', $owner->id)
+            ->where('success', true)
+            ->where('created_at', '>=', now()->subHours($spyDecayHours))
+            ->orderByDesc('created_at')
+            ->first();
+
+        $lastAttack = DB::table('attacks')
+            ->where('attacker_player_id', $player->id)
+            ->where('defender_player_id', $owner->id)
+            ->where('created_at', '>=', now()->subHours($raidCooldownHours))
+            ->orderByDesc('created_at')
+            ->value('created_at');
+
+        return [
+            'kind' => 'enemy_base',
+            'owner_username' => $owner->user?->name,
+            'owner_immune' => $owner->immunity_expires_at !== null && $owner->immunity_expires_at->isFuture(),
+            'spy_decay_hours' => $spyDecayHours,
+            'raid_cooldown_hours' => $raidCooldownHours,
+            'has_active_spy' => $latestSpy !== null,
+            'latest_spy_at' => $latestSpy?->created_at->toIso8601String(),
+            'last_attack_at' => $lastAttack,
+            'spy_move_cost' => (int) $this->config->get('actions.spy.move_cost'),
+            'attack_move_cost' => (int) $this->config->get('actions.attack.move_cost'),
         ];
     }
 }
