@@ -61,7 +61,16 @@ class DrillService
         }
 
         $cost = (int) $this->config->get('actions.drill.move_cost');
-        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field');
+
+        // Defensive default: if the config key was added after a cache
+        // was built, the resolver may return null and (int) null = 0,
+        // which would make "currentCount >= 0" always true and kill
+        // drilling entirely. Fall back to 5 so the game keeps working.
+        $dailyLimitRaw = $this->config->get('drilling.daily_limit_per_field');
+        $dailyLimit = $dailyLimitRaw === null ? 5 : (int) $dailyLimitRaw;
+        if ($dailyLimit <= 0) {
+            $dailyLimit = 5;
+        }
 
         return DB::transaction(function () use ($playerId, $gridX, $gridY, $cost, $dailyLimit) {
             /** @var Player $player */
