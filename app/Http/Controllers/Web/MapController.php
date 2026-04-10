@@ -50,10 +50,29 @@ class MapController extends Controller
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
 
+        $beforeTileId = $player->current_tile_id;
+
         try {
             $this->travel->travel($player->id, $request->validated('direction'));
         } catch (InsufficientMovesException | CannotTravelException $e) {
             return redirect()->route('map.show')->withErrors(['travel' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            // Catch-all so DB errors (e.g. an un-deployed FogOfWar fix) show
+            // up as a visible flash message instead of a silent 500 or an
+            // Inertia error modal the user might miss.
+            return redirect()->route('map.show')->withErrors([
+                'travel' => 'Travel failed: '.$e->getMessage(),
+            ]);
+        }
+
+        // Safety net: verify the update actually persisted. If not, something
+        // is swallowing the write (e.g. rolled-back transaction from a bug
+        // we haven't caught yet).
+        $player->refresh();
+        if ((int) $player->current_tile_id === (int) $beforeTileId) {
+            return redirect()->route('map.show')->withErrors([
+                'travel' => 'Travel did not persist — player is still on tile #'.$beforeTileId.'. Check server logs.',
+            ]);
         }
 
         return redirect()->route('map.show');
@@ -72,6 +91,10 @@ class MapController extends Controller
             );
         } catch (InsufficientMovesException | CannotDrillException $e) {
             return redirect()->route('map.show')->withErrors(['drill' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            return redirect()->route('map.show')->withErrors([
+                'drill' => 'Drill failed: '.$e->getMessage(),
+            ]);
         }
 
         return redirect()->route('map.show')->with(

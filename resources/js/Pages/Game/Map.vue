@@ -271,6 +271,7 @@ function qualityLabel(cell: DrillCell | undefined): string {
                             <div class="text-zinc-500 text-xs uppercase mb-1">Coordinates</div>
                             <div class="text-amber-400 text-lg mb-3">
                                 ({{ state.current_tile.x }}, {{ state.current_tile.y }})
+                                <span class="text-zinc-600 text-xs ml-2">· tile #{{ state.current_tile.id }}</span>
                             </div>
                             <div class="text-zinc-500 text-xs uppercase mb-1">Tile type</div>
                             <div class="text-zinc-100 text-3xl font-bold mb-2">{{ tileLabel(state.current_tile) }}</div>
@@ -452,6 +453,16 @@ function qualityLabel(cell: DrillCell | undefined): string {
                         Tiles discovered: {{ state.discovered_count }}
                     </div>
                 </div>
+
+                <!-- Debug panel — temporary diagnostic. Expand to see raw
+                     server state so we can verify the backend is sending
+                     the tile type you expect after travel. -->
+                <details class="bg-zinc-900/60 border border-zinc-800 rounded p-4 font-mono text-xs text-zinc-400">
+                    <summary class="cursor-pointer text-zinc-500 uppercase tracking-widest">
+                        Debug · raw server state
+                    </summary>
+                    <pre class="mt-3 overflow-auto text-[11px] leading-relaxed">{{ JSON.stringify(state, null, 2) }}</pre>
+                </details>
             </div>
         </div>
     </AuthenticatedLayout>
