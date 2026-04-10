@@ -33,9 +33,16 @@ class FogOfWarService
     }
 
     /**
-     * Bulk-mark multiple tiles as discovered. Idempotent via upsert
-     * with an empty "update" clause — the original discovered_at is
-     * preserved on conflict.
+     * Bulk-mark multiple tiles as discovered. Idempotent via
+     * INSERT IGNORE — duplicate (player_id, tile_id) rows are silently
+     * skipped and the original discovered_at is preserved.
+     *
+     * (Note: Laravel's query-builder upsert() falls back to a plain
+     * insert() when the update list is empty, which then throws on
+     * duplicate keys — insertOrIgnore is the correct "do nothing on
+     * conflict" primitive.)
+     *
+     * Returns the number of rows newly inserted.
      *
      * @param  list<int>  $tileIds
      */
@@ -52,11 +59,7 @@ class FogOfWarService
             'discovered_at' => $now,
         ], array_values(array_unique($tileIds)));
 
-        return DB::table('tile_discoveries')->upsert(
-            $rows,
-            ['player_id', 'tile_id'],
-            [], // no columns updated on conflict — idempotent
-        );
+        return DB::table('tile_discoveries')->insertOrIgnore($rows);
     }
 
     /**
