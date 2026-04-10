@@ -36,6 +36,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'flash' => [
                 'drill_result' => fn () => $request->session()->get('drill_result'),
+                'purchase_result' => fn () => $request->session()->get('purchase_result'),
             ],
         ];
     }

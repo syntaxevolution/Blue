@@ -4,22 +4,24 @@ namespace App\Domain\Player;
 
 use App\Domain\World\FogOfWarService;
 use App\Models\DrillPoint;
+use App\Models\Item;
 use App\Models\OilField;
 use App\Models\Player;
 use App\Models\Post;
 use App\Models\Tile;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Assembles the map-view payload (player state + current tile + edge
- * hint neighbors + tile-specific sub-payload) from a Player. Used by
- * both the Web and Api/V1 MapControllers so the two layers return the
- * same shape without duplicating query logic.
+ * hint neighbors + tile-specific sub-payload + owned gear) from a Player.
+ * Used by both the Web and Api/V1 MapControllers so the two layers return
+ * the same shape without duplicating query logic.
  *
- * Sub-payloads, keyed on current tile type:
+ * Sub-payloads keyed on current tile type:
  *   - oil_field: 5×5 drill grid (quality + drilled status per cell)
- *   - post:      post metadata (type + name) — shop items come in Phase 2
- *   - base:      (own base) player's held cash/fort summary — read-only
- *   - landmark / wasteland / ruin / auction: nothing extra
+ *   - post:      post metadata + list of items for sale at this post
+ *   - base:      (own base) player's held cash/oil/intel summary
+ *   - landmark / wasteland / ruin / auction: null
  */
 class MapStateBuilder
 {
@@ -74,6 +76,7 @@ class MapStateBuilder
                 'immunity_expires_at' => $player->immunity_expires_at?->toIso8601String(),
                 'base_tile_id' => $player->base_tile_id,
             ],
+            'owned_items' => $this->ownedItems($player),
             'current_tile' => [
                 'id' => $current->id,
                 'x' => $current->x,
@@ -88,8 +91,6 @@ class MapStateBuilder
                 'x' => $t->x,
                 'y' => $t->y,
                 'type' => $t->type,
-                // Defensive: check BOTH coordinates so a stray tile never
-                // gets mis-tagged into a cardinal slot.
                 'direction' => match (true) {
                     $t->x === $current->x + 1 && $t->y === $current->y => 'e',
                     $t->x === $current->x - 1 && $t->y === $current->y => 'w',
@@ -104,15 +105,39 @@ class MapStateBuilder
     }
 
     /**
-     * Tile-specific sub-payload. Shape varies by tile type.
-     *
-     * @return array<string,mixed>|null
+     * @return list<array{key:string, name:string, description:string|null, post_type:string, quantity:int, effects:array<string,mixed>|null}>
      */
+    private function ownedItems(Player $player): array
+    {
+        return DB::table('player_items')
+            ->where('player_items.player_id', $player->id)
+            ->join('items_catalog', 'items_catalog.key', '=', 'player_items.item_key')
+            ->orderBy('items_catalog.post_type')
+            ->orderBy('items_catalog.sort_order')
+            ->get([
+                'items_catalog.key',
+                'items_catalog.name',
+                'items_catalog.description',
+                'items_catalog.post_type',
+                'items_catalog.effects',
+                'player_items.quantity',
+            ])
+            ->map(fn ($row) => [
+                'key' => $row->key,
+                'name' => $row->name,
+                'description' => $row->description,
+                'post_type' => $row->post_type,
+                'quantity' => (int) $row->quantity,
+                'effects' => $row->effects ? json_decode($row->effects, true) : null,
+            ])
+            ->all();
+    }
+
     private function tileDetail(Tile $tile, Player $player): ?array
     {
         return match ($tile->type) {
             'oil_field' => $this->oilFieldDetail($tile),
-            'post' => $this->postDetail($tile),
+            'post' => $this->postDetail($tile, $player),
             'base' => $tile->id === $player->base_tile_id
                 ? $this->ownBaseDetail($player)
                 : ['kind' => 'enemy_base'],
@@ -151,18 +176,54 @@ class MapStateBuilder
     }
 
     /**
-     * @return array{kind:string, post_type:string|null, name:string|null}
+     * @return array<string,mixed>
      */
-    private function postDetail(Tile $tile): array
+    private function postDetail(Tile $tile, Player $player): array
     {
         /** @var Post|null $post */
         $post = Post::query()->where('tile_id', $tile->id)->first();
+
+        $items = [];
+
+        if ($post) {
+            $items = Item::query()
+                ->where('post_type', $post->post_type)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn (Item $item) => [
+                    'key' => $item->key,
+                    'name' => $item->name,
+                    'description' => $item->description,
+                    'price_barrels' => (int) $item->price_barrels,
+                    'price_cash' => (float) $item->price_cash,
+                    'price_intel' => (int) $item->price_intel,
+                    'effects' => $item->effects,
+                    'can_afford' => $this->canAfford($player, $item),
+                ])
+                ->all();
+        }
 
         return [
             'kind' => 'post',
             'post_type' => $post?->post_type,
             'name' => $post?->name,
+            'items' => $items,
         ];
+    }
+
+    private function canAfford(Player $player, Item $item): bool
+    {
+        if ($item->price_barrels > 0 && $player->oil_barrels < $item->price_barrels) {
+            return false;
+        }
+        if ((float) $item->price_cash > 0 && (float) $player->akzar_cash < (float) $item->price_cash) {
+            return false;
+        }
+        if ($item->price_intel > 0 && $player->intel < $item->price_intel) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

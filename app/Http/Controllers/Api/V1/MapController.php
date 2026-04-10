@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Drilling\DrillService;
+use App\Domain\Economy\ShopService;
 use App\Domain\Exceptions\CannotDrillException;
+use App\Domain\Exceptions\CannotPurchaseException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
@@ -11,6 +13,7 @@ use App\Domain\Player\TravelService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DrillRequest;
+use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use App\Http\Resources\MapStateResource;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +33,7 @@ class MapController extends Controller
         private readonly WorldService $world,
         private readonly TravelService $travel,
         private readonly DrillService $drillSvc,
+        private readonly ShopService $shop,
         private readonly MapStateBuilder $mapState,
     ) {}
 
@@ -72,6 +76,23 @@ class MapController extends Controller
             return response()->json(['errors' => ['drill' => $e->getMessage()]], 422);
         } catch (CannotDrillException $e) {
             return response()->json(['errors' => ['drill' => $e->getMessage()]], 422);
+        }
+
+        return new MapStateResource($this->mapState->build($player->fresh()));
+    }
+
+    public function purchase(PurchaseRequest $request): MapStateResource|JsonResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $this->shop->purchase(
+                $player->id,
+                (string) $request->validated('item_key'),
+            );
+        } catch (CannotPurchaseException $e) {
+            return response()->json(['errors' => ['purchase' => $e->getMessage()]], 422);
         }
 
         return new MapStateResource($this->mapState->build($player->fresh()));
