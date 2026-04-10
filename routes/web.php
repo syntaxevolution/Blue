@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Web\AtlasController;
 use App\Http\Controllers\Web\MapController;
 use App\Http\Controllers\Web\WorldController;
 use Illuminate\Foundation\Application;
@@ -32,6 +33,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
     Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
     Route::post('/map/purchase', [MapController::class, 'purchase'])->name('map.purchase');
+
+    Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
 });
 
 require __DIR__.'/auth.php';

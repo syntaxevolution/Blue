@@ -53,7 +53,8 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'industrial_rig', 'post_type' => 'tech', 'name' => 'Industrial Rig', 'description' => 'No more dry points. The ground either gives up or breaks.',      'price_barrels' => 400, 'effects' => ['set_drill_tier' => 5], 'sort_order' => 40],
             ['key' => 'refinery',       'post_type' => 'tech', 'name' => 'Refinery',       'description' => 'Small on-site cracking plant. Guarantees at least one good well per field.', 'price_barrels' => 900, 'effects' => ['set_drill_tier' => 6], 'sort_order' => 50],
 
-            // General store — placeholder; real consumables (maps, seismic, fuel) land when we wire inventory.
+            // General store
+            ['key' => 'explorers_atlas', 'post_type' => 'general', 'name' => "Explorer's Atlas", 'description' => "A leather-bound notebook of every tile you've ever stood on. Unlocks the atlas view from the nav bar — see your journey drawn on a grid.", 'price_barrels' => 30, 'effects' => ['unlocks' => ['atlas']], 'sort_order' => 10],
         ];
 
         foreach ($items as $data) {

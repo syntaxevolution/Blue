@@ -26,4 +26,9 @@ class CannotDrillException extends RuntimeException
     {
         return new self("Drill point ({$gridX}, {$gridY}) is outside the 5×5 grid");
     }
+
+    public static function dailyLimitReached(int $limit): self
+    {
+        return new self("Daily drill limit reached for this oil field ({$limit}/day). Find another field, or come back after midnight.");
+    }
 }

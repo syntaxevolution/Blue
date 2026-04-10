@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AtlasController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\MapController;
 use App\Http\Controllers\Api\V1\WorldController;
@@ -37,6 +38,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
         Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
         Route::post('/map/purchase', [MapController::class, 'purchase'])->name('map.purchase');
+
+        Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
     });
 
 });

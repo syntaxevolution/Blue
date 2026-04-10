@@ -2,6 +2,7 @@
 
 namespace App\Domain\Player;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\World\FogOfWarService;
 use App\Models\DrillPoint;
 use App\Models\Item;
@@ -18,8 +19,10 @@ use Illuminate\Support\Facades\DB;
  * the same shape without duplicating query logic.
  *
  * Sub-payloads keyed on current tile type:
- *   - oil_field: 5×5 drill grid (quality + drilled status per cell)
- *   - post:      post metadata + list of items for sale at this post
+ *   - oil_field: 5×5 drill grid + today's drill count against the
+ *                configured per-field daily limit
+ *   - post:      post metadata + list of items with per-item affordability
+ *                AND per-item purchaseability (hard cap, drill upgrade)
  *   - base:      (own base) player's held cash/oil/intel summary
  *   - landmark / wasteland / ruin / auction: null
  */
@@ -28,6 +31,7 @@ class MapStateBuilder
     public function __construct(
         private readonly MoveRegenService $moveRegen,
         private readonly FogOfWarService $fogOfWar,
+        private readonly GameConfigResolver $config,
     ) {}
 
     /**
@@ -75,6 +79,7 @@ class MapStateBuilder
                 'drill_tier' => $player->drill_tier,
                 'immunity_expires_at' => $player->immunity_expires_at?->toIso8601String(),
                 'base_tile_id' => $player->base_tile_id,
+                'hard_cap' => (int) $this->config->get('stats.hard_cap'),
             ],
             'owned_items' => $this->ownedItems($player),
             'current_tile' => [
@@ -136,7 +141,7 @@ class MapStateBuilder
     private function tileDetail(Tile $tile, Player $player): ?array
     {
         return match ($tile->type) {
-            'oil_field' => $this->oilFieldDetail($tile),
+            'oil_field' => $this->oilFieldDetail($tile, $player),
             'post' => $this->postDetail($tile, $player),
             'base' => $tile->id === $player->base_tile_id
                 ? $this->ownBaseDetail($player)
@@ -146,14 +151,16 @@ class MapStateBuilder
     }
 
     /**
-     * @return array{kind:string, grid: list<array{grid_x:int, grid_y:int, quality:string, drilled:bool}>}
+     * @return array{kind:string, grid: list<array{grid_x:int, grid_y:int, quality:string, drilled:bool}>, daily_count:int, daily_limit:int}
      */
-    private function oilFieldDetail(Tile $tile): array
+    private function oilFieldDetail(Tile $tile, Player $player): array
     {
         /** @var OilField|null $field */
         $field = OilField::query()->where('tile_id', $tile->id)->first();
 
         $grid = [];
+        $dailyCount = 0;
+        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field');
 
         if ($field) {
             $points = DrillPoint::query()
@@ -170,9 +177,22 @@ class MapStateBuilder
                     'drilled' => $p->drilled_at !== null,
                 ];
             }
+
+            $countRow = DB::table('player_drill_counts')
+                ->where('player_id', $player->id)
+                ->where('oil_field_id', $field->id)
+                ->where('drill_date', now()->toDateString())
+                ->first();
+
+            $dailyCount = $countRow ? (int) $countRow->drill_count : 0;
         }
 
-        return ['kind' => 'oil_field', 'grid' => $grid];
+        return [
+            'kind' => 'oil_field',
+            'grid' => $grid,
+            'daily_count' => $dailyCount,
+            'daily_limit' => $dailyLimit,
+        ];
     }
 
     /**
@@ -190,16 +210,23 @@ class MapStateBuilder
                 ->where('post_type', $post->post_type)
                 ->orderBy('sort_order')
                 ->get()
-                ->map(fn (Item $item) => [
-                    'key' => $item->key,
-                    'name' => $item->name,
-                    'description' => $item->description,
-                    'price_barrels' => (int) $item->price_barrels,
-                    'price_cash' => (float) $item->price_cash,
-                    'price_intel' => (int) $item->price_intel,
-                    'effects' => $item->effects,
-                    'can_afford' => $this->canAfford($player, $item),
-                ])
+                ->map(function (Item $item) use ($player) {
+                    $canAfford = $this->canAfford($player, $item);
+                    $reason = $this->purchaseBlockReason($player, $item);
+
+                    return [
+                        'key' => $item->key,
+                        'name' => $item->name,
+                        'description' => $item->description,
+                        'price_barrels' => (int) $item->price_barrels,
+                        'price_cash' => (float) $item->price_cash,
+                        'price_intel' => (int) $item->price_intel,
+                        'effects' => $item->effects,
+                        'can_afford' => $canAfford,
+                        'can_purchase' => $canAfford && $reason === null,
+                        'block_reason' => $reason,
+                    ];
+                })
                 ->all();
         }
 
@@ -224,6 +251,39 @@ class MapStateBuilder
         }
 
         return true;
+    }
+
+    /**
+     * Returns a short human-readable reason the purchase is blocked
+     * regardless of affordability, or null if it's allowed.
+     */
+    private function purchaseBlockReason(Player $player, Item $item): ?string
+    {
+        $effects = $item->effects ?? [];
+
+        // Drill tier must be a strict upgrade
+        if (isset($effects['set_drill_tier'])) {
+            $newTier = (int) $effects['set_drill_tier'];
+            $currentTier = (int) $player->drill_tier;
+            if ($newTier <= $currentTier) {
+                return $newTier === $currentTier
+                    ? 'Already owned'
+                    : 'Downgrade';
+            }
+        }
+
+        // Stat-adding items must not push any stat over the hard cap
+        if (isset($effects['stat_add']) && is_array($effects['stat_add'])) {
+            $hardCap = (int) $this->config->get('stats.hard_cap');
+            foreach (['strength', 'fortification', 'stealth', 'security'] as $stat) {
+                $delta = (int) ($effects['stat_add'][$stat] ?? 0);
+                if ($delta > 0 && ((int) $player->$stat) + $delta > $hardCap) {
+                    return "Hard cap ({$hardCap})";
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

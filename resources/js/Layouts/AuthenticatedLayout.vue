@@ -42,6 +42,12 @@ const showingNavigationDropdown = ref(false);
                             >
                                 Map
                             </NavLink>
+                            <NavLink
+                                :href="route('atlas.show')"
+                                :active="route().current('atlas.show')"
+                            >
+                                Atlas
+                            </NavLink>
                         </div>
                     </div>
 
@@ -147,6 +153,12 @@ const showingNavigationDropdown = ref(false);
                         :active="route().current('map.show')"
                     >
                         Map
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink
+                        :href="route('atlas.show')"
+                        :active="route().current('atlas.show')"
+                    >
+                        Atlas
                     </ResponsiveNavLink>
                 </div>
 

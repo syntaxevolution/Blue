@@ -2,6 +2,7 @@
 
 namespace App\Domain\Economy;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotPurchaseException;
 use App\Models\Item;
 use App\Models\Player;
@@ -17,19 +18,27 @@ use Illuminate\Support\Facades\DB;
  *   - The item must exist in items_catalog and its post_type must
  *     match the current post's post_type
  *   - Player must be able to afford every non-zero price component
+ *   - Stat-adding items must not push a stat above stats.hard_cap
+ *   - Drill-tier items must be a strict upgrade: "best tech only, no
+ *     stacking" — we never apply a tier lower than the player's current.
  *   - On success: currencies are deducted, effects are applied to the
  *     Player row, and an entry is inserted/incremented in player_items
  *     so the owned-gear list reflects the purchase
  *
  * Recognized effect keys (from items_catalog.effects JSON):
  *   stat_add:       {strength?: int, fortification?: int, stealth?: int, security?: int}
- *   set_drill_tier: int   (sets drill_tier; does not increment)
+ *   set_drill_tier: int   (sets drill_tier; MUST be higher than current)
  *
  * Everything runs inside a DB::transaction with lockForUpdate on the
- * Player row so simultaneous purchases cannot double-spend.
+ * Player row so simultaneous purchases cannot double-spend or race the
+ * hard-cap/drill-tier checks.
  */
 class ShopService
 {
+    public function __construct(
+        private readonly GameConfigResolver $config,
+    ) {}
+
     /**
      * @return array{item: Item, quantity: int}
      */
@@ -60,7 +69,12 @@ class ShopService
                 throw CannotPurchaseException::wrongPostType($itemKey, $post->post_type, $item->post_type);
             }
 
+            // Guard gates run before any writes. Order doesn't matter —
+            // the player row is locked, so any order is consistent.
             $this->assertAffordable($player, $item);
+            $this->assertWithinHardCap($player, $item);
+            $this->assertDrillUpgrade($player, $item);
+
             $this->deductCurrencies($player, $item);
             $this->applyEffects($player, $item);
             $quantity = $this->recordOwnership($player, $item);
@@ -82,6 +96,52 @@ class ShopService
 
         if ($item->price_intel > 0 && $player->intel < $item->price_intel) {
             throw CannotPurchaseException::insufficientIntel($player->intel, $item->price_intel);
+        }
+    }
+
+    /**
+     * Reject any stat-boosting purchase that would push a stat above
+     * stats.hard_cap. Drill tier is handled separately (not capped — it's
+     * upgrade-only and maxes at the highest item in items_catalog).
+     */
+    private function assertWithinHardCap(Player $player, Item $item): void
+    {
+        $effects = $item->effects ?? [];
+        if (! isset($effects['stat_add']) || ! is_array($effects['stat_add'])) {
+            return;
+        }
+
+        $hardCap = (int) $this->config->get('stats.hard_cap');
+
+        foreach (['strength', 'fortification', 'stealth', 'security'] as $stat) {
+            $delta = (int) ($effects['stat_add'][$stat] ?? 0);
+            if ($delta <= 0) {
+                continue;
+            }
+
+            $current = (int) $player->$stat;
+            if ($current + $delta > $hardCap) {
+                throw CannotPurchaseException::atHardCap($stat, $hardCap);
+            }
+        }
+    }
+
+    /**
+     * Drill-tier items are upgrade-only. Buying a Shovel Rig when you
+     * already own a Refinery is nonsense — "best tech only, no stacking".
+     */
+    private function assertDrillUpgrade(Player $player, Item $item): void
+    {
+        $effects = $item->effects ?? [];
+        if (! isset($effects['set_drill_tier'])) {
+            return;
+        }
+
+        $newTier = (int) $effects['set_drill_tier'];
+        $currentTier = (int) $player->drill_tier;
+
+        if ($newTier <= $currentTier) {
+            throw CannotPurchaseException::alreadyHaveBetterDrill($currentTier, $newTier);
         }
     }
 
@@ -118,6 +178,8 @@ class ShopService
             }
         }
 
+        // Drill tier is upgrade-only (assertDrillUpgrade guarantees this
+        // is a strict increase by the time we get here).
         if (isset($effects['set_drill_tier'])) {
             $updates['drill_tier'] = (int) $effects['set_drill_tier'];
         }

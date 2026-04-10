@@ -17,6 +17,7 @@ interface PlayerState {
     drill_tier: number;
     immunity_expires_at: string | null;
     base_tile_id: number;
+    hard_cap: number;
 }
 
 interface TileInfo {
@@ -60,6 +61,8 @@ interface ShopItem {
     price_intel: number;
     effects: Effects | null;
     can_afford: boolean;
+    can_purchase: boolean;
+    block_reason: string | null;
 }
 
 interface DrillCell {
@@ -72,6 +75,8 @@ interface DrillCell {
 interface OilFieldDetail {
     kind: 'oil_field';
     grid: DrillCell[];
+    daily_count: number;
+    daily_limit: number;
 }
 
 interface PostDetail {
@@ -135,6 +140,7 @@ function travel(direction: 'n' | 's' | 'e' | 'w') {
 
 function drill(cell: DrillCell) {
     if (cell.drilled) return;
+    if (dailyDrillLimitReached.value) return;
     router.post(
         route('map.drill'),
         { grid_x: cell.grid_x, grid_y: cell.grid_y },
@@ -143,13 +149,18 @@ function drill(cell: DrillCell) {
 }
 
 function buy(item: ShopItem) {
-    if (!item.can_afford) return;
+    if (!item.can_purchase) return;
     router.post(
         route('map.purchase'),
         { item_key: item.key },
         { preserveScroll: true, preserveState: false },
     );
 }
+
+const dailyDrillLimitReached = computed(() => {
+    if (props.state.tile_detail?.kind !== 'oil_field') return false;
+    return props.state.tile_detail.daily_count >= props.state.tile_detail.daily_limit;
+});
 
 function tileLabel(tile: TileInfo): string {
     if (tile.is_own_base) return 'Your base';
@@ -188,6 +199,9 @@ function drillCellClass(cell: DrillCell | undefined): string {
     if (!cell) return 'bg-zinc-800 border-zinc-700';
     if (cell.drilled) {
         return 'bg-zinc-950 border-zinc-800 text-zinc-700 cursor-not-allowed';
+    }
+    if (dailyDrillLimitReached.value) {
+        return 'bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed';
     }
     return 'bg-zinc-800 border-zinc-700 hover:border-amber-400 hover:bg-zinc-700 text-zinc-500 hover:text-amber-400 cursor-pointer';
 }
@@ -428,8 +442,18 @@ function formatPrice(item: ShopItem): string {
                             <div class="w-full mt-4">
                                 <!-- Oil field: 5×5 drill grid -->
                                 <div v-if="state.tile_detail?.kind === 'oil_field'">
-                                    <div class="text-zinc-500 text-xs uppercase mb-3 tracking-widest">
+                                    <div class="text-zinc-500 text-xs uppercase mb-2 tracking-widest">
                                         Drill grid — 2 moves per cell
+                                    </div>
+                                    <div class="mb-3 text-sm font-mono">
+                                        <span
+                                            :class="dailyDrillLimitReached ? 'text-rose-400' : 'text-amber-400'"
+                                        >
+                                            Drilled today: {{ state.tile_detail.daily_count }}/{{ state.tile_detail.daily_limit }}
+                                        </span>
+                                        <span v-if="dailyDrillLimitReached" class="text-rose-400 ml-2">
+                                            · limit reached, returns at midnight
+                                        </span>
                                     </div>
                                     <div class="inline-block">
                                         <div v-for="y in [4, 3, 2, 1, 0]" :key="y" class="flex gap-1 mb-1 justify-center">
@@ -439,7 +463,7 @@ function formatPrice(item: ShopItem): string {
                                                 type="button"
                                                 class="w-11 h-11 rounded border flex items-center justify-center text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
-                                                :disabled="drillGridMap[`${x}:${y}`]?.drilled"
+                                                :disabled="drillGridMap[`${x}:${y}`]?.drilled || dailyDrillLimitReached"
                                                 @click="drill(drillGridMap[`${x}:${y}`])"
                                                 :title="`(${x}, ${y})`"
                                             >
@@ -484,11 +508,23 @@ function formatPrice(item: ShopItem): string {
                                                 <button
                                                     type="button"
                                                     class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    :disabled="!item.can_afford"
+                                                    :disabled="!item.can_purchase"
                                                     @click="buy(item)"
                                                 >
                                                     Buy
                                                 </button>
+                                                <div
+                                                    v-if="!item.can_afford"
+                                                    class="text-rose-400 text-[10px] uppercase tracking-widest"
+                                                >
+                                                    Can't afford
+                                                </div>
+                                                <div
+                                                    v-else-if="item.block_reason"
+                                                    class="text-rose-400 text-[10px] uppercase tracking-widest"
+                                                >
+                                                    {{ item.block_reason }}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

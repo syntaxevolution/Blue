@@ -42,4 +42,22 @@ class CannotPurchaseException extends RuntimeException
     {
         return new self("Not enough intel: have {$has}, need {$needs}");
     }
+
+    public static function atHardCap(string $stat, int $cap): self
+    {
+        $label = match ($stat) {
+            'strength' => 'Strength',
+            'fortification' => 'Fortification',
+            'stealth' => 'Stealth',
+            'security' => 'Security',
+            default => ucfirst($stat),
+        };
+
+        return new self("Your {$label} is already at the hard cap of {$cap}. No further upgrades possible.");
+    }
+
+    public static function alreadyHaveBetterDrill(int $currentTier, int $offeredTier): self
+    {
+        return new self("You already own a tier {$currentTier} drill. A tier {$offeredTier} rig would be a downgrade — best tech only, no stacking.");
+    }
 }

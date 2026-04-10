@@ -22,6 +22,10 @@ use Illuminate\Support\Facades\DB;
  *   - Costs actions.drill.move_cost moves
  *   - (grid_x, grid_y) must be inside 0..4
  *   - The target point must not already be drilled_at (depleted)
+ *   - The player cannot exceed drilling.daily_limit_per_field drills
+ *     on the same oil field per calendar day (server time). Different
+ *     oil fields have independent counters. Counters reset at midnight
+ *     implicitly — tomorrow's date won't match today's row.
  *   - Yield is rolled via RngService against drilling.yields[quality]
  *     and multiplied by the player's drill tier yield_multiplier
  *   - Barrels land in the player's oil_barrels balance
@@ -30,7 +34,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Everything runs inside a DB::transaction with lockForUpdate on the
  * Player row and a second lock on the drill point so simultaneous
- * requests cannot double-drill the same cell.
+ * requests cannot double-drill the same cell or race the daily count.
  */
 class DrillService
 {
@@ -46,6 +50,8 @@ class DrillService
      *     barrels: int,
      *     new_balance: int,
      *     moves_remaining: int,
+     *     daily_count: int,
+     *     daily_limit: int,
      * }
      */
     public function drill(int $playerId, int $gridX, int $gridY): array
@@ -55,8 +61,9 @@ class DrillService
         }
 
         $cost = (int) $this->config->get('actions.drill.move_cost');
+        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field');
 
-        return DB::transaction(function () use ($playerId, $gridX, $gridY, $cost) {
+        return DB::transaction(function () use ($playerId, $gridX, $gridY, $cost, $dailyLimit) {
             /** @var Player $player */
             $player = Player::query()->lockForUpdate()->findOrFail($playerId);
 
@@ -77,6 +84,23 @@ class DrillService
             $field = OilField::query()
                 ->where('tile_id', $tile->id)
                 ->firstOrFail();
+
+            // Daily-limit check. Lock the counter row (if it exists) so
+            // two concurrent drills can't both pass the pre-check and then
+            // both bump it over the cap.
+            $today = now()->toDateString();
+            $countRow = DB::table('player_drill_counts')
+                ->where('player_id', $player->id)
+                ->where('oil_field_id', $field->id)
+                ->where('drill_date', $today)
+                ->lockForUpdate()
+                ->first();
+
+            $currentDailyCount = $countRow ? (int) $countRow->drill_count : 0;
+
+            if ($currentDailyCount >= $dailyLimit) {
+                throw CannotDrillException::dailyLimitReached($dailyLimit);
+            }
 
             /** @var DrillPoint $point */
             $point = DrillPoint::query()
@@ -99,11 +123,35 @@ class DrillService
                 'oil_barrels' => $player->oil_barrels + $barrels,
             ]);
 
+            // Increment (or insert) the daily count row.
+            $now = now();
+            $newCount = $currentDailyCount + 1;
+
+            if ($countRow) {
+                DB::table('player_drill_counts')
+                    ->where('id', $countRow->id)
+                    ->update([
+                        'drill_count' => $newCount,
+                        'updated_at' => $now,
+                    ]);
+            } else {
+                DB::table('player_drill_counts')->insert([
+                    'player_id' => $player->id,
+                    'oil_field_id' => $field->id,
+                    'drill_date' => $today,
+                    'drill_count' => $newCount,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
             return [
                 'quality' => $point->quality,
                 'barrels' => $barrels,
                 'new_balance' => $player->oil_barrels + $barrels,
                 'moves_remaining' => $player->moves_current - $cost,
+                'daily_count' => $newCount,
+                'daily_limit' => $dailyLimit,
             ];
         });
     }

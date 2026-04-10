@@ -98,6 +98,7 @@ return [
     'drilling' => [
         'grid_size' => 5,
         'drill_point_regen_hours' => 12,
+        'daily_limit_per_field' => 5,
         'quality_weights' => [
             'dry' => 0.30,
             'trickle' => 0.40,
