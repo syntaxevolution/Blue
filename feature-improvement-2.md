@@ -393,3 +393,27 @@ This project has no local runtime (Windows dev, Debian VPS test). Per the dev wo
 - Exact creation cost for MDNs (`mdn.creation_cost_cash`) — plan defaults to A10.00, tune after playtesting.
 - Exact bot tick cadence (`bots.tick_interval_minutes`) — plan defaults to 5 minutes; raise on production if the VPS feels loaded.
 - Bot name word list — a small `config/bot_names.php` or inline in `config/game.php` under `bots.name_pool`. Either works; implementer picks whichever feels cleaner.
+
+---
+
+## Post-audit fixes (applied after the initial implementation)
+
+A three-agent audit — backend code review, frontend/UX review, and PM completeness check — surfaced the following issues, all of which have been fixed in the same patch:
+
+1. **`MdnService::removeMember` used `$membership->delete()` on a composite-key model with `$primaryKey = null`** — Eloquent's instance delete would have silently failed. Switched to a query-builder delete keyed on `(mdn_id, player_id)`.
+2. **Mobile responsive nav was missing the MDN link** — `AuthenticatedLayout.vue` only added MDN to the desktop `NavLink` row, not the hamburger menu. Added a matching `ResponsiveNavLink`.
+3. **`MdnController` bypassed `GameConfigResolver`** — the Web controller used the raw `config()` helper for config reads and hardcoded validator lengths. Injected `GameConfigResolver` and drove all validator maxes and Inertia props through it so live admin overrides take effect.
+4. **`BotSpawnService::generateName` used `array_rand()` + `random_int()`** — project rule violation. Re-routed through `RngService::rollInt` so bot name generation is auditable/replayable.
+5. **`MdnService::create` did not dispatch `MdnEvent`** — the activity-log hook for `mdn.created` was never firing. Added a post-commit dispatch mirroring the other lifecycle methods.
+6. **`mdns.tag` column width / config / validator disagreement** — migration stored `varchar(8)` while the config capped at 6 and Web/API validators allowed 8. Raised `mdn.tag_max_length` default to 8 so all three agree.
+7. **Accessibility gaps** — `Create.vue` form inputs now have `for`/`id` label pairs; `Show.vue` tab widget now has `role="tablist"`, `role="tab"`, `aria-selected`, `role="tabpanel"`, `aria-labelledby`, and `aria-controls`; `Index.vue` search input has `aria-label`; `Show.vue` journal composer has a visually-hidden label.
+8. **Missing tests called out in the plan** — added `tests/Feature/Mdn/MdnRolesTest.php` (promote/kick/non-leader rejection + leadership transfer on leader-leave) and `tests/Feature/Bots/BotDestroyTest.php` (tile-returns-to-wasteland and reuse invariant).
+9. **Missing Filament relation managers** — `MdnResource` now has `MembershipsRelationManager` (view/kick members, role edit) and `JournalEntriesRelationManager` (moderate entries).
+10. **Missing `BotResource`** — plan flagged this as optional but the user explicitly asked for admin to destroy/retune bots without SSH. Added a full Filament resource with list/edit, a "Destroy" action that calls `BotSpawnService::destroy`, and a difficulty filter.
+11. **`MdnJournalService` threw `MdnException::nameInvalid` for body errors** — produced misleading error messages. Added `MdnException::bodyInvalid()` and wired journal validation through it.
+12. **`Show.vue` rendered orphaned alliances as empty brackets** — added an explicit `[Disbanded MDN]` fallback when `other_mdn` is null (e.g., an ally got disbanded mid-session).
+
+False positives from the audit (noted so they are not re-flagged):
+- `BotDecisionService::rollAction` reading `$tierCfg['action_weights']` — the config actually does nest `action_weights` under each difficulty tier, so this works as written.
+- `BotsTick` order-by using `bot_last_tick_at IS NULL DESC` — valid on both MySQL and SQLite (`IS NULL` evaluates to 1/0 and `DESC` puts NULLs first, which is the intended starvation floor).
+- `assertCanAttackOrSpy` pre-seeded `mdn_joined_at` cooldown — `WorldService::spawnPlayer` does not pre-seed that column, so the theoretical issue does not manifest; the null-guard in the service is correct.
