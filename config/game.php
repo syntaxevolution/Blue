@@ -138,9 +138,9 @@ return [
         // 1% default. Tier 1 (implicit starter, not in player_items) is exempt.
         'break_chance_pct' => 0.01,
         'quality_weights' => [
-            'dry' => 0.30,
+            'dry' => 0.35,
             'trickle' => 0.40,
-            'standard' => 0.25,
+            'standard' => 0.20,
             'gusher' => 0.05,
         ],
         'yields' => [
