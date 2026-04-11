@@ -56,17 +56,29 @@ class MapStateBuilder
         /** @var Tile $baseTile */
         $baseTile = $player->baseTile;
 
+        // Directional preview tiles. When the player is on a non-walking
+        // transport (bicycle, motorcycle, sand_runner, helicopter, airplane),
+        // they travel `spaces` tiles per press — the preview must show the
+        // destination, not the immediate neighbour. Walking is spaces=1 so
+        // this collapses to adjacency for the default case.
+        $activeTransport = (string) ($player->active_transport ?? TransportService::DEFAULT);
+        $transportCfg = $this->transport->configFor($activeTransport);
+        $spaces = max(1, (int) ($transportCfg['spaces'] ?? 1));
+
+        $directionOffsets = [
+            'n' => [0, $spaces],
+            's' => [0, -$spaces],
+            'e' => [$spaces, 0],
+            'w' => [-$spaces, 0],
+        ];
+
         $neighbors = Tile::query()
-            ->where(function ($q) use ($current) {
-                $q->where(function ($q2) use ($current) {
-                    $q2->where('x', $current->x + 1)->where('y', $current->y);
-                })->orWhere(function ($q2) use ($current) {
-                    $q2->where('x', $current->x - 1)->where('y', $current->y);
-                })->orWhere(function ($q2) use ($current) {
-                    $q2->where('x', $current->x)->where('y', $current->y + 1);
-                })->orWhere(function ($q2) use ($current) {
-                    $q2->where('x', $current->x)->where('y', $current->y - 1);
-                });
+            ->where(function ($q) use ($current, $directionOffsets) {
+                foreach ($directionOffsets as [$dx, $dy]) {
+                    $q->orWhere(function ($q2) use ($current, $dx, $dy) {
+                        $q2->where('x', $current->x + $dx)->where('y', $current->y + $dy);
+                    });
+                }
             })
             ->get(['id', 'x', 'y', 'type']);
 
@@ -141,15 +153,15 @@ class MapStateBuilder
                 'y' => $t->y,
                 'type' => $t->type,
                 'direction' => match (true) {
-                    $t->x === $current->x + 1 && $t->y === $current->y => 'e',
-                    $t->x === $current->x - 1 && $t->y === $current->y => 'w',
-                    $t->x === $current->x && $t->y === $current->y + 1 => 'n',
-                    $t->x === $current->x && $t->y === $current->y - 1 => 's',
+                    $t->x === $current->x + $spaces && $t->y === $current->y => 'e',
+                    $t->x === $current->x - $spaces && $t->y === $current->y => 'w',
+                    $t->x === $current->x && $t->y === $current->y + $spaces => 'n',
+                    $t->x === $current->x && $t->y === $current->y - $spaces => 's',
                     default => null,
                 },
             ])->values()->all(),
             'discovered_count' => $this->fogOfWar->countDiscovered($player->id),
-            'bank_cap' => $this->moveRegen->bankCap(),
+            'bank_cap' => $this->moveRegen->bankCapFor($player),
         ];
     }
 
@@ -390,7 +402,7 @@ class MapStateBuilder
         if (isset($effects['unlocks'])) {
             return ['Utility', 1];
         }
-        if (isset($effects['grant_moves'])) {
+        if (isset($effects['grant_moves']) || isset($effects['bank_cap_bonus'])) {
             return ['Moves & Rations', 2];
         }
         if (isset($effects['daily_drill_limit_bonus'])

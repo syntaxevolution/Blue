@@ -63,9 +63,7 @@ class PlayersGrantMoves extends Command
             return self::FAILURE;
         }
 
-        $bankCap = $moveRegen->bankCap();
-
-        $result = DB::transaction(function () use ($player, $amount, $uncapped, $moveRegen, $bankCap) {
+        $result = DB::transaction(function () use ($player, $amount, $uncapped, $moveRegen) {
             /** @var Player $locked */
             $locked = Player::query()->lockForUpdate()->findOrFail($player->id);
 
@@ -73,6 +71,10 @@ class PlayersGrantMoves extends Command
             // not a stale snapshot.
             $moveRegen->reconcile($locked);
             $locked->refresh();
+
+            // Bank cap must include any Iron Lungs bonuses this player owns
+            // — otherwise --capped would clip their earned overflow room.
+            $bankCap = $moveRegen->bankCapFor($locked);
 
             $before = (int) $locked->moves_current;
             $target = $before + $amount;
@@ -86,8 +88,11 @@ class PlayersGrantMoves extends Command
                 'before' => $before,
                 'after' => $target,
                 'granted' => $target - $before,
+                'bank_cap' => $bankCap,
             ];
         });
+
+        $bankCap = $result['bank_cap'];
 
         $this->table(
             ['User', 'Player ID', 'Before', 'Granted', 'After', 'Bank Cap', 'Uncapped'],

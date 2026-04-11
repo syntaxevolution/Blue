@@ -3,6 +3,7 @@
 namespace App\Domain\Player;
 
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Items\PassiveBonusService;
 use App\Models\Player;
 
 /**
@@ -25,6 +26,7 @@ class MoveRegenService
 {
     public function __construct(
         private readonly GameConfigResolver $config,
+        private readonly PassiveBonusService $passiveBonus,
     ) {}
 
     /**
@@ -62,8 +64,7 @@ class MoveRegenService
             return $player;
         }
 
-        $dailyRegen = (int) $this->config->get('moves.daily_regen');
-        $bankCap = (int) ceil($dailyRegen * (float) $this->config->get('moves.bank_cap_multiplier'));
+        $bankCap = $this->bankCapFor($player);
 
         // Preserve any overflow accumulated via purchases (extra_moves_pack,
         // emergency_ration, caffeine_tin). `allow_overflow_from_purchases`
@@ -98,12 +99,24 @@ class MoveRegenService
     }
 
     /**
-     * Bank cap resolved from config. Exposed for UI display and tests.
+     * Base bank cap resolved from config only — no per-player bonuses.
+     * Use bankCapFor() when a Player is in scope.
      */
     public function bankCap(): int
     {
         $dailyRegen = (int) $this->config->get('moves.daily_regen');
 
         return (int) ceil($dailyRegen * (float) $this->config->get('moves.bank_cap_multiplier'));
+    }
+
+    /**
+     * Per-player bank cap: base cap + sum of bank_cap_bonus contributions
+     * from every stackable cap-bonus item in the player's inventory
+     * (currently Iron Lungs). Called from reconcile, MapStateBuilder,
+     * DashboardController, and the grant-moves console command.
+     */
+    public function bankCapFor(Player $player): int
+    {
+        return $this->bankCap() + $this->passiveBonus->bankCapBonus($player);
     }
 }

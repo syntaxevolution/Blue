@@ -22,13 +22,14 @@ function spawnAtGeneralPost(): Player
     return $player->fresh();
 }
 
-it('grants 10 moves per purchase', function () {
+it('grants the configured amount of moves per purchase', function () {
     $player = spawnAtGeneralPost();
     $player->update(['oil_barrels' => 10000, 'moves_current' => 50, 'moves_updated_at' => now()]);
 
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
 
-    expect($player->fresh()->moves_current)->toBe(60);
+    // Config default: general_store.extra_moves.amount = 50.
+    expect($player->fresh()->moves_current)->toBe(100);
 });
 
 it('allows repeated purchases', function () {
@@ -39,8 +40,8 @@ it('allows repeated purchases', function () {
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
 
-    // Each pack grants 10 moves and costs 1000 barrels.
-    expect($player->fresh()->moves_current)->toBe(80);
+    // Each pack grants 50 moves and costs 1000 barrels.
+    expect($player->fresh()->moves_current)->toBe(200);
     expect($player->fresh()->oil_barrels)->toBe(7000);
 });
 
@@ -55,5 +56,5 @@ it('can push moves above the bank cap', function () {
 
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
 
-    expect($player->fresh()->moves_current)->toBe($bankCap + 10);
+    expect($player->fresh()->moves_current)->toBe($bankCap + 50);
 });

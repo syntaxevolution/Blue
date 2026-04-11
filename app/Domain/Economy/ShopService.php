@@ -4,6 +4,7 @@ namespace App\Domain\Economy;
 
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotPurchaseException;
+use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
 use App\Models\Item;
 use App\Models\Player;
@@ -49,6 +50,7 @@ class ShopService
         private readonly GameConfigResolver $config,
         private readonly StatOverflowService $statOverflow,
         private readonly ExtraMovesService $extraMoves,
+        private readonly PassiveBonusService $passiveBonus,
     ) {}
 
     /**
@@ -90,6 +92,12 @@ class ShopService
             $this->deductCurrencies($player, $item);
             $this->applyEffects($player, $item);
             $quantity = $this->recordOwnership($player, $item);
+
+            // Inventory just changed: invalidate the per-request passive
+            // bonus cache so any downstream lookup in the same request
+            // (e.g. map state rebuild after purchase) sees the new totals
+            // for drill yield, break chance, bank cap, etc.
+            $this->passiveBonus->flush();
 
             return ['item' => $item, 'quantity' => $quantity];
         });

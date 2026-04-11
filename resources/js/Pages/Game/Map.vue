@@ -60,6 +60,8 @@ interface Effects {
     stat_add?: Partial<Record<'strength' | 'fortification' | 'stealth' | 'security', number>>;
     set_drill_tier?: number;
     unlocks?: string[];
+    grant_moves?: number | boolean;
+    bank_cap_bonus?: number;
     [key: string]: unknown;
 }
 
@@ -300,6 +302,9 @@ function formatEffects(effects: Effects | null): string[] {
     }
     if (typeof effects.set_drill_tier === 'number') {
         parts.push(`Drill tier ${effects.set_drill_tier}`);
+    }
+    if (typeof effects.bank_cap_bonus === 'number' && effects.bank_cap_bonus !== 0) {
+        parts.push(`+${effects.bank_cap_bonus} max moves`);
     }
     return parts;
 }

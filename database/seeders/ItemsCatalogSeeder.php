@@ -28,6 +28,7 @@ class ItemsCatalogSeeder extends Seeder
         $transportCost = fn (string $k): int => (int) ($transportCosts[$k]['cost_barrels'] ?? 0);
         $teleporterCost = (int) $config->get('teleport.purchase_cost_barrels');
         $extraMovesCost = (int) $config->get('general_store.extra_moves.cost_barrels');
+        $extraMovesAmount = (int) $config->get('general_store.extra_moves.amount');
 
         $items = [
             /* ------------------------------------------------------------ */
@@ -126,7 +127,11 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'caffeine_tin',      'post_type' => 'general', 'name' => 'Caffeine Tin',        'description' => 'Forty one small white tablets. Strictly rationed. +15 moves.',                                                   'price_barrels' => 120, 'effects' => ['grant_moves' => 15],                         'sort_order' => 60],
 
             // Extra moves — consumable, unlimited, overflows cap
-            ['key' => 'extra_moves_pack',  'post_type' => 'general', 'name' => 'Extra Moves Pack',    'description' => 'A thermos of something highly caffeinated and mildly illegal. +10 moves.',                                       'price_barrels' => $extraMovesCost, 'effects' => ['grant_moves' => true], 'sort_order' => 100],
+            ['key' => 'extra_moves_pack',  'post_type' => 'general', 'name' => 'Extra Moves Pack',    'description' => "A thermos of something highly caffeinated and mildly illegal. +{$extraMovesAmount} moves in a single gulp.",     'price_barrels' => $extraMovesCost, 'effects' => ['grant_moves' => true], 'sort_order' => 100],
+
+            // Bank cap bonus — permanent, stackable. Each copy adds +10 to
+            // the player's move bank cap. Applied on-read via PassiveBonusService.
+            ['key' => 'iron_lungs',        'post_type' => 'general', 'name' => 'Iron Lungs',          'description' => 'A breathing regimen that would kill a lesser wastelander. Permanently raises your maximum moves by 10. Stackable — buy as many as your chest can hold.', 'price_barrels' => 2500, 'effects' => ['bank_cap_bonus' => 10], 'sort_order' => 110],
 
             // Transport modes — one-time purchase each, switchable any time
             ['key' => 'bicycle',           'post_type' => 'general', 'name' => 'Bicycle',             'description' => 'Rusted, squeaky, two wheels, zero fuel. Travels 2 tiles per press.',                                              'price_barrels' => $transportCost('bicycle'),    'effects' => ['unlocks_transport' => 'bicycle'],    'sort_order' => 200],

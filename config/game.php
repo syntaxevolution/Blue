@@ -258,7 +258,7 @@ return [
         'extra_moves' => [
             'enabled' => true,
             'cost_barrels' => 1000,
-            'amount' => 10,
+            'amount' => 50,
         ],
         // Transport modes. walking is the implicit default (always owned).
         // spaces = tiles traversed per button press
