@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 
 it('registers a new user and returns a token', function () {
     $response = $this->postJson('/api/v1/auth/register', [
-        'name' => 'Test User',
+        'name' => 'TestUser1',
         'email' => 'test@example.com',
         'password' => 'password1234',
         'password_confirmation' => 'password1234',
@@ -32,7 +32,7 @@ it('rejects registration with a duplicate email', function () {
     User::factory()->create(['email' => 'taken@example.com']);
 
     $response = $this->postJson('/api/v1/auth/register', [
-        'name' => 'Another',
+        'name' => 'AnotherName1',
         'email' => 'taken@example.com',
         'password' => 'password1234',
         'password_confirmation' => 'password1234',

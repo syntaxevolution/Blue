@@ -1,13 +1,13 @@
 <template>
     <!--
-        Cash Clash logo mark — stylized "CC" monogram inside a drill-bit
+        Clash Wars logo mark — stylized "CW" monogram inside a drill-bit
         hexagon. Uses currentColor so callers control the hue via Tailwind
         text-* classes; sized by width/height classes on the wrapper.
     -->
     <svg
         viewBox="0 0 100 100"
         xmlns="http://www.w3.org/2000/svg"
-        aria-label="Cash Clash"
+        aria-label="Clash Wars"
     >
         <!-- Outer hex frame -->
         <polygon
@@ -37,7 +37,7 @@
             letter-spacing="-2"
             fill="currentColor"
         >
-            CC
+            CW
         </text>
     </svg>
 </template>

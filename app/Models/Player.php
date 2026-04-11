@@ -4,13 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Gameplay-side shadow of a User account.
  *
  * Holds every piece of mutable in-game state for one player: currencies
  * (akzar_cash, oil_barrels, intel), move budget, four stats, drill tier,
- * MDN membership, immunity window, and bankruptcy history.
+ * MDN membership, immunity window, transport mode, stat bank overflow,
+ * and the broken-item lockout pointer.
  *
  * One User has at most one Player (see User::player()). The split lets
  * us keep authentication concerns in User and gameplay state here.
@@ -33,7 +35,13 @@ class Player extends Model
         'fortification',
         'stealth',
         'security',
+        'strength_banked',
+        'fortification_banked',
+        'stealth_banked',
+        'security_banked',
         'drill_tier',
+        'active_transport',
+        'broken_item_key',
         'mdn_id',
         'mdn_joined_at',
         'mdn_left_at',
@@ -52,6 +60,10 @@ class Player extends Model
         'fortification' => 'integer',
         'stealth' => 'integer',
         'security' => 'integer',
+        'strength_banked' => 'integer',
+        'fortification_banked' => 'integer',
+        'stealth_banked' => 'integer',
+        'security_banked' => 'integer',
         'drill_tier' => 'integer',
         'mdn_joined_at' => 'datetime',
         'mdn_left_at' => 'datetime',
@@ -72,5 +84,26 @@ class Player extends Model
     public function currentTile(): BelongsTo
     {
         return $this->belongsTo(Tile::class, 'current_tile_id');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(PlayerItem::class);
+    }
+
+    /**
+     * Is this player standing on their own base tile right now?
+     * Used by CombatFormula for the at-base defense bonus and
+     * elsewhere anywhere the "at home" check matters.
+     */
+    public function isAtBase(): bool
+    {
+        return $this->current_tile_id !== null
+            && $this->current_tile_id === $this->base_tile_id;
+    }
+
+    public function hasBrokenItem(): bool
+    {
+        return $this->broken_item_key !== null;
     }
 }

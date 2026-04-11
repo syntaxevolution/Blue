@@ -39,7 +39,7 @@ function formatTimestamp(iso: string): string {
 </script>
 
 <template>
-    <Head title="Attack Log — Cash Clash" />
+    <Head title="Attack Log — Clash Wars" />
 
     <AuthenticatedLayout>
         <template #header>

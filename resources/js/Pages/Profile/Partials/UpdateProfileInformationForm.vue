@@ -13,7 +13,6 @@ defineProps<{
 const user = usePage().props.auth.user;
 
 const form = useForm({
-    name: user.name,
     email: user.email,
 });
 </script>
@@ -35,19 +34,20 @@ const form = useForm({
             class="mt-6 space-y-6"
         >
             <div>
-                <InputLabel for="name" value="Name" />
+                <InputLabel for="name" value="Username" />
 
                 <TextInput
                     id="name"
                     type="text"
-                    class="mt-1 block w-full"
-                    v-model="form.name"
-                    required
-                    autofocus
-                    autocomplete="name"
+                    class="mt-1 block w-full bg-zinc-900/50 text-zinc-400 cursor-not-allowed"
+                    :model-value="user.name"
+                    readonly
+                    disabled
                 />
 
-                <InputError class="mt-2" :message="form.errors.name" />
+                <p class="mt-1 text-xs text-zinc-500">
+                    Usernames are locked once claimed and cannot be changed.
+                </p>
             </div>
 
             <div>

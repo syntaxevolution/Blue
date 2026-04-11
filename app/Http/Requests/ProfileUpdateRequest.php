@@ -7,6 +7,16 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates profile edits.
+ *
+ * The `name` field is intentionally NOT present: usernames are claimed
+ * once at registration (or via the ClaimUsername flow for legacy accounts)
+ * and are then immutable. The form view shows name as read-only.
+ *
+ * Email remains editable, but any change triggers re-verification via
+ * the ProfileController (see MustVerifyEmail on User).
+ */
 class ProfileUpdateRequest extends FormRequest
 {
     /**
@@ -17,7 +27,6 @@ class ProfileUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required',
                 'string',

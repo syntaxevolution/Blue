@@ -15,7 +15,7 @@ function makeResolver(): GameConfigResolver
 it('returns locked balance values from config/game.php', function () {
     $resolver = makeResolver();
 
-    expect($resolver->get('stats.hard_cap'))->toBe(25);
+    expect($resolver->get('stats.hard_cap'))->toBe(50);
     expect($resolver->get('stats.soft_plateau_start'))->toBe(15);
     expect($resolver->get('combat.loot_ceiling_pct'))->toBe(0.20);
     expect($resolver->get('combat.raid_cooldown_hours'))->toBe(12);
@@ -50,7 +50,7 @@ it('memoises reads in the per-request cache', function () {
     $a = $resolver->get('stats.hard_cap');
     $b = $resolver->get('stats.hard_cap');
 
-    expect($a)->toBe($b)->toBe(25);
+    expect($a)->toBe($b)->toBe(50);
 });
 
 it('flush() clears the cache so subsequent reads re-resolve', function () {
@@ -59,7 +59,7 @@ it('flush() clears the cache so subsequent reads re-resolve', function () {
 
     $resolver->flush();
 
-    expect($resolver->get('stats.hard_cap'))->toBe(25);
+    expect($resolver->get('stats.hard_cap'))->toBe(50);
 });
 
 it('set() stages an override that takes precedence over the static default', function () {

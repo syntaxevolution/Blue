@@ -1,13 +1,40 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
+import BrokenItemModal from '@/Components/BrokenItemModal.vue';
+import ClaimUsernameModal from '@/Components/ClaimUsernameModal.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
-import { Link } from '@inertiajs/vue3';
+import ToastContainer from '@/Components/ToastContainer.vue';
+import { Link, usePage } from '@inertiajs/vue3';
+import { subscribeToUserNotifications } from '@/Composables/useNotifications';
 
+const page = usePage();
 const showingNavigationDropdown = ref(false);
+
+const authUser = computed(() => page.props.auth?.user ?? null);
+const requiresClaim = computed(() => Boolean(page.props.auth?.requires_username_claim));
+const brokenItemKey = computed<string | null>(
+    () => (page.props.auth?.broken_item_key as string | null) ?? null,
+);
+const unreadCount = computed<number>(
+    () => Number(page.props.auth?.unread_activity_count ?? 0),
+);
+
+let teardown: () => void = () => undefined;
+
+onMounted(() => {
+    const uid = authUser.value?.id ?? null;
+    if (uid) {
+        teardown = subscribeToUserNotifications(uid);
+    }
+});
+
+onBeforeUnmount(() => {
+    teardown();
+});
 </script>
 
 <template>
@@ -23,7 +50,7 @@ const showingNavigationDropdown = ref(false);
                                 <span
                                     class="hidden font-mono text-lg font-black uppercase tracking-widest text-amber-400 sm:inline"
                                 >
-                                    Cash Clash
+                                    Clash Wars
                                 </span>
                             </Link>
                         </div>
@@ -48,6 +75,20 @@ const showingNavigationDropdown = ref(false);
                             >
                                 Atlas
                             </NavLink>
+                            <NavLink
+                                :href="route('activity.index')"
+                                :active="route().current('activity.index')"
+                            >
+                                <span class="inline-flex items-center gap-1">
+                                    Activity
+                                    <span
+                                        v-if="unreadCount > 0"
+                                        class="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-zinc-950"
+                                    >
+                                        {{ unreadCount }}
+                                    </span>
+                                </span>
+                            </NavLink>
                         </div>
                     </div>
 
@@ -61,7 +102,7 @@ const showingNavigationDropdown = ref(false);
                                             type="button"
                                             class="inline-flex items-center rounded-md border border-transparent bg-transparent px-3 py-2 text-sm font-medium leading-4 text-zinc-300 transition duration-150 ease-in-out hover:text-amber-400 focus:outline-none"
                                         >
-                                            {{ $page.props.auth.user.name }}
+                                            {{ authUser?.name }}
 
                                             <svg
                                                 class="-me-0.5 ms-2 h-4 w-4"
@@ -160,16 +201,22 @@ const showingNavigationDropdown = ref(false);
                     >
                         Atlas
                     </ResponsiveNavLink>
+                    <ResponsiveNavLink
+                        :href="route('activity.index')"
+                        :active="route().current('activity.index')"
+                    >
+                        Activity <span v-if="unreadCount > 0">({{ unreadCount }})</span>
+                    </ResponsiveNavLink>
                 </div>
 
                 <!-- Responsive Settings Options -->
                 <div class="border-t border-zinc-800 pb-1 pt-4">
                     <div class="px-4">
                         <div class="text-base font-medium text-zinc-100">
-                            {{ $page.props.auth.user.name }}
+                            {{ authUser?.name }}
                         </div>
                         <div class="text-sm font-medium text-zinc-500">
-                            {{ $page.props.auth.user.email }}
+                            {{ authUser?.email }}
                         </div>
                     </div>
 
@@ -203,5 +250,15 @@ const showingNavigationDropdown = ref(false);
         <main>
             <slot />
         </main>
+
+        <!-- Global overlays -->
+        <ToastContainer />
+
+        <ClaimUsernameModal v-if="requiresClaim" />
+
+        <BrokenItemModal
+            v-if="brokenItemKey"
+            :broken-item-key="brokenItemKey"
+        />
     </div>
 </template>

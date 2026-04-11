@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import TileIcon from '@/Components/TileIcon.vue';
+import TransportSwitcher from '@/Components/TransportSwitcher.vue';
+import TeleportModal from '@/Components/TeleportModal.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 interface PlayerState {
     id: number;
@@ -21,6 +23,17 @@ interface PlayerState {
     base_coords: { x: number; y: number };
     owns_atlas: boolean;
     owns_attack_log: boolean;
+    active_transport?: string;
+    owned_transports?: string[];
+    owns_teleporter?: boolean;
+}
+
+interface TransportCatalogEntry {
+    key: string;
+    cost_barrels: number;
+    spaces: number;
+    fuel: number;
+    flags: string[];
 }
 
 interface TileInfo {
@@ -110,11 +123,16 @@ interface MapState {
     neighbors: Neighbor[];
     discovered_count: number;
     bank_cap: number;
+    transport_catalog?: Record<string, TransportCatalogEntry>;
+    immunity_hours?: number;
 }
 
 const props = defineProps<{
     state: MapState;
 }>();
+
+const showTeleportModal = ref(false);
+const teleportCost = 5000;
 
 const page = usePage();
 const errors = computed(() => (page.props.errors as Record<string, string>) ?? {});
@@ -261,7 +279,7 @@ const canAttackNow = computed(() => {
 </script>
 
 <template>
-    <Head title="Map — Cash Clash" />
+    <Head title="Map — Clash Wars" />
 
     <AuthenticatedLayout>
         <template #header>
@@ -327,6 +345,23 @@ const canAttackNow = computed(() => {
                 <!-- Immunity banner -->
                 <div v-if="immunityActive" class="bg-amber-950/50 border border-amber-700/50 rounded-lg p-3 text-amber-300 text-sm font-mono">
                     New player immunity active until {{ state.player.immunity_expires_at }} — you cannot be attacked.
+                </div>
+
+                <!-- Transport + Teleport bar -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3">
+                    <TransportSwitcher
+                        :active="state.player.active_transport ?? 'walking'"
+                        :owned="state.player.owned_transports ?? ['walking']"
+                        :catalog="state.transport_catalog ?? {}"
+                    />
+                    <button
+                        v-if="state.player.owns_teleporter"
+                        type="button"
+                        class="rounded border border-violet-700 bg-violet-900/40 px-3 py-1 font-mono text-xs uppercase tracking-widest text-violet-300 hover:border-violet-400 hover:text-violet-200 transition"
+                        @click="showTeleportModal = true"
+                    >
+                        ⚡ Teleport
+                    </button>
                 </div>
 
                 <!-- Flash messages -->
@@ -564,5 +599,12 @@ const canAttackNow = computed(() => {
                 </div>
             </div>
         </div>
+
+        <TeleportModal
+            v-if="showTeleportModal"
+            :cost-barrels="teleportCost"
+            :owns-teleporter="state.player.owns_teleporter ?? false"
+            @close="showTeleportModal = false"
+        />
     </AuthenticatedLayout>
 </template>

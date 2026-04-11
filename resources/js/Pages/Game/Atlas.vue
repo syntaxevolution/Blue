@@ -82,7 +82,7 @@ function isBase(t: AtlasTile | undefined): boolean {
 </script>
 
 <template>
-    <Head title="Explorer's Atlas — Cash Clash" />
+    <Head title="Explorer's Atlas — Clash Wars" />
 
     <AuthenticatedLayout>
         <template #header>

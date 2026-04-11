@@ -12,13 +12,13 @@ test('profile page is displayed', function () {
     $response->assertOk();
 });
 
-test('profile information can be updated', function () {
-    $user = User::factory()->create();
+test('profile email can be updated and name is immutable', function () {
+    $user = User::factory()->create(['name' => 'LockedIn1']);
 
     $response = $this
         ->actingAs($user)
         ->patch('/profile', [
-            'name' => 'Test User',
+            'name' => 'AttemptRename',
             'email' => 'test@example.com',
         ]);
 
@@ -28,7 +28,8 @@ test('profile information can be updated', function () {
 
     $user->refresh();
 
-    $this->assertSame('Test User', $user->name);
+    // Name is immutable post-claim — ignored even if sent.
+    $this->assertSame('LockedIn1', $user->name);
     $this->assertSame('test@example.com', $user->email);
     $this->assertNull($user->email_verified_at);
 });
@@ -39,7 +40,6 @@ test('email verification status is unchanged when the email address is unchanged
     $response = $this
         ->actingAs($user)
         ->patch('/profile', [
-            'name' => 'Test User',
             'email' => $user->email,
         ]);
 

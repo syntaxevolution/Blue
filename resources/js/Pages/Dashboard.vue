@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
+
+defineProps<{
+    startingCash: string;
+    dailyRegen: number;
+    bankCap: number;
+    immunityHours: number;
+}>();
 </script>
 
 <template>
-    <Head title="Dashboard — Cash Clash" />
+    <Head title="Dashboard — Clash Wars" />
 
     <AuthenticatedLayout>
         <template #header>
@@ -41,19 +48,24 @@ import { Head, Link } from '@inertiajs/vue3';
                         <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">
                             Starting cash
                         </div>
-                        <div class="text-xl text-amber-400">A5.00</div>
+                        <div class="text-xl text-amber-400">A{{ startingCash }}</div>
                     </div>
                     <div class="rounded border border-zinc-800 bg-zinc-900/60 p-4">
                         <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">
                             Move regen
                         </div>
-                        <div class="text-xl text-zinc-100">~200 / day</div>
+                        <div class="text-xl text-zinc-100">
+                            {{ dailyRegen }} / day
+                        </div>
+                        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mt-1">
+                            bank cap {{ bankCap }}
+                        </div>
                     </div>
                     <div class="rounded border border-zinc-800 bg-zinc-900/60 p-4">
                         <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">
                             New player immunity
                         </div>
-                        <div class="text-xl text-zinc-100">48 hours</div>
+                        <div class="text-xl text-zinc-100">{{ immunityHours }} hours</div>
                     </div>
                 </div>
             </div>

@@ -14,24 +14,23 @@ use App\Models\Player;
  * returns the outcome shape. All balance numbers flow from
  * GameConfig so the whole formula is live-tunable.
  *
- * Pseudocode from the spec, adapted:
+ * Pseudocode:
  *
  *   atkPower = scaledStat(attacker.strength)
  *   defPower = scaledStat(defender.fortification)
+ *              + (defenderAtBase ? scaledStat(defender.strength) : 0)   [F2]
  *   baseOutcome = (atkPower - defPower) / (atkPower + defPower)   // [-1, 1]
- *   randomBand  = rng.rollFloat(combat.band, min, max)
+ *   randomBand  = rng.rollBand(combat.band, min, max)
  *   finalScore  = baseOutcome + randomBand
  *
- *   if finalScore > 0:
- *     lootPct    = min(loot_ceiling, 0.05 + 0.15 * finalScore)
- *     cashStolen = defender.cash * lootPct
- *     outcome    = 'success'
- *   else:
- *     outcome    = 'failure', cashStolen = 0
+ * The at-base bonus is gated on combat.at_base_defense_bonus_enabled.
+ * When true, a defender standing on their own base tile at the moment
+ * of the attack gets their scaled strength added to their defense —
+ * the first meaningful incentive to actually return home.
  *
- * The soft-stat plateau (linear 1..15, 60% 16..20, 30% 21..25) is
- * applied by scaledStat so every rank beyond 15 still matters but
- * not linearly.
+ * Stat scaling is driven by config ranges (linear 1..15, partial 16..20
+ * at 60%, prestige 21..50 at 30%) so raising the cap to 50 automatically
+ * rescales without a code change.
  */
 class CombatFormula
 {
@@ -48,12 +47,26 @@ class CombatFormula
      *     final_score: float,
      *     base_outcome: float,
      *     random_band: float,
+     *     atk_power: float,
+     *     def_power: float,
+     *     defender_at_base: bool,
      * }
      */
-    public function resolveAttack(Player $attacker, Player $defender, string $eventKey): array
-    {
+    public function resolveAttack(
+        Player $attacker,
+        Player $defender,
+        string $eventKey,
+        bool $defenderAtBase = false,
+    ): array {
         $atkPower = $this->scaledStat((int) $attacker->strength);
         $defPower = $this->scaledStat((int) $defender->fortification);
+
+        $bonusEnabled = (bool) $this->config->get('combat.at_base_defense_bonus_enabled');
+        $appliedHomeBonus = $bonusEnabled && $defenderAtBase;
+
+        if ($appliedHomeBonus) {
+            $defPower += $this->scaledStat((int) $defender->strength);
+        }
 
         // Guard against both sides being zero (division by zero).
         $denominator = $atkPower + $defPower;
@@ -66,9 +79,11 @@ class CombatFormula
         $finalScore = $baseOutcome + $randomBand;
 
         $lootCeiling = (float) $this->config->get('combat.loot_ceiling_pct');
+        $lootBase = (float) $this->config->get('combat.loot_base_pct');
+        $lootScale = (float) $this->config->get('combat.loot_scale_factor');
 
         if ($finalScore > 0) {
-            $lootPct = min($lootCeiling, 0.05 + 0.15 * $finalScore);
+            $lootPct = min($lootCeiling, $lootBase + $lootScale * $finalScore);
             $cashStolen = round((float) $defender->akzar_cash * $lootPct, 2);
 
             return [
@@ -78,6 +93,9 @@ class CombatFormula
                 'final_score' => $finalScore,
                 'base_outcome' => $baseOutcome,
                 'random_band' => $randomBand,
+                'atk_power' => $atkPower,
+                'def_power' => $defPower,
+                'defender_at_base' => $appliedHomeBonus,
             ];
         }
 
@@ -88,17 +106,20 @@ class CombatFormula
             'final_score' => $finalScore,
             'base_outcome' => $baseOutcome,
             'random_band' => $randomBand,
+            'atk_power' => $atkPower,
+            'def_power' => $defPower,
+            'defender_at_base' => $appliedHomeBonus,
         ];
     }
 
     /**
-     * Apply the soft plateau: 1..15 linear, 16..20 at 60%, 21..25 at 30%.
+     * Apply the soft plateau using config ranges:
+     *   1..linear_range[1]           → linear (1:1)
+     *   partial_range[0]..partial_range[1] → partial_efficiency per point
+     *   prestige_range[0]..prestige_range[1] → prestige_efficiency per point
      *
-     *   scaledStat(level):
-     *     linear   = min(level, 15)
-     *     partial  = clamp(level - 15, 0, 5) * 0.6
-     *     prestige = clamp(level - 20, 0, 5) * 0.3
-     *     return linear + partial + prestige
+     * Extending the cap just requires widening prestige_range in config —
+     * no code change.
      */
     public function scaledStat(int $level): float
     {
@@ -106,12 +127,23 @@ class CombatFormula
             return 0.0;
         }
 
+        $linearEnd = (int) ($this->config->get('stats.scaling.linear_range')[1] ?? 15);
+        $partialRange = (array) $this->config->get('stats.scaling.partial_range');
+        $prestigeRange = (array) $this->config->get('stats.scaling.prestige_range');
         $partialEfficiency = (float) $this->config->get('stats.scaling.partial_efficiency');
         $prestigeEfficiency = (float) $this->config->get('stats.scaling.prestige_efficiency');
 
-        $linear = (float) min($level, 15);
-        $partial = (float) max(0, min($level - 15, 5)) * $partialEfficiency;
-        $prestige = (float) max(0, min($level - 20, 5)) * $prestigeEfficiency;
+        $partialStart = (int) ($partialRange[0] ?? ($linearEnd + 1));
+        $partialEnd = (int) ($partialRange[1] ?? $partialStart);
+        $prestigeStart = (int) ($prestigeRange[0] ?? ($partialEnd + 1));
+        $prestigeEnd = (int) ($prestigeRange[1] ?? $prestigeStart);
+
+        $partialWidth = max(0, $partialEnd - $partialStart + 1);
+        $prestigeWidth = max(0, $prestigeEnd - $prestigeStart + 1);
+
+        $linear = (float) min($level, $linearEnd);
+        $partial = (float) max(0, min($level - ($partialStart - 1), $partialWidth)) * $partialEfficiency;
+        $prestige = (float) max(0, min($level - ($prestigeStart - 1), $prestigeWidth)) * $prestigeEfficiency;
 
         return $linear + $partial + $prestige;
     }

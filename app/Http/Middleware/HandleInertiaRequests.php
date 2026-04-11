@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Notifications\ActivityLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Middleware;
@@ -30,14 +31,27 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+        $player = $user?->player;
+
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
+                'requires_username_claim' => $user !== null && ! $user->hasClaimedUsername(),
+                'email_verified' => $user !== null && $user->hasVerifiedEmail(),
+                'broken_item_key' => $player?->broken_item_key,
+                'active_transport' => $player?->active_transport ?? 'walking',
+                'unread_activity_count' => function () use ($user) {
+                    if ($user === null) {
+                        return 0;
+                    }
+
+                    return app(ActivityLogService::class)->unreadCount((int) $user->id);
+                },
                 // Lazy-loaded via closure so only pages that actually
                 // render the gear modal pay for the query.
-                'owned_items' => function () use ($request) {
-                    $user = $request->user();
+                'owned_items' => function () use ($user) {
                     if ($user === null || $user->player === null) {
                         return [];
                     }
@@ -54,6 +68,7 @@ class HandleInertiaRequests extends Middleware
                             'items_catalog.post_type',
                             'items_catalog.effects',
                             'player_items.quantity',
+                            'player_items.status',
                         ])
                         ->map(fn ($row) => [
                             'key' => $row->key,
@@ -61,6 +76,7 @@ class HandleInertiaRequests extends Middleware
                             'description' => $row->description,
                             'post_type' => $row->post_type,
                             'quantity' => (int) $row->quantity,
+                            'status' => (string) $row->status,
                             'effects' => $row->effects ? json_decode($row->effects, true) : null,
                         ])
                         ->all();
@@ -71,6 +87,18 @@ class HandleInertiaRequests extends Middleware
                 'purchase_result' => fn () => $request->session()->get('purchase_result'),
                 'spy_result' => fn () => $request->session()->get('spy_result'),
                 'attack_result' => fn () => $request->session()->get('attack_result'),
+                'teleport_result' => fn () => $request->session()->get('teleport_result'),
+                'transport_switched' => fn () => $request->session()->get('transport_switched'),
+                'item_repair_result' => fn () => $request->session()->get('item_repair_result'),
+                'item_abandon_result' => fn () => $request->session()->get('item_abandon_result'),
+                'username_claimed' => fn () => $request->session()->get('username_claimed'),
+            ],
+            // Broadcast connection details for the Echo JS client.
+            'reverb' => [
+                'app_key' => config('broadcasting.connections.reverb.key'),
+                'host' => config('broadcasting.connections.reverb.options.host'),
+                'port' => (int) config('broadcasting.connections.reverb.options.port', 8080),
+                'scheme' => config('broadcasting.connections.reverb.options.scheme', 'http'),
             ],
         ];
     }

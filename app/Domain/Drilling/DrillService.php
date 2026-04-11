@@ -6,10 +6,14 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\Items\ItemBreakService;
+use App\Domain\Items\PassiveBonusService;
 use App\Domain\Player\MoveRegenService;
 use App\Models\DrillPoint;
+use App\Models\Item;
 use App\Models\OilField;
 use App\Models\Player;
+use App\Models\PlayerItem;
 use App\Models\Tile;
 use Illuminate\Support\Facades\DB;
 
@@ -31,6 +35,10 @@ use Illuminate\Support\Facades\DB;
  *   - Barrels land in the player's oil_barrels balance
  *   - The point is marked drilled_at=now() and becomes unusable until
  *     OilFieldRegenJob resets it at the next regen window
+ *   - AFTER the drill resolves, if the player is using a non-starter
+ *     drill, a break roll happens. If it breaks the player row gets
+ *     broken_item_key set, which trips BlockOnBrokenItem on the next
+ *     request and overlays BrokenItemModal on the map.
  *
  * Everything runs inside a DB::transaction with lockForUpdate on the
  * Player row and a second lock on the drill point so simultaneous
@@ -42,6 +50,8 @@ class DrillService
         private readonly GameConfigResolver $config,
         private readonly RngService $rng,
         private readonly MoveRegenService $moveRegen,
+        private readonly ItemBreakService $itemBreak,
+        private readonly PassiveBonusService $passiveBonus,
     ) {}
 
     /**
@@ -52,6 +62,8 @@ class DrillService
      *     moves_remaining: int,
      *     daily_count: int,
      *     daily_limit: int,
+     *     drill_broke: bool,
+     *     broken_item_key: string|null,
      * }
      */
     public function drill(int $playerId, int $gridX, int $gridY): array
@@ -94,6 +106,9 @@ class DrillService
                 ->where('tile_id', $tile->id)
                 ->firstOrFail();
 
+            // Apply any passive daily_drill_limit_bonus from owned items.
+            $dailyLimit += $this->passiveBonus->drillLimitBonus($player);
+
             // Daily-limit check. Lock the counter row (if it exists) so
             // two concurrent drills can't both pass the pre-check and then
             // both bump it over the cap.
@@ -123,7 +138,11 @@ class DrillService
                 throw CannotDrillException::pointDepleted($gridX, $gridY);
             }
 
-            $barrels = $this->computeYield($point->quality, $player->drill_tier);
+            $yieldEventKey = 'drill-yield-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.now()->timestamp;
+            $rawBarrels = $this->computeYield($point->quality, $player->drill_tier, $yieldEventKey);
+            // Apply passive yield bonuses (e.g., lucky_charm +5%).
+            $bonusPct = $this->passiveBonus->yieldBonusPct($player);
+            $barrels = (int) floor($rawBarrels * (1.0 + $bonusPct));
 
             $point->update(['drilled_at' => now()]);
 
@@ -154,22 +173,82 @@ class DrillService
                 ]);
             }
 
+            // Break roll for the active drill item (tier 2+ only —
+            // the starter "Dentist Drill" (tier 1) is never in
+            // player_items so it's automatically exempt).
+            $brokeNow = false;
+            $brokenKey = null;
+            $activeDrillKey = $this->activeDrillItemKey($player);
+
+            if ($activeDrillKey !== null) {
+                $eventKey = 'drill-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.$now->timestamp;
+                $breakEvent = $this->itemBreak->rollBreak($player, $eventKey);
+
+                if ($breakEvent) {
+                    $this->itemBreak->markBroken($player, $activeDrillKey);
+                    $brokeNow = true;
+                    $brokenKey = $activeDrillKey;
+                }
+            }
+
+            // update() already mutated oil_barrels and moves_current in-memory.
             return [
                 'quality' => $point->quality,
                 'barrels' => $barrels,
-                'new_balance' => $player->oil_barrels + $barrels,
-                'moves_remaining' => $player->moves_current - $cost,
+                'new_balance' => (int) $player->oil_barrels,
+                'moves_remaining' => (int) $player->moves_current,
                 'daily_count' => $newCount,
                 'daily_limit' => $dailyLimit,
+                'drill_broke' => $brokeNow,
+                'broken_item_key' => $brokenKey,
             ];
         });
+    }
+
+    /**
+     * Find the owned drill item key that matches the player's current
+     * drill_tier. Returns null for tier 1 (starter Dentist Drill, never
+     * owned as a player_item row).
+     */
+    private function activeDrillItemKey(Player $player): ?string
+    {
+        if ((int) $player->drill_tier <= 1) {
+            return null;
+        }
+
+        // Find the item whose effects contain set_drill_tier = current tier
+        // AND which the player owns in active state.
+        $items = Item::query()
+            ->where('post_type', 'tech')
+            ->get()
+            ->filter(function (Item $item) use ($player) {
+                $effects = $item->effects ?? [];
+
+                return isset($effects['set_drill_tier'])
+                    && (int) $effects['set_drill_tier'] === (int) $player->drill_tier;
+            });
+
+        foreach ($items as $item) {
+            $owns = PlayerItem::query()
+                ->where('player_id', $player->id)
+                ->where('item_key', $item->key)
+                ->where('status', 'active')
+                ->where('quantity', '>', 0)
+                ->exists();
+
+            if ($owns) {
+                return $item->key;
+            }
+        }
+
+        return null;
     }
 
     /**
      * Roll the barrel yield for a drill point of the given quality,
      * then scale by the player's drill tier yield_multiplier.
      */
-    private function computeYield(string $quality, int $drillTier): int
+    private function computeYield(string $quality, int $drillTier, string $eventKey): int
     {
         /** @var array{0:int,1:int}|null $band */
         $band = $this->config->get("drilling.yields.{$quality}");
@@ -184,9 +263,11 @@ class DrillService
             return 0;
         }
 
+        // Deterministic seed so the roll is replayable/auditable. CLAUDE.md
+        // mandates every random roll go through RngService with a stable event key.
         $base = $this->rng->rollInt(
             "drilling.yield.{$quality}",
-            uniqid('drill_', true),
+            $eventKey,
             $min,
             $max,
         );

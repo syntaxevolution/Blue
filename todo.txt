@@ -1,0 +1,121 @@
+# Clash Wars — VPS deployment TODO (Batch 1)
+
+Apply these steps on the Debian + DirectAdmin VPS after `git pull`.
+
+---
+
+## 1. Install PHP / Node dependencies
+
+cd /path/to/clashwars
+composer install --no-dev --optimize-autoloader
+npm ci
+npm run build
+
+## 2. Run migrations
+
+php artisan migrate --force
+
+## 3. Reseed the items catalog so new items appear
+
+php artisan db:seed --class=Database\\Seeders\\ItemsCatalogSeeder --force
+
+## 4. Update .env (live)
+
+Set these keys on the VPS .env:
+
+  APP_NAME="Clash Wars"
+
+  BROADCAST_CONNECTION=reverb
+
+  REVERB_APP_ID=<generate: openssl rand -hex 8>
+  REVERB_APP_KEY=<generate: openssl rand -hex 16>
+  REVERB_APP_SECRET=<generate: openssl rand -hex 24>
+
+  # The host the Reverb server binds to (usually 0.0.0.0)
+  REVERB_HOST="0.0.0.0"
+  REVERB_PORT=8080
+  REVERB_SCHEME=http
+
+  # What the browser uses to reach it — route through nginx + wss:
+  VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+  VITE_REVERB_HOST="your.domain.tld"
+  VITE_REVERB_PORT=443
+  VITE_REVERB_SCHEME=https
+
+Then rebuild the frontend so Vite bakes the VITE_* values:
+
+  npm run build
+
+## 5. Nginx reverse proxy
+
+Add to your domain's server block (replace /app/ with anything not used):
+
+  location /app/ {
+      proxy_pass http://127.0.0.1:8080;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_read_timeout 60m;
+  }
+
+Then:
+  sudo nginx -t && sudo systemctl reload nginx
+
+If you do NOT use a reverse proxy and prefer to expose Reverb directly,
+set VITE_REVERB_PORT=8080, VITE_REVERB_SCHEME=http, and open 8080 in
+your firewall (ufw allow 8080).
+
+## 6. Supervisor — Reverb worker
+
+  sudo nano /etc/supervisor/conf.d/clashwars-reverb.conf
+
+  [program:clashwars-reverb]
+  process_name=%(program_name)s
+  command=php /path/to/clashwars/artisan reverb:start --host=0.0.0.0 --port=8080
+  autostart=true
+  autorestart=true
+  user=<your deploy user>
+  redirect_stderr=true
+  stdout_logfile=/path/to/clashwars/storage/logs/reverb.log
+  stopwaitsecs=3600
+
+## 7. Supervisor — queue worker (for broadcast dispatching)
+
+  sudo nano /etc/supervisor/conf.d/clashwars-queue.conf
+
+  [program:clashwars-queue]
+  process_name=%(program_name)s_%(process_num)02d
+  command=php /path/to/clashwars/artisan queue:work --tries=3 --timeout=90
+  autostart=true
+  autorestart=true
+  user=<your deploy user>
+  numprocs=1
+  redirect_stderr=true
+  stdout_logfile=/path/to/clashwars/storage/logs/queue.log
+  stopwaitsecs=3600
+
+## 8. Reload supervisor
+
+  sudo supervisorctl reread
+  sudo supervisorctl update
+  sudo supervisorctl start clashwars-reverb:*
+  sudo supervisorctl start clashwars-queue:*
+
+## 9. Verify
+
+  - Open the game in a browser; log in as two different users.
+  - Browser console should show an Echo Pusher connection.
+  - tail -f storage/logs/reverb.log should show the connection handshake.
+  - Have player B raid player A's base; player A should see a toast + an
+    entry in the Activity Log.
+  - Drill with a tier 2+ drill a lot; ~1% of drills should trigger the
+    broken item modal. Repair or abandon and the game resumes.
+  - Try to buy the same Small Rock twice — the second purchase should be
+    rejected as already owned.
+  - Buy a bicycle from a general store, switch to it, move north: the
+    player should travel 2 tiles for 1 move, 0 fuel.
+  - Buy a teleporter (250k barrels) then teleport to an impossible coord
+    like (99999,99999) — should fail without charging barrels.

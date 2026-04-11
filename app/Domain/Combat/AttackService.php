@@ -6,6 +6,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MoveRegenService;
+use App\Events\BaseUnderAttack;
 use App\Models\Attack;
 use App\Models\Player;
 use App\Models\SpyAttempt;
@@ -23,10 +24,18 @@ use Illuminate\Support\Facades\DB;
  *   - Player must not have attacked this same target within
  *     combat.raid_cooldown_hours (default 12)
  *   - Costs actions.attack.move_cost (default 5) moves
- *   - Combat resolves via CombatFormula. On success, loot is capped
- *     at combat.loot_ceiling_pct (default 20%) of the defender's cash.
+ *   - Combat resolves via CombatFormula. If the defender is physically
+ *     standing on their base at the moment of the attack AND the config
+ *     flag combat.at_base_defense_bonus_enabled is true, their scaled
+ *     strength is added to their defense (F2 — "be home to be safer").
+ *   - On success, loot is capped at combat.loot_ceiling_pct (default 20%)
+ *     of the defender's cash.
  *   - An attacks row is always recorded — the defender's attack log
  *     captures both successes and failures.
+ *   - Immediately after commit, BaseUnderAttack + RaidCompleted are
+ *     dispatched to the defender's private channel for toast + activity
+ *     log. Dispatched OUTSIDE the transaction so a broadcast failure
+ *     cannot roll back the raid.
  *
  * Defender's bankruptcy pity stipend is NOT handled here yet — that
  * fires on the next daily tick when BankruptcyService runs.
@@ -46,6 +55,7 @@ class AttackService
      *     attack_id: int,
      *     moves_remaining: int,
      *     final_score: float,
+     *     defender_at_base: bool,
      * }
      */
     public function attack(int $attackerPlayerId): array
@@ -54,7 +64,7 @@ class AttackService
         $spyDecayHours = (int) $this->config->get('combat.spy_decay_hours');
         $raidCooldownHours = (int) $this->config->get('combat.raid_cooldown_hours');
 
-        return DB::transaction(function () use ($attackerPlayerId, $cost, $spyDecayHours, $raidCooldownHours) {
+        $result = DB::transaction(function () use ($attackerPlayerId, $cost, $spyDecayHours, $raidCooldownHours) {
             /** @var Player $attacker */
             $attacker = Player::query()->lockForUpdate()->findOrFail($attackerPlayerId);
 
@@ -110,8 +120,12 @@ class AttackService
                 throw CannotAttackException::inCooldown($raidCooldownHours);
             }
 
+            // F2: is the defender physically at their base right now?
+            $defenderAtBase = $defender->current_tile_id !== null
+                && (int) $defender->current_tile_id === (int) $defender->base_tile_id;
+
             $eventKey = 'atk-'.$attacker->id.'-'.$defender->id.'-'.now()->timestamp;
-            $result = $this->combat->resolveAttack($attacker, $defender, $eventKey);
+            $result = $this->combat->resolveAttack($attacker, $defender, $eventKey, $defenderAtBase);
 
             $cashStolen = (float) $result['cash_stolen'];
 
@@ -148,13 +162,44 @@ class AttackService
                 'created_at' => now(),
             ]);
 
+            // Eager-load attacker's user name BEFORE leaving the transaction
+            // so we don't hold the row lock any longer than needed.
+            $attackerUsername = (string) ($attacker->user?->name ?? 'Unknown');
+
             return [
                 'outcome' => $result['outcome'],
                 'cash_stolen' => $cashStolen,
                 'attack_id' => $attackRow->id,
-                'moves_remaining' => $attacker->moves_current - $cost,
+                // update() already mutated moves_current in-memory.
+                'moves_remaining' => (int) $attacker->moves_current,
                 'final_score' => $result['final_score'],
+                'defender_at_base' => $defenderAtBase,
+                // Carry the user IDs out of the transaction so we can
+                // dispatch broadcast events without re-querying.
+                '_defender_user_id' => (int) $defender->user_id,
+                '_attacker_username' => $attackerUsername,
             ];
         });
+
+        // Dispatch broadcast events AFTER commit — Reverb failures must
+        // not roll back the raid itself.
+        // One event per raid: BaseUnderAttack already carries outcome +
+        // loot, so dispatching RaidCompleted too would double-notify the
+        // defender. RaidCompleted is kept as a class for future use
+        // (e.g., an attacker-side confirmation channel) but is not
+        // dispatched here.
+        if (($this->config->get('notifications.broadcast_enabled'))) {
+            BaseUnderAttack::dispatch(
+                $result['_defender_user_id'],
+                $result['_attacker_username'],
+                $result['outcome'],
+                (float) $result['cash_stolen'],
+                (int) $result['attack_id'],
+            );
+        }
+
+        unset($result['_defender_user_id'], $result['_attacker_username']);
+
+        return $result;
     }
 }

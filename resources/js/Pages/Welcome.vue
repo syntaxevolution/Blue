@@ -32,7 +32,7 @@ const features = [
 </script>
 
 <template>
-    <Head title="Cash Clash — The dust never settles" />
+    <Head title="Clash Wars — The dust never settles" />
 
     <div
         class="min-h-screen bg-zinc-950 text-zinc-100 bg-[radial-gradient(ellipse_at_top,rgba(251,191,36,0.10),transparent_60%)]"
@@ -42,7 +42,7 @@ const features = [
             <div class="flex items-center gap-3">
                 <ApplicationLogo class="h-10 w-10 text-amber-400" />
                 <span class="font-mono text-xl font-black uppercase tracking-widest text-amber-400">
-                    Cash Clash
+                    Clash Wars
                 </span>
             </div>
 
@@ -187,7 +187,7 @@ const features = [
         <!-- Footer -->
         <footer class="border-t border-zinc-900">
             <div class="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-mono uppercase tracking-widest text-zinc-600">
-                <div>Cash Clash — a remake, with the RNG trap fixed.</div>
+                <div>Clash Wars — a remake, with the RNG trap fixed.</div>
                 <div>Persistent world · Single shared grid · ~100 player alpha</div>
             </div>
         </footer>

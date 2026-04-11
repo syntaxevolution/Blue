@@ -13,7 +13,7 @@ import { Link } from '@inertiajs/vue3';
                 <span
                     class="font-mono text-2xl font-black uppercase tracking-[0.2em] text-amber-400"
                 >
-                    Cash Clash
+                    Clash Wars
                 </span>
                 <span class="mt-1 text-xs uppercase tracking-widest text-zinc-500">
                     The dust never settles

@@ -7,6 +7,7 @@ use App\Domain\Config\RngService;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MoveRegenService;
+use App\Events\SpyDetected;
 use App\Models\Player;
 use App\Models\SpyAttempt;
 use App\Models\Tile;
@@ -19,13 +20,13 @@ use Illuminate\Support\Facades\DB;
  * rights on the target for the next combat.spy_decay_hours window
  * (default 24h) and grants intel.spy_depth_1 intel to the spy.
  *
- * Multi-depth spies (2 grants cash+fort visibility, 3 grants guaranteed
- * escape) are spec'd in gameplay-ultraplan §8 but the richer depth
- * flow + UI come in a later pass.
+ * Detection: regardless of success/failure, a separate roll decides
+ * whether the target's security stack caught the spy. If detected,
+ * the SpyAttempt.detected flag is set AND a SpyDetected event is
+ * dispatched to the target's private channel (toast + activity log).
  *
- * Success is rolled from stealth vs security: clamp to a reasonable
- * band so a zero-stealth spy still has some chance and a max-stealth
- * spy isn't guaranteed.
+ * Multi-depth spies (2 grants cash+fort visibility, 3 grants guaranteed
+ * escape) are spec'd in gameplay-ultraplan §8 but come in a later pass.
  */
 class SpyService
 {
@@ -41,13 +42,14 @@ class SpyService
      *     intel_gained: int,
      *     spy_id: int,
      *     moves_remaining: int,
+     *     detected: bool,
      * }
      */
     public function spy(int $spyPlayerId): array
     {
         $cost = (int) $this->config->get('actions.spy.move_cost');
 
-        return DB::transaction(function () use ($spyPlayerId, $cost) {
+        $result = DB::transaction(function () use ($spyPlayerId, $cost) {
             /** @var Player $spy */
             $spy = Player::query()->lockForUpdate()->findOrFail($spyPlayerId);
 
@@ -69,7 +71,7 @@ class SpyService
             }
 
             /** @var Player|null $target */
-            $target = Player::query()->where('base_tile_id', $tile->id)->first();
+            $target = Player::query()->lockForUpdate()->where('base_tile_id', $tile->id)->first();
             if ($target === null) {
                 throw CannotSpyException::targetNotFound();
             }
@@ -85,9 +87,24 @@ class SpyService
 
             $stealth = (int) $spy->stealth;
             $security = (int) $target->security;
-            $baseChance = 0.3 + 0.05 * max(0, $stealth - $security);
-            $successChance = max(0.1, min(0.95, $baseChance));
+            $successBase = (float) $this->config->get('combat.spy.success_base');
+            $successPer = (float) $this->config->get('combat.spy.success_per_stealth_diff');
+            $successMin = (float) $this->config->get('combat.spy.success_chance_min');
+            $successMax = (float) $this->config->get('combat.spy.success_chance_max');
+            $baseChance = $successBase + $successPer * max(0, $stealth - $security);
+            $successChance = max($successMin, min($successMax, $baseChance));
             $success = $roll < $successChance;
+
+            // Detection roll — independent of success.
+            // Detection chance rises with target's security surplus over spy's stealth.
+            $detectBase = (float) $this->config->get('combat.spy.detection_chance_base');
+            $detectPer = (float) $this->config->get('combat.spy.detection_per_security_diff');
+            $detectMin = (float) $this->config->get('combat.spy.detection_chance_min');
+            $detectMax = (float) $this->config->get('combat.spy.detection_chance_max');
+
+            $detectChance = $detectBase + $detectPer * max(0, $security - $stealth);
+            $detectChance = max($detectMin, min($detectMax, $detectChance));
+            $detected = $this->rng->rollBool('combat.spy.detect', $eventKey, $detectChance);
 
             $intelGained = 0;
             if ($success) {
@@ -100,7 +117,7 @@ class SpyService
                 'target_player_id' => $target->id,
                 'target_base_tile_id' => $tile->id,
                 'success' => $success,
-                'detected' => false,
+                'detected' => $detected,
                 'rng_seed' => crc32($eventKey),
                 'rng_output' => (string) $roll,
                 'created_at' => now(),
@@ -112,12 +129,32 @@ class SpyService
             }
             $spy->update($updates);
 
+            $spyUsername = (string) ($spy->user?->name ?? 'Unknown');
+
             return [
                 'outcome' => $success ? 'success' : 'failure',
                 'intel_gained' => $intelGained,
                 'spy_id' => $spyRow->id,
-                'moves_remaining' => $spy->moves_current - $cost,
+                // update() already applied the deduction.
+                'moves_remaining' => (int) $spy->moves_current,
+                'detected' => $detected,
+                '_target_user_id' => (int) $target->user_id,
+                '_spy_username' => $spyUsername,
+                '_spy_succeeded' => $success,
             ];
         });
+
+        // Dispatch detection broadcast AFTER commit.
+        if ($result['detected'] && ($this->config->get('notifications.broadcast_enabled'))) {
+            SpyDetected::dispatch(
+                $result['_target_user_id'],
+                $result['_spy_username'],
+                (bool) $result['_spy_succeeded'],
+            );
+        }
+
+        unset($result['_target_user_id'], $result['_spy_username'], $result['_spy_succeeded']);
+
+        return $result;
     }
 }

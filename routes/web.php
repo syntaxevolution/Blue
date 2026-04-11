@@ -1,8 +1,14 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Web\ActivityLogController;
 use App\Http\Controllers\Web\AtlasController;
+use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Web\ItemBreakController;
 use App\Http\Controllers\Web\MapController;
+use App\Http\Controllers\Web\TeleportController;
+use App\Http\Controllers\Web\TransportController;
+use App\Http\Controllers\Web\UsernameController;
 use App\Http\Controllers\Web\WorldController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -17,24 +23,59 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+// Dashboard is rendered by DashboardController so config values
+// (immunity hours, daily regen, bank cap, starting cash) can be
+// sourced from GameConfig and passed as Inertia props.
+Route::get('/dashboard', [DashboardController::class, 'show'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 // Debug view — placeholder until Phase 1 ships the real map.
 Route::get('/world', [WorldController::class, 'info'])->name('world.info');
 
+// Profile routes — available before username claim and before
+// verification, so users can edit email / claim username without
+// being locked out. Claim flow requires auth but deliberately not
+// require.claimed_username (otherwise you couldn't claim!).
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::get('/map', [MapController::class, 'show'])->name('map.show');
-    Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
-    Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
-    Route::post('/map/purchase', [MapController::class, 'purchase'])->name('map.purchase');
+    Route::post('/username/claim', [UsernameController::class, 'claim'])->name('username.claim');
+});
 
-    Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
+// Full game routes — require email verified AND username claimed.
+// BlockOnBrokenItem intercepts any action the player tries to take
+// while an item repair decision is pending (see ItemBreakService).
+Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(function () {
+
+    // Break resolution routes are NOT behind block.broken_item — these
+    // are the only actions a player can take while broken.
+    Route::post('/items/repair', [ItemBreakController::class, 'repair'])->name('items.repair');
+    Route::post('/items/abandon', [ItemBreakController::class, 'abandon'])->name('items.abandon');
+
+    // Activity log is always accessible (broken or not).
+    Route::get('/activity', [ActivityLogController::class, 'index'])->name('activity.index');
+    Route::post('/activity/{activityLog}/read', [ActivityLogController::class, 'markRead'])->name('activity.read');
+    Route::post('/activity/read-all', [ActivityLogController::class, 'markAllRead'])->name('activity.read_all');
+
+    // Everything else gets the broken-item guard.
+    Route::middleware('block.broken_item')->group(function () {
+        Route::get('/map', [MapController::class, 'show'])->name('map.show');
+        Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
+        Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
+        Route::post('/map/purchase', [MapController::class, 'purchase'])->name('map.purchase');
+        Route::post('/map/spy', [MapController::class, 'spy'])->name('map.spy');
+        Route::post('/map/attack', [MapController::class, 'attack'])->name('map.attack');
+
+        Route::post('/map/transport', [TransportController::class, 'switch'])->name('map.transport');
+
+        Route::get('/map/tile-exists', [TeleportController::class, 'tileExists'])->name('map.tile_exists');
+        Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
+
+        Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
+    });
 });
 
 require __DIR__.'/auth.php';

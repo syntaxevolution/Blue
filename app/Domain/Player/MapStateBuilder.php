@@ -3,6 +3,9 @@
 namespace App\Domain\Player;
 
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Economy\TransportService;
+use App\Domain\Items\StatOverflowService;
+use App\Domain\Notifications\ActivityLogService;
 use App\Domain\World\FogOfWarService;
 use App\Models\DrillPoint;
 use App\Models\Item;
@@ -25,6 +28,9 @@ class MapStateBuilder
         private readonly MoveRegenService $moveRegen,
         private readonly FogOfWarService $fogOfWar,
         private readonly GameConfigResolver $config,
+        private readonly StatOverflowService $statOverflow,
+        private readonly TransportService $transport,
+        private readonly ActivityLogService $activityLog,
     ) {}
 
     /**
@@ -34,6 +40,13 @@ class MapStateBuilder
     {
         $this->moveRegen->reconcile($player);
         $player->refresh();
+
+        // Drain banked stat overflow any time the cap may have been
+        // raised since the last time the player loaded the map.
+        if ($this->statOverflow->drainBank($player)) {
+            $player->save();
+            $player->refresh();
+        }
 
         /** @var Tile $current */
         $current = $player->currentTile;
@@ -57,9 +70,27 @@ class MapStateBuilder
 
         $unlocks = $this->playerUnlocks($player);
 
+        $ownedTransports = $this->transport->ownedKeys($player);
+        $transportCatalog = [];
+        foreach ($this->transport->allKeys() as $key) {
+            $cfg = $this->transport->configFor($key);
+            if ($cfg !== null) {
+                $transportCatalog[$key] = array_merge(['key' => $key], $cfg);
+            }
+        }
+
+        $ownsTeleporter = DB::table('player_items')
+            ->where('player_id', $player->id)
+            ->where('item_key', 'teleporter')
+            ->where('status', 'active')
+            ->where('quantity', '>', 0)
+            ->exists();
+
         return [
             'player' => [
                 'id' => $player->id,
+                'user_id' => (int) $player->user_id,
+                'username' => (string) ($player->user->name ?? ''),
                 'akzar_cash' => (float) $player->akzar_cash,
                 'oil_barrels' => $player->oil_barrels,
                 'intel' => $player->intel,
@@ -68,7 +99,15 @@ class MapStateBuilder
                 'fortification' => $player->fortification,
                 'stealth' => $player->stealth,
                 'security' => $player->security,
+                'strength_banked' => (int) $player->strength_banked,
+                'fortification_banked' => (int) $player->fortification_banked,
+                'stealth_banked' => (int) $player->stealth_banked,
+                'security_banked' => (int) $player->security_banked,
                 'drill_tier' => $player->drill_tier,
+                'active_transport' => (string) ($player->active_transport ?? TransportService::DEFAULT),
+                'owned_transports' => $ownedTransports,
+                'owns_teleporter' => $ownsTeleporter,
+                'broken_item_key' => $player->broken_item_key,
                 'immunity_expires_at' => $player->immunity_expires_at?->toIso8601String(),
                 'base_tile_id' => $player->base_tile_id,
                 'hard_cap' => (int) $this->config->get('stats.hard_cap'),
@@ -76,6 +115,9 @@ class MapStateBuilder
                 'owns_atlas' => in_array('atlas', $unlocks, true),
                 'owns_attack_log' => in_array('attack_log', $unlocks, true),
             ],
+            'transport_catalog' => $transportCatalog,
+            'immunity_hours' => (int) $this->config->get('new_player.immunity_hours'),
+            'unread_activity_count' => $this->activityLog->unreadCount((int) $player->user_id),
             'owned_items' => $this->ownedItems($player),
             'current_tile' => [
                 'id' => $current->id,
@@ -296,24 +338,34 @@ class MapStateBuilder
             }
         }
 
-        if (isset($effects['stat_add']) && is_array($effects['stat_add'])) {
-            $hardCap = (int) $this->config->get('stats.hard_cap');
-            foreach (['strength', 'fortification', 'stealth', 'security'] as $stat) {
-                $delta = (int) ($effects['stat_add'][$stat] ?? 0);
-                if ($delta > 0 && ((int) $player->$stat) + $delta > $hardCap) {
-                    return "Hard cap ({$hardCap})";
-                }
-            }
-        }
-
-        // Already-owned feature unlocks (e.g. Explorer's Atlas, attack log)
-        if (isset($effects['unlocks']) && is_array($effects['unlocks'])) {
+        // Stat items: overflow is banked by StatOverflowService, so never
+        // block on the cap. Instead, enforce "one purchase per item key"
+        // when the config flag is enabled.
+        $singlePurchaseStats = (bool) $this->config->get('stats.stat_items_single_purchase');
+        if ($singlePurchaseStats && isset($effects['stat_add']) && is_array($effects['stat_add'])) {
             $owned = DB::table('player_items')
                 ->where('player_id', $player->id)
                 ->where('item_key', $item->key)
+                ->where('quantity', '>', 0)
                 ->exists();
             if ($owned) {
                 return 'Already owned';
+            }
+        }
+
+        // Feature unlocks, transports, teleporter — all one-time.
+        $singleEffects = ['unlocks', 'unlocks_transport', 'unlocks_teleport'];
+        foreach ($singleEffects as $effectKey) {
+            if (array_key_exists($effectKey, $effects)) {
+                $owned = DB::table('player_items')
+                    ->where('player_id', $player->id)
+                    ->where('item_key', $item->key)
+                    ->where('quantity', '>', 0)
+                    ->exists();
+                if ($owned) {
+                    return 'Already owned';
+                }
+                break;
             }
         }
 

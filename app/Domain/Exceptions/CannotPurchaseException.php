@@ -60,4 +60,9 @@ class CannotPurchaseException extends RuntimeException
     {
         return new self("You already own a tier {$currentTier} drill. A tier {$offeredTier} rig would be a downgrade — best tech only, no stacking.");
     }
+
+    public static function alreadyOwned(string $itemKey): self
+    {
+        return new self("You already own '{$itemKey}' — this item can only be purchased once.");
+    }
 }

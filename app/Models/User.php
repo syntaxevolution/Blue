@@ -2,16 +2,17 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -23,6 +24,7 @@ class User extends Authenticatable implements FilamentUser
      */
     protected $fillable = [
         'name',
+        'name_claimed_at',
         'email',
         'password',
         'is_admin',
@@ -47,6 +49,7 @@ class User extends Authenticatable implements FilamentUser
     {
         return [
             'email_verified_at' => 'datetime',
+            'name_claimed_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
         ];
@@ -62,11 +65,27 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
+     * Has this user completed their one-time username claim?
+     */
+    public function hasClaimedUsername(): bool
+    {
+        return $this->name_claimed_at !== null;
+    }
+
+    /**
      * Gameplay-side shadow. Created by WorldService::spawnPlayer on
      * first world entry; null until then.
      */
     public function player(): HasOne
     {
         return $this->hasOne(Player::class);
+    }
+
+    /**
+     * Activity log entries (incoming attacks, spy detections, etc).
+     */
+    public function activityLogs(): HasMany
+    {
+        return $this->hasMany(ActivityLog::class);
     }
 }

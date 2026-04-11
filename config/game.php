@@ -2,7 +2,7 @@
 
 /*
 |--------------------------------------------------------------------------
-| CashWars Reimagined — Game Configuration
+| Clash Wars (internal: CashWars Reimagined) — Game Configuration
 |--------------------------------------------------------------------------
 |
 | All balance numbers, costs, cooldowns, caps, RNG ranges, and probabilities
@@ -20,17 +20,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Stats & Scaling
+    | Stats & Scaling — hard cap 50, prestige extended to [21,50]
     |--------------------------------------------------------------------------
     */
     'stats' => [
-        'hard_cap' => 25,
+        'hard_cap' => 50,
         'soft_plateau_start' => 15,
         'scaling' => [
             'linear_range' => [1, 15],
             'partial_range' => [16, 20],
             'partial_efficiency' => 0.6,
-            'prestige_range' => [21, 25],
+            'prestige_range' => [21, 50],
             'prestige_efficiency' => 0.3,
         ],
         'starting' => [
@@ -39,6 +39,8 @@ return [
             'stealth' => 0,
             'security' => 0,
         ],
+        // When true, stat-add items can only be purchased once per key.
+        'stat_items_single_purchase' => true,
     ],
 
     /*
@@ -50,13 +52,33 @@ return [
         'formula_version' => 'v1',
         'rng_band_min' => -0.10,
         'rng_band_max' => 0.15,
+        // Loot curve: loot_pct = min(loot_ceiling, loot_base_pct + loot_scale_factor * finalScore)
+        'loot_base_pct' => 0.05,
+        'loot_scale_factor' => 0.15,
         'loot_ceiling_pct' => 0.20,
         'raid_cooldown_hours' => 12,
         'spy_decay_hours' => 24,
+        // When true, a defender who is physically on their base tile
+        // gets scaledStat(strength) added to their fortification for
+        // defense. This is the first real incentive to return home
+        // before running out of moves.
+        'at_base_defense_bonus_enabled' => true,
         'spy' => [
             'depth_1_grants' => 'attack_auth',
             'depth_2_grants' => 'cash_and_fort',
             'depth_3_grants' => 'guaranteed_escape',
+            // Spy detection: chance starts at base, +per_security_diff for each
+            // point target.security exceeds spy.stealth, clamped to [min, max].
+            'detection_chance_base' => 0.20,
+            'detection_per_security_diff' => 0.02,
+            'detection_chance_min' => 0.02,
+            'detection_chance_max' => 0.95,
+            // Spy success curve (was hardcoded in SpyService):
+            //   success = clamp(success_base + success_per_stealth_diff * max(0, stealth - security), min, max)
+            'success_base' => 0.30,
+            'success_per_stealth_diff' => 0.05,
+            'success_chance_min' => 0.10,
+            'success_chance_max' => 0.95,
         ],
     ],
 
@@ -71,6 +93,8 @@ return [
         'spy' => ['move_cost' => 3],
         'attack' => ['move_cost' => 5],
         'shop' => ['move_cost' => 0],
+        // Teleport is a transport-like action; costs are in the 'teleport' block below.
+        'teleport' => ['move_cost' => 1],
     ],
 
     /*
@@ -84,6 +108,9 @@ return [
         'regen_mode' => 'continuous',
         'regen_tick_seconds' => 432,
         'bank_cap_multiplier' => 1.75,
+        // When true, purchases like extra_moves_pack may raise moves_current
+        // above the bank cap. They do NOT raise the cap itself.
+        'allow_overflow_from_purchases' => true,
         'sponsor' => [
             'cap_pct_of_monthly' => 0.25,
             'cooldown_hours_per_offer' => 720,
@@ -99,6 +126,9 @@ return [
         'grid_size' => 5,
         'drill_point_regen_hours' => 12,
         'daily_limit_per_field' => 5,
+        // Tech item break roll fires per drill use on non-starter drills.
+        // 1% default. Tier 1 (implicit starter, not in player_items) is exempt.
+        'break_chance_pct' => 0.01,
         'quality_weights' => [
             'dry' => 0.30,
             'trickle' => 0.40,
@@ -118,6 +148,22 @@ return [
             4 => ['name' => 'Heavy Drill',    'yield_multiplier' => 2.0, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],
             5 => ['name' => 'Industrial Rig', 'yield_multiplier' => 2.5, 'eliminates_dry' => true,  'guarantees_standard_plus' => 0],
             6 => ['name' => 'Refinery',       'yield_multiplier' => 3.0, 'eliminates_dry' => true,  'guarantees_standard_plus' => 1],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Items — break/repair/abandon lifecycle
+    |--------------------------------------------------------------------------
+    | Currently only drill-tier items break (effect key 'set_drill_tier').
+    | To extend: add another effect key to eligible_effect_keys and hook
+    | the break roll into the relevant service (e.g., TransportMovementService).
+    */
+    'items' => [
+        'break' => [
+            'enabled' => true,
+            'eligible_effect_keys' => ['set_drill_tier'],
+            'repair_cost_pct' => 0.10,
         ],
     ],
 
@@ -162,7 +208,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | New Player — 48h immunity, starter loadout
+    | New Player — 48h immunity, starter loadout, email verification gate
     |--------------------------------------------------------------------------
     */
     'new_player' => [
@@ -170,6 +216,10 @@ return [
         'starting_cash' => 5.00,
         'starting_strength' => 1,
         'starting_drill_tier' => 1,
+        // When true, users must verify their email address before game
+        // routes become accessible. Login is still allowed, but the
+        // verified middleware redirects to the verification notice.
+        'require_email_verification' => true,
         'starter_pack' => [
             'tutorial_compass' => 1,
             'paper_map_1' => 1,
@@ -177,6 +227,63 @@ return [
             'seismic_reading' => 1,
             'fuel_can' => 1,
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Usernames — case-insensitive unique, alphanumeric, locked once claimed
+    |--------------------------------------------------------------------------
+    */
+    'username' => [
+        'min_length' => 5,
+        'max_length' => 15,
+        // Regex applied client + server side. Alphanumeric only.
+        'pattern' => '/^[a-zA-Z0-9]{5,15}$/',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | General Store — extra moves, transport modes, teleporter
+    |--------------------------------------------------------------------------
+    */
+    'general_store' => [
+        'extra_moves' => [
+            'enabled' => true,
+            'cost_barrels' => 1000,
+            'amount' => 10,
+        ],
+        // Transport modes. walking is the implicit default (always owned).
+        // spaces = tiles traversed per button press
+        // fuel   = oil_barrels deducted per button press
+        // flags  = special behaviours (reveal_path, reveal_cardinal_neighbours)
+        'transport' => [
+            'bicycle'     => ['cost_barrels' => 500,    'spaces' => 2,  'fuel' => 0,  'flags' => []],
+            'motorcycle'  => ['cost_barrels' => 1500,   'spaces' => 5,  'fuel' => 1,  'flags' => []],
+            'sand_runner' => ['cost_barrels' => 5000,   'spaces' => 10, 'fuel' => 2,  'flags' => ['reveal_cardinal_neighbours']],
+            'helicopter'  => ['cost_barrels' => 25000,  'spaces' => 25, 'fuel' => 5,  'flags' => []],
+            'airplane'    => ['cost_barrels' => 100000, 'spaces' => 50, 'fuel' => 10, 'flags' => ['reveal_path']],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Teleporter — buy once, use unlimited, validate destination before charging
+    |--------------------------------------------------------------------------
+    */
+    'teleport' => [
+        'enabled' => true,
+        'purchase_cost_barrels' => 250000,
+        'cost_barrels' => 5000,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications — Reverb broadcasting + activity log
+    |--------------------------------------------------------------------------
+    */
+    'notifications' => [
+        'broadcast_enabled' => true,
+        'activity_log_retention_days' => 90,
     ],
 
     /*

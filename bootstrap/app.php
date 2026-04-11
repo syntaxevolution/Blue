@@ -10,6 +10,7 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         apiPrefix: 'api',
         commands: __DIR__.'/../routes/console.php',
+        channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
@@ -18,7 +19,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
 
-        //
+        $middleware->alias([
+            'require.claimed_username' => \App\Http\Middleware\RequireClaimedUsername::class,
+            'block.broken_item' => \App\Http\Middleware\BlockOnBrokenItem::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

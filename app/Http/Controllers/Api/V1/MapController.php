@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Combat\AttackService;
+use App\Domain\Combat\SpyService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
+use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\CannotPurchaseException;
+use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
@@ -22,8 +26,12 @@ use Illuminate\Http\Request;
 /**
  * REST mirror of Web\MapController for the /api/v1/map/* surface.
  *
- * GET  /api/v1/map       — current tile + player state + edge hints
- * POST /api/v1/map/move  — travel N/S/E/W one tile
+ * GET  /api/v1/map          — current tile + player state + edge hints
+ * POST /api/v1/map/move     — travel N/S/E/W (1 tile walking or N via transport)
+ * POST /api/v1/map/drill    — drill one cell of the 5×5 sub-grid
+ * POST /api/v1/map/purchase — buy an item at the current post
+ * POST /api/v1/map/spy      — recon an enemy base
+ * POST /api/v1/map/attack   — raid an enemy base
  *
  * Both endpoints require auth:sanctum (see routes/api.php).
  */
@@ -34,6 +42,8 @@ class MapController extends Controller
         private readonly TravelService $travel,
         private readonly DrillService $drillSvc,
         private readonly ShopService $shop,
+        private readonly SpyService $spySvc,
+        private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
     ) {}
 
@@ -93,6 +103,38 @@ class MapController extends Controller
             );
         } catch (CannotPurchaseException $e) {
             return response()->json(['errors' => ['purchase' => $e->getMessage()]], 422);
+        }
+
+        return new MapStateResource($this->mapState->build($player->fresh()));
+    }
+
+    public function spy(Request $request): MapStateResource|JsonResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $this->spySvc->spy($player->id);
+        } catch (InsufficientMovesException $e) {
+            return response()->json(['errors' => ['spy' => $e->getMessage()]], 422);
+        } catch (CannotSpyException $e) {
+            return response()->json(['errors' => ['spy' => $e->getMessage()]], 422);
+        }
+
+        return new MapStateResource($this->mapState->build($player->fresh()));
+    }
+
+    public function attack(Request $request): MapStateResource|JsonResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $this->attackSvc->attack($player->id);
+        } catch (InsufficientMovesException $e) {
+            return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
+        } catch (CannotAttackException $e) {
+            return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
         }
 
         return new MapStateResource($this->mapState->build($player->fresh()));
