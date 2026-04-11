@@ -9,6 +9,7 @@ use App\Domain\Combat\SpyService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
+use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\ExtraMovesService;
 use App\Domain\Economy\ShopService;
 use App\Domain\Economy\TeleportService;
@@ -53,6 +54,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(TravelService::class);
         $this->app->singleton(MapStateBuilder::class);
         $this->app->singleton(DrillService::class);
+        $this->app->singleton(OilFieldRegenService::class);
         $this->app->singleton(ShopService::class);
         $this->app->singleton(CombatFormula::class);
         $this->app->singleton(SpyService::class);

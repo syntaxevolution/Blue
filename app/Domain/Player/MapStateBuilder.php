@@ -3,6 +3,7 @@
 namespace App\Domain\Player;
 
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\TransportService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
@@ -31,6 +32,7 @@ class MapStateBuilder
         private readonly StatOverflowService $statOverflow,
         private readonly TransportService $transport,
         private readonly ActivityLogService $activityLog,
+        private readonly OilFieldRegenService $fieldRegen,
     ) {}
 
     /**
@@ -235,7 +237,7 @@ class MapStateBuilder
     }
 
     /**
-     * @return array{kind:string, grid: list<array{grid_x:int, grid_y:int, quality:string, drilled:bool}>, daily_count:int, daily_limit:int}
+     * @return array{kind:string, grid: list<array{grid_x:int, grid_y:int, quality:string, drilled:bool}>, daily_count:int, daily_limit:int, refill_at:?string, fully_depleted:bool}
      */
     private function oilFieldDetail(Tile $tile, Player $player): array
     {
@@ -244,6 +246,8 @@ class MapStateBuilder
 
         $grid = [];
         $dailyCount = 0;
+        $refillAt = null;
+        $fullyDepleted = false;
         // Same defensive fallback as DrillService.
         $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field', 5);
         if ($dailyLimit <= 0) {
@@ -251,6 +255,10 @@ class MapStateBuilder
         }
 
         if ($field) {
+            // Lazy refill: if this field has been fully depleted long
+            // enough, reset its drill points before we build the grid.
+            $field = $this->fieldRegen->reconcile($field);
+
             $points = DrillPoint::query()
                 ->where('oil_field_id', $field->id)
                 ->orderBy('grid_y')
@@ -273,6 +281,12 @@ class MapStateBuilder
                 ->first();
 
             $dailyCount = $countRow ? (int) $countRow->drill_count : 0;
+
+            $fullyDepleted = $field->depleted_at !== null;
+            $refillAtCarbon = $this->fieldRegen->refillAt($field);
+            if ($refillAtCarbon !== null) {
+                $refillAt = $refillAtCarbon->toIso8601String();
+            }
         }
 
         return [
@@ -280,6 +294,8 @@ class MapStateBuilder
             'grid' => $grid,
             'daily_count' => $dailyCount,
             'daily_limit' => $dailyLimit,
+            'refill_at' => $refillAt,
+            'fully_depleted' => $fullyDepleted,
         ];
     }
 

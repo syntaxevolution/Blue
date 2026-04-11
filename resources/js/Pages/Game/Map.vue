@@ -88,6 +88,8 @@ interface OilFieldDetail {
     grid: DrillCell[];
     daily_count: number;
     daily_limit: number;
+    refill_at: string | null;
+    fully_depleted: boolean;
 }
 
 interface PostDetail {
@@ -228,6 +230,24 @@ const dailyDrillLimitReached = computed(() => {
     const { daily_count, daily_limit } = props.state.tile_detail;
     if (!daily_limit || daily_limit <= 0) return false;
     return daily_count >= daily_limit;
+});
+
+// Human-friendly "in 4h 12m" / "any moment now" copy for the field
+// refill banner. Computed off refill_at which the backend sends as an
+// ISO timestamp so the server is the source of truth.
+const refillCountdown = computed<string>(() => {
+    if (props.state.tile_detail?.kind !== 'oil_field') return '';
+    const iso = props.state.tile_detail.refill_at;
+    if (!iso) return '';
+    const ts = new Date(iso).getTime();
+    if (Number.isNaN(ts)) return '';
+    const diffMs = ts - Date.now();
+    if (diffMs <= 0) return 'any moment now';
+    const totalMin = Math.round(diffMs / 60000);
+    if (totalMin < 60) return `in ${totalMin}m`;
+    const hours = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
 });
 
 function drillCellClass(cell: DrillCell | undefined): string {
@@ -461,7 +481,10 @@ const canAttackNow = computed(() => {
                                         <span :class="dailyDrillLimitReached ? 'text-rose-400' : 'text-amber-400'">
                                             Drilled today: {{ state.tile_detail.daily_count }}/{{ state.tile_detail.daily_limit || 5 }}
                                         </span>
-                                        <span v-if="dailyDrillLimitReached" class="text-rose-400 ml-2">· limit reached, returns at midnight</span>
+                                        <span v-if="dailyDrillLimitReached" class="text-rose-400 ml-2">· your daily limit on this field resets tomorrow</span>
+                                    </div>
+                                    <div v-if="state.tile_detail.fully_depleted" class="mb-3 rounded border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs font-mono text-amber-200">
+                                        Field fully depleted — refills {{ refillCountdown }}.
                                     </div>
                                     <div class="inline-block max-w-full">
                                         <div v-for="y in [4, 3, 2, 1, 0]" :key="y" class="flex gap-1 mb-1 justify-center">

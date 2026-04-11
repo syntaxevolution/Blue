@@ -52,6 +52,7 @@ class DrillService
         private readonly MoveRegenService $moveRegen,
         private readonly ItemBreakService $itemBreak,
         private readonly PassiveBonusService $passiveBonus,
+        private readonly OilFieldRegenService $fieldRegen,
     ) {}
 
     /**
@@ -103,6 +104,13 @@ class DrillService
                 ->where('tile_id', $tile->id)
                 ->firstOrFail();
 
+            // Lazy refill: if this field has been fully depleted for
+            // `drilling.field_refill_hours`, unmark every drill point
+            // before we check whether the target cell is available.
+            // Reconcile is idempotent and cheap when the field isn't
+            // due for regen, so calling it on every drill is fine.
+            $field = $this->fieldRegen->reconcile($field);
+
             // Apply any passive daily_drill_limit_bonus from owned items.
             $dailyLimit += $this->passiveBonus->drillLimitBonus($player);
 
@@ -142,6 +150,12 @@ class DrillService
             $barrels = (int) floor($rawBarrels * (1.0 + $bonusPct));
 
             $point->update(['drilled_at' => now()]);
+
+            // If that was the last undrilled cell, stamp the field's
+            // depleted_at so the refill countdown starts. Any subsequent
+            // read within the refill window will see the depleted state;
+            // the next read after the window passes will clear it.
+            $this->fieldRegen->markIfDepleted($field);
 
             $player->update([
                 'moves_current' => $player->moves_current - $cost,

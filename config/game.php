@@ -124,7 +124,15 @@ return [
     */
     'drilling' => [
         'grid_size' => 5,
+        // Legacy key from the original spec — kept for reference but
+        // unused. Refill is now driven by `field_refill_hours` below,
+        // which measures from full depletion, not from last regen.
         'drill_point_regen_hours' => 12,
+        // Hours a fully-depleted field waits before all of its drill
+        // points refill. Lazy reconcile: OilFieldRegenService applies
+        // the reset on the next read (drill attempt or map state build)
+        // after `depleted_at + field_refill_hours` is in the past.
+        'field_refill_hours' => 6,
         'daily_limit_per_field' => 5,
         // Tech item break roll fires per drill use on non-starter drills.
         // 1% default. Tier 1 (implicit starter, not in player_items) is exempt.
