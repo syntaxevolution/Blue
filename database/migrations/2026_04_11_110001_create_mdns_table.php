@@ -21,12 +21,16 @@ return new class extends Migration
             $table->index('member_count');
         });
 
-        // Case-insensitive uniqueness on name + tag, mirroring the
-        // users.name_lower_unique pattern in 2026_04_11_000001.
+        // Case-insensitive uniqueness on name + tag. MariaDB rejects the
+        // MySQL 8 functional-index syntax `((LOWER(name)))`, so we use a
+        // generated-column + regular-index approach that works on both
+        // MySQL 5.7+ and MariaDB 10.2+.
         $driver = DB::connection()->getDriverName();
         if ($driver === 'mysql') {
-            DB::statement('CREATE UNIQUE INDEX mdns_name_lower_unique ON mdns ((LOWER(name)))');
-            DB::statement('CREATE UNIQUE INDEX mdns_tag_lower_unique ON mdns ((LOWER(tag)))');
+            DB::statement('ALTER TABLE mdns ADD COLUMN name_lower VARCHAR(50) AS (LOWER(name)) VIRTUAL');
+            DB::statement('ALTER TABLE mdns ADD COLUMN tag_lower VARCHAR(8) AS (LOWER(tag)) VIRTUAL');
+            DB::statement('CREATE UNIQUE INDEX mdns_name_lower_unique ON mdns (name_lower)');
+            DB::statement('CREATE UNIQUE INDEX mdns_tag_lower_unique ON mdns (tag_lower)');
         } elseif (in_array($driver, ['sqlite', 'pgsql'], true)) {
             DB::statement('CREATE UNIQUE INDEX mdns_name_lower_unique ON mdns (LOWER(name))');
             DB::statement('CREATE UNIQUE INDEX mdns_tag_lower_unique ON mdns (LOWER(tag))');
@@ -35,15 +39,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        $driver = DB::connection()->getDriverName();
-        if ($driver === 'mysql') {
-            DB::statement('ALTER TABLE mdns DROP INDEX mdns_name_lower_unique');
-            DB::statement('ALTER TABLE mdns DROP INDEX mdns_tag_lower_unique');
-        } elseif (in_array($driver, ['sqlite', 'pgsql'], true)) {
-            DB::statement('DROP INDEX IF EXISTS mdns_name_lower_unique');
-            DB::statement('DROP INDEX IF EXISTS mdns_tag_lower_unique');
-        }
-
         Schema::dropIfExists('mdns');
     }
 };
