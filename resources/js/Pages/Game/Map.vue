@@ -75,6 +75,7 @@ interface ShopItem {
     effects: Effects | null;
     category: string;
     category_order: number;
+    owned_quantity: number;
     can_afford: boolean;
     can_purchase: boolean;
     block_reason: string | null;
@@ -182,6 +183,19 @@ const neighborByDirection = computed<Record<string, Neighbor | null>>(() => {
         if (n.direction) map[n.direction] = n;
     }
     return map;
+});
+
+// Current transport shape (spaces + fuel) so the direction buttons can
+// show "×50" and "5 fuel" badges for airplane/helicopter, making the
+// magnitude of each press obvious before the player clicks.
+const activeTransportInfo = computed(() => {
+    const key = props.state.player.active_transport ?? 'walking';
+    const cfg = props.state.transport_catalog?.[key];
+    return {
+        key,
+        spaces: cfg?.spaces ?? 1,
+        fuel: cfg?.fuel ?? 0,
+    };
 });
 
 function travel(direction: 'n' | 's' | 'e' | 'w') {
@@ -447,8 +461,16 @@ const canAttackNow = computed(() => {
                         <span class="text-amber-400 text-xl sm:text-2xl">↑</span>
                         <TileIcon v-if="neighborByDirection.n" :type="neighborByDirection.n.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.n.type)" />
                         <div class="text-left min-w-0">
-                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">North</div>
-                            <div class="text-xs sm:text-sm text-zinc-300 break-words">{{ neighborByDirection.n?.type ?? '— edge —' }}</div>
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+                                <span>North</span>
+                                <span v-if="activeTransportInfo.spaces > 1" class="text-amber-400 font-bold">×{{ activeTransportInfo.spaces }}</span>
+                                <span v-if="activeTransportInfo.fuel > 0" class="text-rose-400">· {{ activeTransportInfo.fuel }} fuel</span>
+                            </div>
+                            <div class="text-xs sm:text-sm text-zinc-300 break-words">
+                                <template v-if="neighborByDirection.n">{{ neighborByDirection.n.type }}</template>
+                                <template v-else-if="activeTransportInfo.spaces > 1">— past the frontier —</template>
+                                <template v-else>— edge —</template>
+                            </div>
                         </div>
                     </button>
 
@@ -462,8 +484,15 @@ const canAttackNow = computed(() => {
                         >
                             <span class="text-amber-400 text-xl sm:text-2xl">←</span>
                             <TileIcon v-if="neighborByDirection.w" :type="neighborByDirection.w.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.w.type)" />
-                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">West</div>
-                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.w?.type ?? '— edge —' }}</div>
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1">
+                                <span>West</span>
+                                <span v-if="activeTransportInfo.spaces > 1" class="text-amber-400 font-bold">×{{ activeTransportInfo.spaces }}</span>
+                            </div>
+                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">
+                                <template v-if="neighborByDirection.w">{{ neighborByDirection.w.type }}</template>
+                                <template v-else-if="activeTransportInfo.spaces > 1">— past frontier —</template>
+                                <template v-else>— edge —</template>
+                            </div>
                         </button>
 
                         <!-- CENTER -->
@@ -549,7 +578,10 @@ const canAttackNow = computed(() => {
                                             </div>
                                             <div class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-2 sm:gap-3">
                                                 <div class="flex-1 min-w-0">
-                                                    <div class="text-zinc-100 text-sm font-bold break-words">{{ item.name }}</div>
+                                                    <div class="text-zinc-100 text-sm font-bold break-words">
+                                                        {{ item.name }}
+                                                        <span v-if="item.owned_quantity > 0" class="ml-1 text-amber-400/80 text-[10px] uppercase tracking-widest">owned ×{{ item.owned_quantity }}</span>
+                                                    </div>
                                                     <div v-if="item.description" class="text-zinc-500 text-xs mt-0.5 break-words">{{ item.description }}</div>
                                                     <div class="text-emerald-400 text-xs mt-1 break-words">
                                                         <span v-for="(effect, effectIdx) in formatEffects(item.effects)" :key="effectIdx" class="mr-2">{{ effect }}</span>
@@ -665,8 +697,15 @@ const canAttackNow = computed(() => {
                         >
                             <span class="text-amber-400 text-xl sm:text-2xl">→</span>
                             <TileIcon v-if="neighborByDirection.e" :type="neighborByDirection.e.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.e.type)" />
-                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">East</div>
-                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.e?.type ?? '— edge —' }}</div>
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1">
+                                <span>East</span>
+                                <span v-if="activeTransportInfo.spaces > 1" class="text-amber-400 font-bold">×{{ activeTransportInfo.spaces }}</span>
+                            </div>
+                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">
+                                <template v-if="neighborByDirection.e">{{ neighborByDirection.e.type }}</template>
+                                <template v-else-if="activeTransportInfo.spaces > 1">— past frontier —</template>
+                                <template v-else>— edge —</template>
+                            </div>
                         </button>
                     </div>
 
@@ -680,8 +719,16 @@ const canAttackNow = computed(() => {
                         <span class="text-amber-400 text-xl sm:text-2xl">↓</span>
                         <TileIcon v-if="neighborByDirection.s" :type="neighborByDirection.s.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.s.type)" />
                         <div class="text-left min-w-0">
-                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">South</div>
-                            <div class="text-xs sm:text-sm text-zinc-300 break-words">{{ neighborByDirection.s?.type ?? '— edge —' }}</div>
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+                                <span>South</span>
+                                <span v-if="activeTransportInfo.spaces > 1" class="text-amber-400 font-bold">×{{ activeTransportInfo.spaces }}</span>
+                                <span v-if="activeTransportInfo.fuel > 0" class="text-rose-400">· {{ activeTransportInfo.fuel }} fuel</span>
+                            </div>
+                            <div class="text-xs sm:text-sm text-zinc-300 break-words">
+                                <template v-if="neighborByDirection.s">{{ neighborByDirection.s.type }}</template>
+                                <template v-else-if="activeTransportInfo.spaces > 1">— past the frontier —</template>
+                                <template v-else>— edge —</template>
+                            </div>
                         </div>
                     </button>
 

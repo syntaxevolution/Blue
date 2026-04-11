@@ -38,7 +38,7 @@ function makePlayerWithStats(array $overrides = []): Player
     return $player->fresh();
 }
 
-it('ranks players by akzar cash descending and caps at 5 rows', function () {
+it('ranks players by akzar cash descending and caps at 5 top rows', function () {
     // 7 players with distinct cash values so the top 5 are unambiguous.
     makePlayerWithStats(['akzar_cash' => 10.00]);
     makePlayerWithStats(['akzar_cash' => 500.00]);
@@ -50,14 +50,15 @@ it('ranks players by akzar cash descending and caps at 5 rows', function () {
 
     $boards = app(LeaderboardService::class)->boards();
 
-    expect($boards['akzar_cash'])->toHaveCount(5);
-    expect($boards['akzar_cash'][0]['value'])->toBe(999.99);
-    expect($boards['akzar_cash'][1]['value'])->toBe(500.00);
-    expect($boards['akzar_cash'][2]['value'])->toBe(250.00);
-    expect($boards['akzar_cash'][3]['value'])->toBe(125.00);
-    expect($boards['akzar_cash'][4]['value'])->toBe(50.00);
-    expect($boards['akzar_cash'][0]['rank'])->toBe(1);
-    expect($boards['akzar_cash'][4]['rank'])->toBe(5);
+    expect($boards['akzar_cash']['top'])->toHaveCount(5);
+    expect($boards['akzar_cash']['top'][0]['value'])->toBe(999.99);
+    expect($boards['akzar_cash']['top'][1]['value'])->toBe(500.00);
+    expect($boards['akzar_cash']['top'][2]['value'])->toBe(250.00);
+    expect($boards['akzar_cash']['top'][3]['value'])->toBe(125.00);
+    expect($boards['akzar_cash']['top'][4]['value'])->toBe(50.00);
+    expect($boards['akzar_cash']['top'][0]['rank'])->toBe(1);
+    expect($boards['akzar_cash']['top'][4]['rank'])->toBe(5);
+    expect($boards['akzar_cash']['viewer'])->toBeNull();
 });
 
 it('ranks players by stored oil descending', function () {
@@ -67,9 +68,9 @@ it('ranks players by stored oil descending', function () {
 
     $boards = app(LeaderboardService::class)->boards();
 
-    expect($boards['stored_oil'][0]['value'])->toBe(5000);
-    expect($boards['stored_oil'][1]['value'])->toBe(2500);
-    expect($boards['stored_oil'][2]['value'])->toBe(100);
+    expect($boards['stored_oil']['top'][0]['value'])->toBe(5000);
+    expect($boards['stored_oil']['top'][1]['value'])->toBe(2500);
+    expect($boards['stored_oil']['top'][2]['value'])->toBe(100);
 });
 
 it('ranks players by sum of str + fort + stealth + security', function () {
@@ -79,9 +80,9 @@ it('ranks players by sum of str + fort + stealth + security', function () {
 
     $boards = app(LeaderboardService::class)->boards();
 
-    expect($boards['stat_total'][0]['value'])->toBe(60);
-    expect($boards['stat_total'][1]['value'])->toBe(20);
-    expect($boards['stat_total'][2]['value'])->toBe(4);
+    expect($boards['stat_total']['top'][0]['value'])->toBe(60);
+    expect($boards['stat_total']['top'][1]['value'])->toBe(20);
+    expect($boards['stat_total']['top'][2]['value'])->toBe(4);
 });
 
 it('includes bots without flagging them as bots', function () {
@@ -95,29 +96,77 @@ it('includes bots without flagging them as bots', function () {
 
     // Bot is the only player with cash — must sit at rank 1 and
     // the payload must not contain any bot marker.
-    $top = $boards['akzar_cash'][0];
+    $top = $boards['akzar_cash']['top'][0];
     expect($top['player_id'])->toBe($bot->id);
     expect($top['username'])->toBe('RustyJack');
     expect($top)->not->toHaveKey('is_bot');
 });
 
-it('memoizes results — a second call does not re-query the DB', function () {
-    makePlayerWithStats(['akzar_cash' => 500.00]);
+it('memoizes top-N but recomputes viewer row per call', function () {
+    $viewer = makePlayerWithStats(['akzar_cash' => 500.00]);
 
     $service = app(LeaderboardService::class);
-    $first = $service->boards();
+    $first = $service->boards($viewer);
 
     // Add a richer player *after* the first call. Without cache busting
-    // the second call should still return the stale top-5.
+    // the top-N should stay stale at 500.
     makePlayerWithStats(['akzar_cash' => 99999.99]);
 
-    $second = $service->boards();
-    expect($second['akzar_cash'][0]['value'])->toBe(500.00);
+    $second = $service->boards($viewer);
+    expect($second['akzar_cash']['top'][0]['value'])->toBe(500.00);
 
     // After bust(), the new player appears.
     $service->bust();
-    $third = $service->boards();
-    expect($third['akzar_cash'][0]['value'])->toBe(99999.99);
+    $third = $service->boards($viewer);
+    expect($third['akzar_cash']['top'][0]['value'])->toBe(99999.99);
+});
+
+it('returns a viewer row when the player is outside the top 5', function () {
+    // 5 other players with higher cash than the viewer.
+    makePlayerWithStats(['akzar_cash' => 1000.00]);
+    makePlayerWithStats(['akzar_cash' => 900.00]);
+    makePlayerWithStats(['akzar_cash' => 800.00]);
+    makePlayerWithStats(['akzar_cash' => 700.00]);
+    makePlayerWithStats(['akzar_cash' => 600.00]);
+
+    // Viewer is 6th.
+    $viewer = makePlayerWithStats(['akzar_cash' => 50.00]);
+
+    $boards = app(LeaderboardService::class)->boards($viewer);
+
+    expect($boards['akzar_cash']['top'])->toHaveCount(5);
+    expect($boards['akzar_cash']['viewer'])->not->toBeNull();
+    expect($boards['akzar_cash']['viewer']['rank'])->toBe(6);
+    expect($boards['akzar_cash']['viewer']['player_id'])->toBe($viewer->id);
+    expect($boards['akzar_cash']['viewer']['value'])->toBe(50.00);
+});
+
+it('returns null viewer row when the player is in the top 5', function () {
+    $viewer = makePlayerWithStats(['akzar_cash' => 9999.99]);
+
+    $boards = app(LeaderboardService::class)->boards($viewer);
+
+    expect($boards['akzar_cash']['top'][0]['player_id'])->toBe($viewer->id);
+    expect($boards['akzar_cash']['viewer'])->toBeNull();
+});
+
+it('viewer rank uses id tiebreaker when values match', function () {
+    // 3 players all with exactly 100 cash. The viewer is the last
+    // one created (highest id), so they sit at rank 3.
+    makePlayerWithStats(['akzar_cash' => 100.00]);
+    makePlayerWithStats(['akzar_cash' => 100.00]);
+    $viewer = makePlayerWithStats(['akzar_cash' => 100.00]);
+
+    // Push 5 richer players above them so the viewer falls out of top 5.
+    for ($i = 0; $i < 5; $i++) {
+        makePlayerWithStats(['akzar_cash' => 500.00 + $i]);
+    }
+
+    $boards = app(LeaderboardService::class)->boards($viewer);
+
+    expect($boards['akzar_cash']['viewer'])->not->toBeNull();
+    // 5 richer players (ranks 1-5) + 2 tied players with lower id = rank 8
+    expect($boards['akzar_cash']['viewer']['rank'])->toBe(8);
 });
 
 it('dashboard response embeds leaderboards and current player id', function () {
@@ -130,9 +179,9 @@ it('dashboard response embeds leaderboards and current player id', function () {
     $response->assertOk();
     $response->assertInertia(fn ($page) => $page
         ->component('Dashboard')
-        ->has('leaderboards.akzar_cash')
-        ->has('leaderboards.stored_oil')
-        ->has('leaderboards.stat_total')
+        ->has('leaderboards.akzar_cash.top')
+        ->has('leaderboards.stored_oil.top')
+        ->has('leaderboards.stat_total.top')
         ->where('currentPlayerId', $user->player->id)
     );
 });

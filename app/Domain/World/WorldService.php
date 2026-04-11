@@ -4,11 +4,13 @@ namespace App\Domain\World;
 
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
+use App\Domain\Notifications\ActivityLogService;
 use App\Models\DrillPoint;
 use App\Models\OilField;
 use App\Models\Player;
 use App\Models\Post;
 use App\Models\Tile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -78,6 +80,7 @@ class WorldService
         private readonly GameConfigResolver $config,
         private readonly RngService $rng,
         private readonly FogOfWarService $fogOfWar,
+        private readonly ActivityLogService $activityLog,
     ) {}
 
     /**
@@ -573,51 +576,98 @@ class WorldService
             return 0;
         }
 
-        $trigger = (float) $this->config->get('world.growth.trigger_players_per_tile');
-        $density = $this->currentHumanPlayerDensity();
+        // Application-level mutex. Two concurrent callers (scheduler +
+        // a manual `php artisan world:grow`, or any future admin API
+        // hook) would otherwise both read the same density, both compute
+        // the same target ring, and the second transaction would
+        // explode on the tiles.(x,y) unique index mid-insertion. The
+        // lock wraps the density check AND the insert so those steps
+        // are effectively atomic from any other growth caller's point
+        // of view. `withoutOverlapping` on the scheduler protects
+        // schedule-vs-schedule only — this covers all other paths too.
+        //
+        // `->get()` acquires non-blockingly: returns true if this caller
+        // owns the lock, false if another process is already mid-growth.
+        // 120-second owner TTL matches the scheduler's 30-minute window
+        // with headroom for a slow DB — a stuck PHP worker can't wedge
+        // growth forever.
+        $lock = Cache::lock('world.growth.expand', 120);
 
-        if ($density <= $trigger) {
+        if (! $lock->get()) {
+            Log::info('world.growth.skipped_lock_contended');
             return 0;
         }
 
-        // Current max radius squared — the outer edge of the existing disc.
-        $currentMaxRSq = (int) Tile::query()->selectRaw('COALESCE(MAX(x * x + y * y), 0) as max_sq')->value('max_sq');
+        try {
+            $trigger = (float) $this->config->get('world.growth.trigger_players_per_tile');
+            $density = $this->currentHumanPlayerDensity();
 
-        if ($currentMaxRSq <= 0) {
-            // No world yet — refuse to grow an empty map. The caller
-            // should run the initial world generation first.
-            return 0;
+            if ($density <= $trigger) {
+                return 0;
+            }
+
+            // Current max radius squared — the outer edge of the existing disc.
+            $currentMaxRSq = (int) Tile::query()->selectRaw('COALESCE(MAX(x * x + y * y), 0) as max_sq')->value('max_sq');
+
+            if ($currentMaxRSq <= 0) {
+                // No world yet — refuse to grow an empty map. The caller
+                // should run the initial world generation first.
+                return 0;
+            }
+
+            $currentR = (int) ceil(sqrt((float) $currentMaxRSq));
+            $ringWidth = max(1, (int) $this->config->get('world.growth.expansion_ring_width'));
+            $newR = $currentR + $ringWidth;
+            $newRSq = $newR * $newR;
+
+            // Seed derived from the target radius — unique per growth pass,
+            // deterministic, and orthogonal to whatever seed the initial
+            // world used (event keys embed the seed + coordinates).
+            $growthSeed = $newRSq;
+
+            $plan = $this->planAnnulus($currentMaxRSq, $newRSq, $growthSeed);
+            if ($plan === []) {
+                return 0;
+            }
+
+            $stats = $this->persistTilePlan($plan, $growthSeed);
+
+            Log::info('world.growth.ring_added', [
+                'from_max_r_sq' => $currentMaxRSq,
+                'to_max_r_sq' => $newRSq,
+                'new_r' => $newR,
+                'tiles_added' => $stats['tiles'],
+                'oil_fields_added' => $stats['oil_fields'],
+                'posts_added' => $stats['posts'],
+                'density_before' => $density,
+                'trigger' => $trigger,
+            ]);
+
+            // Surface the growth event to players so the frontier appearing
+            // isn't silent. Uses the system-wide activity log — any player
+            // whose map state gets rebuilt after this will see the entry
+            // in their activity feed.
+            try {
+                $this->activityLog->systemBroadcast(
+                    'world_growth',
+                    sprintf(
+                        'The frontier has expanded. %d new tiles lie beyond the old edge — explore to find them.',
+                        (int) $stats['tiles'],
+                    ),
+                    [
+                        'tiles_added' => (int) $stats['tiles'],
+                        'new_radius' => $newR,
+                    ],
+                );
+            } catch (\Throwable $e) {
+                // Non-critical — don't roll back the ring over a broadcast failure.
+                Log::warning('world.growth.broadcast_failed', ['error' => $e->getMessage()]);
+            }
+
+            return (int) $stats['tiles'];
+        } finally {
+            $lock->release();
         }
-
-        $currentR = (int) ceil(sqrt((float) $currentMaxRSq));
-        $ringWidth = max(1, (int) $this->config->get('world.growth.expansion_ring_width'));
-        $newR = $currentR + $ringWidth;
-        $newRSq = $newR * $newR;
-
-        // Seed derived from the target radius — unique per growth pass,
-        // deterministic, and orthogonal to whatever seed the initial
-        // world used (event keys embed the seed + coordinates).
-        $growthSeed = $newRSq;
-
-        $plan = $this->planAnnulus($currentMaxRSq, $newRSq, $growthSeed);
-        if ($plan === []) {
-            return 0;
-        }
-
-        $stats = $this->persistTilePlan($plan, $growthSeed);
-
-        Log::info('world.growth.ring_added', [
-            'from_max_r_sq' => $currentMaxRSq,
-            'to_max_r_sq' => $newRSq,
-            'new_r' => $newR,
-            'tiles_added' => $stats['tiles'],
-            'oil_fields_added' => $stats['oil_fields'],
-            'posts_added' => $stats['posts'],
-            'density_before' => $density,
-            'trigger' => $trigger,
-        ]);
-
-        return (int) $stats['tiles'];
     }
 
     /**
@@ -630,9 +680,20 @@ class WorldService
     {
         $botDomain = (string) $this->config->get('bots.email_domain');
 
+        // Humans = users whose email does NOT have an exact '@<bot_domain>'
+        // suffix. LIKE without a trailing '%' anchors to the end of the
+        // string, so `%@bots.cashclash.local` only matches emails that END
+        // with that domain — `attacker@bots.cashclash.local.evil.com` is
+        // correctly counted as human because `.evil.com` follows the
+        // would-be match. A DB-level CASE-sensitive collation is assumed
+        // (MariaDB default `utf8mb4_unicode_ci` is case-insensitive for
+        // LIKE, which is fine here since email addresses are lowercased
+        // at registration by Laravel's validation).
+        $suffix = '%@'.$botDomain;
+
         $humanCount = (int) Player::query()
-            ->whereHas('user', function ($q) use ($botDomain) {
-                $q->where('email', 'NOT LIKE', '%@'.$botDomain);
+            ->whereHas('user', function ($q) use ($suffix) {
+                $q->where('email', 'not like', $suffix);
             })
             ->count();
 

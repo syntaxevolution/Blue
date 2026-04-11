@@ -322,12 +322,23 @@ class MapStateBuilder
         $items = [];
 
         if ($post) {
+            // Pre-fetch current owned quantities for this post's items
+            // so the shop row can display "owned: N" for stackables and
+            // so purchaseBlockReason can check the stack limit in one
+            // query rather than one-per-item.
+            $ownedQuantities = DB::table('player_items')
+                ->where('player_id', $player->id)
+                ->where('status', 'active')
+                ->pluck('quantity', 'item_key')
+                ->all();
+
             $items = Item::query()
                 ->where('post_type', $post->post_type)
                 ->get()
-                ->map(function (Item $item) use ($player, $post) {
+                ->map(function (Item $item) use ($player, $post, $ownedQuantities) {
+                    $owned = (int) ($ownedQuantities[$item->key] ?? 0);
                     $canAfford = $this->canAfford($player, $item);
-                    $reason = $this->purchaseBlockReason($player, $item);
+                    $reason = $this->purchaseBlockReason($player, $item, $owned);
                     [$category, $categoryOrder] = $this->itemCategory($post->post_type, $item->effects);
 
                     return [
@@ -340,6 +351,7 @@ class MapStateBuilder
                         'effects' => $item->effects,
                         'category' => $category,
                         'category_order' => $categoryOrder,
+                        'owned_quantity' => $owned,
                         'can_afford' => $canAfford,
                         'can_purchase' => $canAfford && $reason === null,
                         'block_reason' => $reason,
@@ -449,7 +461,18 @@ class MapStateBuilder
         'break_chance_reduction_pct',
     ];
 
-    private function purchaseBlockReason(Player $player, Item $item): ?string
+    /**
+     * Stackable items with a per-player cap. Item key → config path
+     * holding the max_stacks integer. Must stay in sync with
+     * ShopService::STACKABLE_ITEM_CAPS — that's where the purchase
+     * itself is rejected; this method only mirrors the check so the UI
+     * can disable the Buy button preemptively.
+     */
+    private const STACKABLE_ITEM_CAPS = [
+        'iron_lungs' => 'general_store.iron_lungs.max_stacks',
+    ];
+
+    private function purchaseBlockReason(Player $player, Item $item, int $ownedQuantity = 0): ?string
     {
         $effects = $item->effects ?? [];
 
@@ -477,6 +500,17 @@ class MapStateBuilder
                     return 'Already owned';
                 }
                 break;
+            }
+        }
+
+        // Stackable-item soft cap (Iron Lungs today). Once the player
+        // hits max_stacks, the Buy button disables with a "Stack full"
+        // hint until they abandon one of their copies.
+        $capConfigKey = self::STACKABLE_ITEM_CAPS[$item->key] ?? null;
+        if ($capConfigKey !== null) {
+            $cap = (int) $this->config->get($capConfigKey);
+            if ($cap > 0 && $ownedQuantity >= $cap) {
+                return "Max {$cap} owned";
             }
         }
 

@@ -65,4 +65,9 @@ class CannotPurchaseException extends RuntimeException
     {
         return new self("You already own '{$itemKey}' — this item can only be purchased once.");
     }
+
+    public static function stackLimitReached(string $itemKey, int $cap): self
+    {
+        return new self("You already own the maximum of {$cap} '{$itemKey}'. Your chest can't hold any more.");
+    }
 }

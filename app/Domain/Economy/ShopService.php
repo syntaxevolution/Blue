@@ -6,6 +6,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotPurchaseException;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
+use App\Domain\Leaderboard\LeaderboardService;
 use App\Models\Item;
 use App\Models\Player;
 use App\Models\Post;
@@ -51,6 +52,7 @@ class ShopService
         private readonly StatOverflowService $statOverflow,
         private readonly ExtraMovesService $extraMoves,
         private readonly PassiveBonusService $passiveBonus,
+        private readonly LeaderboardService $leaderboards,
     ) {}
 
     /**
@@ -88,6 +90,7 @@ class ShopService
             $this->assertAffordable($player, $item);
             $this->assertSinglePurchaseRules($player, $item);
             $this->assertDrillUpgrade($player, $item);
+            $this->assertStackLimit($player, $item);
 
             $this->deductCurrencies($player, $item);
             $this->applyEffects($player, $item);
@@ -98,6 +101,11 @@ class ShopService
             // (e.g. map state rebuild after purchase) sees the new totals
             // for drill yield, break chance, bank cap, etc.
             $this->passiveBonus->flush();
+
+            // Cash and stat totals likely moved — invalidate the cached
+            // dashboard leaderboards so the buyer sees their new rank on
+            // the next page load instead of waiting for the 5-minute TTL.
+            $this->leaderboards->bust();
 
             return ['item' => $item, 'quantity' => $quantity];
         });
@@ -206,6 +214,40 @@ class ShopService
 
         if ($newTier <= $currentTier) {
             throw CannotPurchaseException::alreadyHaveBetterDrill($currentTier, $newTier);
+        }
+    }
+
+    /**
+     * Per-item stack caps for stackable passives. Iron Lungs is currently
+     * the only item with a max_stacks guard — without it, a whale can
+     * push their bank cap to the moon before we've tuned the economy.
+     * Item keys here must match the corresponding config key under
+     * `general_store.<item_key>.max_stacks`.
+     */
+    private const STACKABLE_ITEM_CAPS = [
+        'iron_lungs' => 'general_store.iron_lungs.max_stacks',
+    ];
+
+    private function assertStackLimit(Player $player, Item $item): void
+    {
+        $configKey = self::STACKABLE_ITEM_CAPS[$item->key] ?? null;
+        if ($configKey === null) {
+            return;
+        }
+
+        $cap = (int) $this->config->get($configKey);
+        if ($cap <= 0) {
+            return; // zero or negative means "no cap configured"
+        }
+
+        $owned = (int) DB::table('player_items')
+            ->where('player_id', $player->id)
+            ->where('item_key', $item->key)
+            ->where('status', 'active')
+            ->value('quantity') ?? 0;
+
+        if ($owned >= $cap) {
+            throw CannotPurchaseException::stackLimitReached($item->key, $cap);
         }
     }
 

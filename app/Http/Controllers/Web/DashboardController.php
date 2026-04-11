@@ -43,7 +43,7 @@ class DashboardController extends Controller
             'dailyRegen' => $dailyRegen,
             'bankCap' => $bankCap,
             'immunityHours' => (int) $this->config->get('new_player.immunity_hours'),
-            'leaderboards' => $this->leaderboards->boards(),
+            'leaderboards' => $this->leaderboards->boards($player),
             // Passed separately so the Vue side can highlight the
             // viewer's own row across any of the three boards.
             'currentPlayerId' => $player?->id,

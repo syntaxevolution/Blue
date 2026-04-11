@@ -268,6 +268,13 @@ return [
             'cost_barrels' => 1000,
             'amount' => 50,
         ],
+        // Stackable bank-cap upgrade (Iron Lungs item). Each copy grants
+        // bank_cap_bonus = 10. Max stacks is a soft cap enforced by the
+        // shop guard so a whale can't push their cap to absurd values
+        // before the economy has data to balance against.
+        'iron_lungs' => [
+            'max_stacks' => 10,
+        ],
         // Transport modes. walking is the implicit default (always owned).
         // spaces = tiles traversed per button press
         // fuel   = oil_barrels deducted per button press

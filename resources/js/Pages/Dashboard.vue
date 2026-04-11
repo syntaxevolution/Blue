@@ -10,10 +10,15 @@ interface LeaderboardRow {
     value: number;
 }
 
+interface LeaderboardBoard {
+    top: LeaderboardRow[];
+    viewer: LeaderboardRow | null;
+}
+
 interface Leaderboards {
-    akzar_cash: LeaderboardRow[];
-    stored_oil: LeaderboardRow[];
-    stat_total: LeaderboardRow[];
+    akzar_cash: LeaderboardBoard;
+    stored_oil: LeaderboardBoard;
+    stat_total: LeaderboardBoard;
 }
 
 const props = defineProps<{
@@ -42,21 +47,21 @@ const boards = [
         key: 'akzar_cash' as const,
         title: 'Akzar Cash',
         subtitle: 'Richest on Akzar',
-        rows: props.leaderboards.akzar_cash,
+        board: props.leaderboards.akzar_cash,
         format: formatCash,
     },
     {
         key: 'stored_oil' as const,
         title: 'Stored Oil',
         subtitle: 'Biggest barrel hoards',
-        rows: props.leaderboards.stored_oil,
+        board: props.leaderboards.stored_oil,
         format: formatBarrels,
     },
     {
         key: 'stat_total' as const,
         title: 'Stat Total',
         subtitle: 'Str + Fort + Stealth + Sec',
-        rows: props.leaderboards.stat_total,
+        board: props.leaderboards.stat_total,
         format: formatStats,
     },
 ];
@@ -133,31 +138,45 @@ const boards = [
                                 <div class="text-amber-400 text-sm sm:text-base font-bold uppercase tracking-widest">{{ board.title }}</div>
                                 <div class="text-zinc-500 text-[10px] uppercase tracking-widest mt-0.5">{{ board.subtitle }}</div>
                             </div>
-                            <div class="text-zinc-600 text-[10px] uppercase tracking-widest">Top {{ board.rows.length }}</div>
+                            <div class="text-zinc-600 text-[10px] uppercase tracking-widest">Top {{ board.board.top.length }}</div>
                         </div>
-                        <div v-if="board.rows.length === 0" class="text-zinc-500 italic text-xs text-center py-3">
+                        <div v-if="board.board.top.length === 0" class="text-zinc-500 italic text-xs text-center py-3">
                             No players yet.
                         </div>
-                        <ol v-else class="space-y-1.5">
-                            <li
-                                v-for="row in board.rows"
-                                :key="row.player_id"
-                                class="flex items-center gap-2 sm:gap-3 rounded px-2 py-1.5 text-xs sm:text-sm"
-                                :class="row.player_id === currentPlayerId
-                                    ? 'bg-amber-500/10 border border-amber-500/40 text-amber-100'
-                                    : 'bg-zinc-950/40 border border-transparent text-zinc-300'"
-                            >
-                                <span
-                                    class="w-5 text-right font-bold"
-                                    :class="row.rank === 1 ? 'text-amber-400' : 'text-zinc-500'"
-                                >{{ row.rank }}</span>
-                                <span class="flex-1 min-w-0 truncate">
-                                    {{ row.username }}
-                                    <span v-if="row.mdn_tag" class="text-amber-400/70 ml-1">[{{ row.mdn_tag }}]</span>
-                                </span>
-                                <span class="shrink-0 tabular-nums">{{ board.format(row.value) }}</span>
-                            </li>
-                        </ol>
+                        <template v-else>
+                            <ol class="space-y-1.5">
+                                <li
+                                    v-for="row in board.board.top"
+                                    :key="row.player_id"
+                                    class="flex items-center gap-2 sm:gap-3 rounded px-2 py-1.5 text-xs sm:text-sm"
+                                    :class="row.player_id === currentPlayerId
+                                        ? 'bg-amber-500/10 border border-amber-500/40 text-amber-100'
+                                        : 'bg-zinc-950/40 border border-transparent text-zinc-300'"
+                                >
+                                    <span
+                                        class="w-6 text-right font-bold tabular-nums"
+                                        :class="row.rank === 1 ? 'text-amber-400' : 'text-zinc-500'"
+                                    >{{ row.rank }}</span>
+                                    <span class="flex-1 min-w-0 truncate">
+                                        {{ row.username }}
+                                        <span v-if="row.mdn_tag" class="text-amber-400/70 ml-1">[{{ row.mdn_tag }}]</span>
+                                    </span>
+                                    <span class="shrink-0 tabular-nums">{{ board.format(row.value) }}</span>
+                                </li>
+                            </ol>
+                            <!-- Viewer row: only rendered when the current player is NOT in the top-N -->
+                            <div v-if="board.board.viewer" class="mt-2 pt-2 border-t border-dashed border-zinc-800">
+                                <div class="text-[9px] uppercase tracking-widest text-zinc-600 mb-1">Your rank</div>
+                                <div class="flex items-center gap-2 sm:gap-3 rounded px-2 py-1.5 text-xs sm:text-sm bg-amber-500/10 border border-amber-500/40 text-amber-100">
+                                    <span class="w-6 text-right font-bold tabular-nums text-amber-300">{{ board.board.viewer.rank }}</span>
+                                    <span class="flex-1 min-w-0 truncate">
+                                        {{ board.board.viewer.username }}
+                                        <span v-if="board.board.viewer.mdn_tag" class="text-amber-400/70 ml-1">[{{ board.board.viewer.mdn_tag }}]</span>
+                                    </span>
+                                    <span class="shrink-0 tabular-nums">{{ board.format(board.board.viewer.value) }}</span>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </div>
