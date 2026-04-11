@@ -5,6 +5,7 @@ namespace App\Domain\Combat;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\Mdn\MdnService;
 use App\Domain\Player\MoveRegenService;
 use App\Events\BaseUnderAttack;
 use App\Models\Attack;
@@ -46,6 +47,7 @@ class AttackService
         private readonly GameConfigResolver $config,
         private readonly MoveRegenService $moveRegen,
         private readonly CombatFormula $combat,
+        private readonly MdnService $mdn,
     ) {}
 
     /**
@@ -94,6 +96,9 @@ class AttackService
             if ($defender->immunity_expires_at !== null && $defender->immunity_expires_at->isFuture()) {
                 throw CannotAttackException::targetImmune();
             }
+
+            // MDN rules: same-MDN attacks blocked + 24h hop cooldown.
+            $this->mdn->assertCanAttackOrSpy($attacker, $defender, 'attack');
 
             // Must have a valid spy within the decay window.
             /** @var SpyAttempt|null $spy */

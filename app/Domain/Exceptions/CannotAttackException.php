@@ -35,4 +35,14 @@ class CannotAttackException extends RuntimeException
     {
         return new self("You attacked this base recently. Wait {$cooldownHours}h between raids on the same target");
     }
+
+    public static function sameMdn(): self
+    {
+        return new self('Cannot attack a fellow MDN member');
+    }
+
+    public static function mdnHopCooldown(int $hoursRemaining): self
+    {
+        return new self("Recent MDN change — raids unlocked in {$hoursRemaining}h");
+    }
 }

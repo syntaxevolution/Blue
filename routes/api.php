@@ -5,6 +5,9 @@ use App\Http\Controllers\Api\V1\AtlasController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ItemBreakController;
 use App\Http\Controllers\Api\V1\MapController;
+use App\Http\Controllers\Api\V1\MdnAllianceController;
+use App\Http\Controllers\Api\V1\MdnController;
+use App\Http\Controllers\Api\V1\MdnJournalController;
 use App\Http\Controllers\Api\V1\TeleportController;
 use App\Http\Controllers\Api\V1\TransportController;
 use App\Http\Controllers\Api\V1\UsernameController;
@@ -71,6 +74,23 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
 
                 Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
+
+                Route::prefix('mdn')->name('mdn.')->group(function () {
+                    Route::get('/', [MdnController::class, 'index'])->name('index');
+                    Route::get('/{mdn}', [MdnController::class, 'show'])->name('show');
+                    Route::post('/', [MdnController::class, 'store'])->name('store');
+                    Route::post('/{mdn}/join', [MdnController::class, 'join'])->name('join');
+                    Route::post('/{mdn}/leave', [MdnController::class, 'leave'])->name('leave');
+                    Route::post('/{mdn}/kick/{player}', [MdnController::class, 'kick'])->name('kick');
+                    Route::post('/{mdn}/promote/{player}', [MdnController::class, 'promote'])->name('promote');
+                    Route::post('/{mdn}/disband', [MdnController::class, 'disband'])->name('disband');
+
+                    Route::post('/{mdn}/alliances', [MdnAllianceController::class, 'store'])->name('alliances.store');
+                    Route::delete('/{mdn}/alliances/{alliance}', [MdnAllianceController::class, 'destroy'])->name('alliances.destroy');
+
+                    Route::post('/{mdn}/journal', [MdnJournalController::class, 'store'])->name('journal.store');
+                    Route::post('/{mdn}/journal/{entry}/vote', [MdnJournalController::class, 'vote'])->name('journal.vote');
+                });
             });
         });
     });

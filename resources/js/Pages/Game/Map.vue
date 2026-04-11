@@ -26,6 +26,9 @@ interface PlayerState {
     active_transport?: string;
     owned_transports?: string[];
     owns_teleporter?: boolean;
+    mdn_id?: number | null;
+    mdn_tag?: string | null;
+    mdn_name?: string | null;
 }
 
 interface TransportCatalogEntry {
@@ -105,6 +108,9 @@ interface EnemyBaseDetail {
     kind: 'enemy_base';
     owner_username: string | null;
     owner_immune: boolean;
+    owner_mdn_tag: string | null;
+    owner_mdn_name: string | null;
+    same_mdn_blocked: boolean;
     spy_decay_hours: number;
     raid_cooldown_hours: number;
     has_active_spy: boolean;
@@ -532,9 +538,22 @@ const canAttackNow = computed(() => {
                                     <div class="text-rose-400 text-xs uppercase tracking-widest mb-2">Enemy base</div>
                                     <div class="text-2xl font-bold text-zinc-100 mb-1">
                                         {{ state.tile_detail.owner_username ?? 'Unknown' }}
+                                        <span
+                                            v-if="state.tile_detail.owner_mdn_tag"
+                                            class="ml-2 font-mono text-sm text-amber-300"
+                                            :title="state.tile_detail.owner_mdn_name ?? ''"
+                                        >
+                                            [{{ state.tile_detail.owner_mdn_tag }}]
+                                        </span>
                                     </div>
                                     <div
-                                        v-if="state.tile_detail.owner_immune"
+                                        v-if="state.tile_detail.same_mdn_blocked"
+                                        class="text-amber-400 text-sm mb-3 italic"
+                                    >
+                                        Fellow MDN member — cannot be spied on or attacked.
+                                    </div>
+                                    <div
+                                        v-else-if="state.tile_detail.owner_immune"
                                         class="text-amber-400 text-sm mb-3 italic"
                                     >
                                         Under new-player immunity — cannot be spied on or attacked.
@@ -559,7 +578,7 @@ const canAttackNow = computed(() => {
                                         <button
                                             type="button"
                                             class="flex-1 bg-violet-800 hover:bg-violet-700 border border-violet-600 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                            :disabled="state.tile_detail.owner_immune"
+                                            :disabled="state.tile_detail.owner_immune || state.tile_detail.same_mdn_blocked"
                                             @click="spy"
                                         >
                                             Spy ({{ state.tile_detail.spy_move_cost }} moves)
@@ -567,7 +586,7 @@ const canAttackNow = computed(() => {
                                         <button
                                             type="button"
                                             class="flex-1 bg-rose-800 hover:bg-rose-700 border border-rose-600 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                            :disabled="!canAttackNow"
+                                            :disabled="!canAttackNow || state.tile_detail.same_mdn_blocked"
                                             @click="attack"
                                         >
                                             Attack ({{ state.tile_detail.attack_move_cost }} moves)

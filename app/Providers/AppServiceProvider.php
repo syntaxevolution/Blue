@@ -13,7 +13,12 @@ use App\Domain\Economy\ExtraMovesService;
 use App\Domain\Economy\ShopService;
 use App\Domain\Economy\TeleportService;
 use App\Domain\Economy\TransportService;
+use App\Domain\Bot\BotDecisionService;
+use App\Domain\Bot\BotSpawnService;
 use App\Domain\Items\ItemBreakService;
+use App\Domain\Mdn\MdnAllianceService;
+use App\Domain\Mdn\MdnJournalService;
+use App\Domain\Mdn\MdnService;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
@@ -64,6 +69,15 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ActivityLogService::class);
         $this->app->singleton(AtlasService::class);
         $this->app->singleton(AttackLogService::class);
+
+        // MDN (Phase 4 — social layer)
+        $this->app->singleton(MdnService::class);
+        $this->app->singleton(MdnAllianceService::class);
+        $this->app->singleton(MdnJournalService::class);
+
+        // Bot players (Improvements II — autonomous AI opponents)
+        $this->app->singleton(BotSpawnService::class);
+        $this->app->singleton(BotDecisionService::class);
     }
 
     /**

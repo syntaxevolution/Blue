@@ -86,11 +86,16 @@ class MapStateBuilder
             ->where('quantity', '>', 0)
             ->exists();
 
+        $player->loadMissing('mdn:id,name,tag');
+
         return [
             'player' => [
                 'id' => $player->id,
                 'user_id' => (int) $player->user_id,
                 'username' => (string) ($player->user->name ?? ''),
+                'mdn_id' => $player->mdn_id,
+                'mdn_tag' => $player->mdn?->tag,
+                'mdn_name' => $player->mdn?->name,
                 'akzar_cash' => (float) $player->akzar_cash,
                 'oil_barrels' => $player->oil_barrels,
                 'intel' => $player->intel,
@@ -422,15 +427,23 @@ class MapStateBuilder
     {
         /** @var Player|null $owner */
         $owner = Player::query()
-            ->with('user:id,name')
+            ->with(['user:id,name', 'mdn:id,name,tag'])
             ->where('base_tile_id', $tile->id)
             ->first();
+
+        $sameMdn = $owner !== null
+            && $player->mdn_id !== null
+            && (int) $player->mdn_id === (int) $owner->mdn_id
+            && (bool) $this->config->get('mdn.same_mdn_attacks_blocked', true);
 
         if ($owner === null) {
             return [
                 'kind' => 'enemy_base',
                 'owner_username' => null,
                 'owner_immune' => false,
+                'owner_mdn_tag' => null,
+                'owner_mdn_name' => null,
+                'same_mdn_blocked' => false,
                 'spy_decay_hours' => (int) $this->config->get('combat.spy_decay_hours'),
                 'raid_cooldown_hours' => (int) $this->config->get('combat.raid_cooldown_hours'),
                 'has_active_spy' => false,
@@ -463,6 +476,9 @@ class MapStateBuilder
             'kind' => 'enemy_base',
             'owner_username' => $owner->user?->name,
             'owner_immune' => $owner->immunity_expires_at !== null && $owner->immunity_expires_at->isFuture(),
+            'owner_mdn_tag' => $owner->mdn?->tag,
+            'owner_mdn_name' => $owner->mdn?->name,
+            'same_mdn_blocked' => $sameMdn,
             'spy_decay_hours' => $spyDecayHours,
             'raid_cooldown_hours' => $raidCooldownHours,
             'has_active_spy' => $latestSpy !== null,

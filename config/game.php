@@ -296,6 +296,77 @@ return [
         'join_leave_cooldown_hours' => 24,
         'same_mdn_attacks_blocked' => true,
         'formal_alliances_prevent_attacks' => false,
+        'name_max_length' => 50,
+        'tag_max_length' => 6,
+        'motto_max_length' => 200,
+        'creation_cost_cash' => 10.00,
+        'journal' => [
+            'enabled' => true,
+            'max_entries_per_mdn' => 500,
+            'body_max_length' => 1000,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bots — autonomous AI players spawned via `php artisan bots:spawn`
+    |--------------------------------------------------------------------------
+    | Bots are real Player rows that call the exact same domain services a
+    | human does. Difficulty controls action weights, target selection, and
+    | spending thresholds. Primary objective across all tiers is maximising
+    | Akzar Cash. Tick cadence is driven by the Laravel scheduler — see
+    | routes/console.php for the cron hook.
+    */
+    'bots' => [
+        'tick_interval_minutes' => 5,
+        'actions_per_tick_max' => 3,
+        'email_domain' => 'bots.cashclash.local',
+        // Word pool used by bots:spawn when auto-generating names.
+        'name_pool' => [
+            'adjectives' => ['Rusty', 'Dusty', 'Silent', 'Iron', 'Sandy', 'Shady', 'Greasy', 'Feral', 'Tinny', 'Cobalt', 'Brass', 'Hollow'],
+            'nouns'      => ['Jack', 'Whip', 'Prowler', 'Hound', 'Scrap', 'Fang', 'Coil', 'Drifter', 'Ghost', 'Shark', 'Badger', 'Vulture'],
+        ],
+        'difficulty' => [
+            'easy' => [
+                'label' => 'Easy',
+                'action_weights' => [
+                    'drill'  => 70,
+                    'shop'   => 20,
+                    'spy'    => 5,
+                    'attack' => 5,
+                ],
+                'upgrade_threshold_cash' => 50.0,
+                'min_target_cash' => 20.0,
+                'risk_tolerance' => 0.3,
+                'travel_range_tiles' => 6,
+            ],
+            'normal' => [
+                'label' => 'Normal',
+                'action_weights' => [
+                    'drill'  => 50,
+                    'shop'   => 20,
+                    'spy'    => 15,
+                    'attack' => 15,
+                ],
+                'upgrade_threshold_cash' => 25.0,
+                'min_target_cash' => 10.0,
+                'risk_tolerance' => 0.55,
+                'travel_range_tiles' => 12,
+            ],
+            'hard' => [
+                'label' => 'Hard',
+                'action_weights' => [
+                    'drill'  => 35,
+                    'shop'   => 15,
+                    'spy'    => 25,
+                    'attack' => 25,
+                ],
+                'upgrade_threshold_cash' => 10.0,
+                'min_target_cash' => 5.0,
+                'risk_tolerance' => 0.8,
+                'travel_range_tiles' => 20,
+            ],
+        ],
     ],
 
     /*

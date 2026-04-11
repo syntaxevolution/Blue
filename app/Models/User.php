@@ -28,6 +28,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         'email',
         'password',
         'is_admin',
+        'is_bot',
     ];
 
     /**
@@ -52,6 +53,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             'name_claimed_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
+            'is_bot' => 'boolean',
         ];
     }
 

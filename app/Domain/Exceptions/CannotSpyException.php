@@ -25,4 +25,14 @@ class CannotSpyException extends RuntimeException
     {
         return new self('No player owns this base');
     }
+
+    public static function sameMdn(): self
+    {
+        return new self('Cannot spy on a fellow MDN member');
+    }
+
+    public static function mdnHopCooldown(int $hoursRemaining): self
+    {
+        return new self("Recent MDN change — spies unlocked in {$hoursRemaining}h");
+    }
 }

@@ -88,6 +88,12 @@ onBeforeUnmount(() => {
                                 Atlas
                             </NavLink>
                             <NavLink
+                                :href="route('mdn.index')"
+                                :active="route().current('mdn.*')"
+                            >
+                                MDN
+                            </NavLink>
+                            <NavLink
                                 :href="route('activity.index')"
                                 :active="route().current('activity.index')"
                             >

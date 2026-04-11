@@ -6,6 +6,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\Mdn\MdnService;
 use App\Domain\Player\MoveRegenService;
 use App\Events\SpyDetected;
 use App\Models\Player;
@@ -34,6 +35,7 @@ class SpyService
         private readonly GameConfigResolver $config,
         private readonly RngService $rng,
         private readonly MoveRegenService $moveRegen,
+        private readonly MdnService $mdn,
     ) {}
 
     /**
@@ -79,6 +81,9 @@ class SpyService
             if ($target->immunity_expires_at !== null && $target->immunity_expires_at->isFuture()) {
                 throw CannotSpyException::targetImmune();
             }
+
+            // MDN rules: same-MDN spying blocked + 24h hop cooldown.
+            $this->mdn->assertCanAttackOrSpy($spy, $target, 'spy');
 
             // Roll success. A zero-stealth spy still has ~30% baseline.
             // A max-stealth spy against zero security still caps at ~95%.

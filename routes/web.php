@@ -6,6 +6,9 @@ use App\Http\Controllers\Web\AtlasController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\ItemBreakController;
 use App\Http\Controllers\Web\MapController;
+use App\Http\Controllers\Web\MdnAllianceController;
+use App\Http\Controllers\Web\MdnController;
+use App\Http\Controllers\Web\MdnJournalController;
 use App\Http\Controllers\Web\TeleportController;
 use App\Http\Controllers\Web\TransportController;
 use App\Http\Controllers\Web\UsernameController;
@@ -75,6 +78,27 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
         Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
 
         Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
+
+        // MDN (Mutual Defense Network) — social layer. Same-MDN attack
+        // blocking lives in AttackService/SpyService → MdnService, not
+        // in middleware: the existing broken-item guard is enough here.
+        Route::prefix('mdn')->name('mdn.')->group(function () {
+            Route::get('/', [MdnController::class, 'index'])->name('index');
+            Route::get('/create', [MdnController::class, 'create'])->name('create');
+            Route::post('/', [MdnController::class, 'store'])->name('store');
+            Route::get('/{mdn}', [MdnController::class, 'show'])->name('show');
+            Route::post('/{mdn}/join', [MdnController::class, 'join'])->name('join');
+            Route::post('/{mdn}/leave', [MdnController::class, 'leave'])->name('leave');
+            Route::post('/{mdn}/kick/{player}', [MdnController::class, 'kick'])->name('kick');
+            Route::post('/{mdn}/promote/{player}', [MdnController::class, 'promote'])->name('promote');
+            Route::post('/{mdn}/disband', [MdnController::class, 'disband'])->name('disband');
+
+            Route::post('/{mdn}/alliances', [MdnAllianceController::class, 'store'])->name('alliances.store');
+            Route::delete('/{mdn}/alliances/{alliance}', [MdnAllianceController::class, 'destroy'])->name('alliances.destroy');
+
+            Route::post('/{mdn}/journal', [MdnJournalController::class, 'store'])->name('journal.store');
+            Route::post('/{mdn}/journal/{entry}/vote', [MdnJournalController::class, 'vote'])->name('journal.vote');
+        });
     });
 });
 

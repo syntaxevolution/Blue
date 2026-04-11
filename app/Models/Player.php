@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Gameplay-side shadow of a User account.
@@ -47,6 +48,9 @@ class Player extends Model
         'mdn_left_at',
         'immunity_expires_at',
         'last_bankruptcy_at',
+        'bot_difficulty',
+        'bot_last_tick_at',
+        'bot_moves_budget',
     ];
 
     protected $casts = [
@@ -69,6 +73,8 @@ class Player extends Model
         'mdn_left_at' => 'datetime',
         'immunity_expires_at' => 'datetime',
         'last_bankruptcy_at' => 'datetime',
+        'bot_last_tick_at' => 'datetime',
+        'bot_moves_budget' => 'integer',
     ];
 
     public function user(): BelongsTo
@@ -89,6 +95,24 @@ class Player extends Model
     public function items(): HasMany
     {
         return $this->hasMany(PlayerItem::class);
+    }
+
+    public function mdn(): BelongsTo
+    {
+        return $this->belongsTo(Mdn::class);
+    }
+
+    public function mdnMembership(): HasOne
+    {
+        return $this->hasOne(MdnMembership::class);
+    }
+
+    /**
+     * Is this player a bot? Read from the owning User row.
+     */
+    public function isBot(): bool
+    {
+        return (bool) ($this->user?->is_bot ?? false);
     }
 
     /**
