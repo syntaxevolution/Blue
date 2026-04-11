@@ -26,11 +26,16 @@ $interval = max(1, $interval);
 // expiry is 24 hours, which is way too long for a 5-minute job.
 //
 // `appendOutputTo` lets us tail bots_tick.log on the server to see
-// whether the scheduler is firing at all; `emailOutputOnFailure`
-// is intentionally NOT used because the app doesn't have a mailer
-// configured for admin alerts yet.
+// whether the scheduler is firing at all.
+//
+// NOT using `runInBackground()`: it relies on `proc_open`/`exec` to
+// fork a detached child, which DirectAdmin + some shared PHP-FPM
+// configurations strip out via disable_functions. When that happens,
+// the scheduler silently treats the command as "launched" but no
+// child ever runs. Inline execution is safer here — the tick should
+// finish in under a second even with dozens of bots, and the mutex
+// prevents any overlap anyway.
 Schedule::command('bots:tick')
     ->cron("*/{$interval} * * * *")
     ->withoutOverlapping(10)
-    ->runInBackground()
     ->appendOutputTo(storage_path('logs/bots_tick.log'));
