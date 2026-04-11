@@ -90,3 +90,37 @@ it('canAfford reconciles and reports correctly', function () {
 it('bankCap returns daily_regen × bank_cap_multiplier', function () {
     expect(app(MoveRegenService::class)->bankCap())->toBe(350);
 });
+
+it('preserves purchased overflow above the bank cap on reconcile', function () {
+    $user = User::factory()->create();
+    $player = app(WorldService::class)->spawnPlayer($user->id);
+
+    // Simulate a player who just bought an extra_moves_pack at cap:
+    // 350 (cap) + 10 (pack) = 360, and one full tick of wall clock time
+    // has passed since the purchase. The regen reconcile must NOT clip
+    // their overflow back down to 350.
+    $player->update([
+        'moves_current' => 360,
+        'moves_updated_at' => now()->subSeconds(432),
+    ]);
+
+    $reconciled = app(MoveRegenService::class)->reconcile($player->fresh());
+
+    expect($reconciled->moves_current)->toBe(360);
+});
+
+it('resumes normal regen once the player spends back below the cap', function () {
+    $user = User::factory()->create();
+    $player = app(WorldService::class)->spawnPlayer($user->id);
+
+    // Player is at 340/350 with 3 full ticks of wall clock time elapsed.
+    // They're below cap, so trickle should add 3 → 343 and stay under 350.
+    $player->update([
+        'moves_current' => 340,
+        'moves_updated_at' => now()->subSeconds(3 * 432),
+    ]);
+
+    $reconciled = app(MoveRegenService::class)->reconcile($player->fresh());
+
+    expect($reconciled->moves_current)->toBe(343);
+});

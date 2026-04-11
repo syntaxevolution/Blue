@@ -65,7 +65,17 @@ class MoveRegenService
         $dailyRegen = (int) $this->config->get('moves.daily_regen');
         $bankCap = (int) ceil($dailyRegen * (float) $this->config->get('moves.bank_cap_multiplier'));
 
-        $newCurrent = min($player->moves_current + $ticks, $bankCap);
+        // Preserve any overflow accumulated via purchases (extra_moves_pack,
+        // emergency_ration, caffeine_tin). `allow_overflow_from_purchases`
+        // lets those items push moves_current above the bank cap; natural
+        // regen must NOT silently clip that back down on the next tick.
+        // While the player is at or above cap, trickle ticks are forfeited
+        // — the timestamp still advances so normal regen resumes cleanly
+        // once they spend back below the cap.
+        $current = (int) $player->moves_current;
+        $newCurrent = $current >= $bankCap
+            ? $current
+            : min($current + $ticks, $bankCap);
         $consumedSeconds = $ticks * $tickSeconds;
         $newUpdatedAt = $lastUpdated->copy()->addSeconds($consumedSeconds);
 
