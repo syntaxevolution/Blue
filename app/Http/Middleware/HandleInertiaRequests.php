@@ -2,7 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Notifications\ActivityLogService;
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Middleware;
@@ -34,6 +36,23 @@ class HandleInertiaRequests extends Middleware
         $user = $request->user();
         $player = $user?->player;
 
+        // Enrich the broken-item context so the frontend modal can show
+        // the item name, the repair cost, and whether the player can
+        // afford it — without needing a second HTTP round-trip.
+        $brokenItem = null;
+        if ($player !== null && $player->broken_item_key !== null) {
+            $item = Item::query()->where('key', $player->broken_item_key)->first();
+            if ($item !== null) {
+                $repairPct = (float) app(GameConfigResolver::class)->get('items.break.repair_cost_pct');
+                $brokenItem = [
+                    'key' => $item->key,
+                    'name' => $item->name,
+                    'repair_cost_barrels' => (int) ceil((float) $item->price_barrels * $repairPct),
+                    'player_barrels' => (int) $player->oil_barrels,
+                ];
+            }
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -41,6 +60,7 @@ class HandleInertiaRequests extends Middleware
                 'requires_username_claim' => $user !== null && ! $user->hasClaimedUsername(),
                 'email_verified' => $user !== null && $user->hasVerifiedEmail(),
                 'broken_item_key' => $player?->broken_item_key,
+                'broken_item' => $brokenItem,
                 'active_transport' => $player?->active_transport ?? 'walking',
                 'unread_activity_count' => function () use ($user) {
                     if ($user === null) {
@@ -99,6 +119,12 @@ class HandleInertiaRequests extends Middleware
                 'host' => config('broadcasting.connections.reverb.options.host'),
                 'port' => (int) config('broadcasting.connections.reverb.options.port', 8080),
                 'scheme' => config('broadcasting.connections.reverb.options.scheme', 'http'),
+            ],
+            // Game-config values the frontend needs for UI display.
+            // Keeps the client honest with live admin tuning.
+            'game' => [
+                'teleport_cost_barrels' => (int) app(GameConfigResolver::class)->get('teleport.cost_barrels'),
+                'teleport_purchase_cost_barrels' => (int) app(GameConfigResolver::class)->get('teleport.purchase_cost_barrels'),
             ],
         ];
     }

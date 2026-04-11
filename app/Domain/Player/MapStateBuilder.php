@@ -326,6 +326,20 @@ class MapStateBuilder
         return true;
     }
 
+    /**
+     * Effect keys that make an item one-purchase-per-player. Keep in
+     * sync with ShopService::SINGLE_PURCHASE_EFFECT_KEYS — the two
+     * surfaces must agree or the UI lies about buy-ability.
+     */
+    private const SINGLE_PURCHASE_EFFECT_KEYS = [
+        'unlocks',
+        'unlocks_transport',
+        'unlocks_teleport',
+        'drill_yield_bonus_pct',
+        'daily_drill_limit_bonus',
+        'break_chance_reduction_pct',
+    ];
+
     private function purchaseBlockReason(Player $player, Item $item): ?string
     {
         $effects = $item->effects ?? [];
@@ -343,26 +357,14 @@ class MapStateBuilder
         // when the config flag is enabled.
         $singlePurchaseStats = (bool) $this->config->get('stats.stat_items_single_purchase');
         if ($singlePurchaseStats && isset($effects['stat_add']) && is_array($effects['stat_add'])) {
-            $owned = DB::table('player_items')
-                ->where('player_id', $player->id)
-                ->where('item_key', $item->key)
-                ->where('quantity', '>', 0)
-                ->exists();
-            if ($owned) {
+            if ($this->ownsActive($player, $item->key)) {
                 return 'Already owned';
             }
         }
 
-        // Feature unlocks, transports, teleporter — all one-time.
-        $singleEffects = ['unlocks', 'unlocks_transport', 'unlocks_teleport'];
-        foreach ($singleEffects as $effectKey) {
+        foreach (self::SINGLE_PURCHASE_EFFECT_KEYS as $effectKey) {
             if (array_key_exists($effectKey, $effects)) {
-                $owned = DB::table('player_items')
-                    ->where('player_id', $player->id)
-                    ->where('item_key', $item->key)
-                    ->where('quantity', '>', 0)
-                    ->exists();
-                if ($owned) {
+                if ($this->ownsActive($player, $item->key)) {
                     return 'Already owned';
                 }
                 break;
@@ -370,6 +372,21 @@ class MapStateBuilder
         }
 
         return null;
+    }
+
+    /**
+     * Active ownership lookup used by purchaseBlockReason. Filters on
+     * status='active' so a broken transport/teleporter doesn't lock
+     * the player out of re-purchase after abandoning.
+     */
+    private function ownsActive(Player $player, string $itemKey): bool
+    {
+        return DB::table('player_items')
+            ->where('player_id', $player->id)
+            ->where('item_key', $itemKey)
+            ->where('status', 'active')
+            ->where('quantity', '>', 0)
+            ->exists();
     }
 
     /**

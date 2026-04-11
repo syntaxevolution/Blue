@@ -132,9 +132,13 @@ const props = defineProps<{
 }>();
 
 const showTeleportModal = ref(false);
-const teleportCost = 5000;
 
 const page = usePage();
+// Teleport cost comes from Inertia shared props so it stays in sync
+// with live admin tuning via the Filament game_settings panel.
+const teleportCost = computed<number>(
+    () => Number((page.props.game as { teleport_cost_barrels?: number } | undefined)?.teleport_cost_barrels ?? 5000),
+);
 const errors = computed(() => (page.props.errors as Record<string, string>) ?? {});
 const travelError = computed(() => errors.value.travel ?? null);
 const drillError = computed(() => errors.value.drill ?? null);

@@ -9,6 +9,7 @@ use App\Models\Item;
 use App\Models\Player;
 use App\Models\Post;
 use App\Models\Tile;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -111,15 +112,29 @@ class ShopService
     }
 
     /**
-     * Enforce "one purchase per item" rules:
-     *   - stat-add items (when config flag is enabled)
-     *   - transport items
-     *   - teleporter
-     *   - feature unlocks (explorers_atlas, etc.)
-     *   - any item that grants a passive 'unlocks' list
+     * Effect keys that make an item a one-purchase-per-player proposition.
+     * Any item whose effects contain at least one of these keys (subject
+     * to the single-purchase config flag for stat_add) is rejected on
+     * repeat purchase.
      *
-     * Items like extra_moves_pack (grant_moves) are deliberately
-     * exempt — they're consumables with no practical ownership cap.
+     * Passive bonuses (drill_yield_bonus_pct, daily_drill_limit_bonus,
+     * break_chance_reduction_pct) only stack on the FIRST copy — buying
+     * a Lucky Coin twice gives the same bonus as buying it once — so
+     * they're locked to one purchase to avoid a silent barrel sink.
+     */
+    private const SINGLE_PURCHASE_EFFECT_KEYS = [
+        'unlocks',
+        'unlocks_transport',
+        'unlocks_teleport',
+        'drill_yield_bonus_pct',
+        'daily_drill_limit_bonus',
+        'break_chance_reduction_pct',
+    ];
+
+    /**
+     * Enforce "one purchase per item" rules. Items like extra_moves_pack
+     * (grant_moves) are deliberately exempt — they're consumables with
+     * no practical ownership cap.
      */
     private function assertSinglePurchaseRules(Player $player, Item $item): void
     {
@@ -133,26 +148,33 @@ class ShopService
             }
         }
 
-        if (isset($effects['unlocks']) && is_array($effects['unlocks'])) {
-            $singlePurchaseFlagged = true;
-        }
-
-        if (isset($effects['unlocks_transport'])) {
-            $singlePurchaseFlagged = true;
-        }
-
-        if (array_key_exists('unlocks_teleport', $effects)) {
-            $singlePurchaseFlagged = true;
+        foreach (self::SINGLE_PURCHASE_EFFECT_KEYS as $key) {
+            if (array_key_exists($key, $effects)) {
+                $singlePurchaseFlagged = true;
+                break;
+            }
         }
 
         if (! $singlePurchaseFlagged) {
             return;
         }
 
+        // lockForUpdate closes the race between assertSinglePurchaseRules
+        // and recordOwnership when the same user fires concurrent requests
+        // for the same single-purchase item from two browser tabs. The
+        // unique (player_id, item_key) DB constraint is a belt-and-braces
+        // safety net, but the lock avoids the ugly integrity-constraint
+        // exception surfacing to the user.
+        //
+        // Filters status='active' — a broken transport/teleporter is not
+        // "owned" in any practical sense, so a player who abandoned a
+        // broken one must be able to re-purchase it.
         $alreadyOwned = DB::table('player_items')
             ->where('player_id', $player->id)
             ->where('item_key', $item->key)
+            ->where('status', 'active')
             ->where('quantity', '>', 0)
+            ->lockForUpdate()
             ->exists();
 
         if ($alreadyOwned) {
@@ -241,6 +263,12 @@ class ShopService
 
     /**
      * Upsert the player_items row and return the new quantity.
+     *
+     * Takes a lock on any existing row for this (player, item) pair so
+     * a concurrent purchase in a second transaction cannot sneak in
+     * between the read and the insert. The player row is also locked by
+     * the surrounding purchase() transaction, so this is defence in
+     * depth: two layers, plus the unique (player_id, item_key) index.
      */
     private function recordOwnership(Player $player, Item $item): int
     {
@@ -249,6 +277,7 @@ class ShopService
         $existing = DB::table('player_items')
             ->where('player_id', $player->id)
             ->where('item_key', $item->key)
+            ->lockForUpdate()
             ->first();
 
         if ($existing) {
@@ -263,14 +292,27 @@ class ShopService
             return (int) $existing->quantity + 1;
         }
 
-        DB::table('player_items')->insert([
-            'player_id' => $player->id,
-            'item_key' => $item->key,
-            'quantity' => 1,
-            'status' => 'active',
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        // Belt-and-braces: even with lockForUpdate above, an exotic
+        // race could slip through (e.g., a third transaction that
+        // started before we acquired the lock). The unique index on
+        // (player_id, item_key) will catch it at INSERT time — catch
+        // the resulting QueryException and translate to a friendly
+        // domain exception rather than a 500.
+        try {
+            DB::table('player_items')->insert([
+                'player_id' => $player->id,
+                'item_key' => $item->key,
+                'quantity' => 1,
+                'status' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23000' || str_contains($e->getMessage(), 'UNIQUE')) {
+                throw CannotPurchaseException::alreadyOwned($item->key);
+            }
+            throw $e;
+        }
 
         return 1;
     }

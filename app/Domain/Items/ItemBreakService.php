@@ -80,30 +80,36 @@ class ItemBreakService
     /**
      * Mark the given owned item as broken and lock the player.
      *
-     * NOTE: This method assumes the caller already holds a DB transaction.
-     * DrillService wraps its whole flow in one — nesting another here
-     * created savepoint / lock-ordering deadlocks. Callers that do NOT
-     * already hold a transaction must open one before calling this.
+     * Wraps the PlayerItem update + Player update in DB::transaction so
+     * the two writes are atomic. Laravel's nested-transaction handling
+     * uses savepoints, so calling this from inside DrillService::drill
+     * (which already holds an outer transaction) does NOT create a new
+     * real transaction — the inner begin/commit becomes a savepoint on
+     * the same connection, and the outer transaction still owns the
+     * visible rollback boundary. Calling it from a test or any future
+     * caller without an outer transaction gets real atomicity.
      */
     public function markBroken(Player $player, string $itemKey): void
     {
-        $row = PlayerItem::query()
-            ->where('player_id', $player->id)
-            ->where('item_key', $itemKey)
-            ->lockForUpdate()
-            ->first();
+        DB::transaction(function () use ($player, $itemKey) {
+            $row = PlayerItem::query()
+                ->where('player_id', $player->id)
+                ->where('item_key', $itemKey)
+                ->lockForUpdate()
+                ->first();
 
-        if ($row === null) {
-            // Nothing owned to break — no-op.
-            return;
-        }
+            if ($row === null) {
+                // Nothing owned to break — no-op.
+                return;
+            }
 
-        $row->update([
-            'status' => 'broken',
-            'broken_at' => now(),
-        ]);
+            $row->update([
+                'status' => 'broken',
+                'broken_at' => now(),
+            ]);
 
-        $player->forceFill(['broken_item_key' => $itemKey])->save();
+            $player->forceFill(['broken_item_key' => $itemKey])->save();
+        });
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Economy\TeleportService;
 use App\Domain\Exceptions\CannotPurchaseException;
 use App\Domain\Exceptions\CannotTravelException;
+use App\Domain\Exceptions\InsufficientMovesException;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,6 +36,9 @@ class TeleportController extends Controller
         ]);
 
         $player = $request->user()->player;
+        if ($player === null) {
+            return response()->json(['message' => 'No player found — enter the map first.'], 422);
+        }
 
         try {
             $destination = $this->teleportService->teleport(
@@ -42,7 +46,7 @@ class TeleportController extends Controller
                 (int) $validated['x'],
                 (int) $validated['y'],
             );
-        } catch (CannotTravelException|CannotPurchaseException $e) {
+        } catch (InsufficientMovesException|CannotTravelException|CannotPurchaseException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 

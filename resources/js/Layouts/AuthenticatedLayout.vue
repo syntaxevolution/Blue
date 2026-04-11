@@ -19,6 +19,18 @@ const requiresClaim = computed(() => Boolean(page.props.auth?.requires_username_
 const brokenItemKey = computed<string | null>(
     () => (page.props.auth?.broken_item_key as string | null) ?? null,
 );
+
+interface BrokenItemPayload {
+    key: string;
+    name: string;
+    repair_cost_barrels: number;
+    player_barrels: number;
+}
+
+const brokenItem = computed<BrokenItemPayload | null>(
+    () => (page.props.auth?.broken_item as BrokenItemPayload | null) ?? null,
+);
+
 const unreadCount = computed<number>(
     () => Number(page.props.auth?.unread_activity_count ?? 0),
 );
@@ -259,6 +271,9 @@ onBeforeUnmount(() => {
         <BrokenItemModal
             v-if="brokenItemKey"
             :broken-item-key="brokenItemKey"
+            :item-name="brokenItem?.name ?? null"
+            :repair-cost="brokenItem?.repair_cost_barrels ?? null"
+            :player-barrels="brokenItem?.player_barrels ?? null"
         />
     </div>
 </template>

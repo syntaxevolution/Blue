@@ -122,11 +122,15 @@ class TransportMovementService
             }
             $player->update($updates);
 
-            // Fog reveal.
+            // Fog reveal. The destination is always revealed. reveal_path
+            // adds every intermediate tile (destination is already in the
+            // list, so slice off the last entry from $path to avoid a
+            // redundant pair before array_unique).
             $revealIds = [$destination->id];
 
             if (in_array('reveal_path', $flags, true)) {
-                foreach ($path as $tile) {
+                $intermediate = array_slice($path, 0, -1);
+                foreach ($intermediate as $tile) {
                     $revealIds[] = $tile->id;
                 }
             }

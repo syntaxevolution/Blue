@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Domain\Combat\AttackLogService;
 use App\Domain\Combat\AttackService;
 use App\Domain\Combat\CombatFormula;
 use App\Domain\Combat\SpyService;
@@ -16,6 +17,7 @@ use App\Domain\Items\ItemBreakService;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
+use App\Domain\Player\AtlasService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\MoveRegenService;
 use App\Domain\Player\TransportMovementService;
@@ -60,6 +62,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(TransportMovementService::class);
         $this->app->singleton(TeleportService::class);
         $this->app->singleton(ActivityLogService::class);
+        $this->app->singleton(AtlasService::class);
+        $this->app->singleton(AttackLogService::class);
     }
 
     /**

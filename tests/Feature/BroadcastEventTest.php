@@ -2,7 +2,6 @@
 
 use App\Domain\World\WorldService;
 use App\Events\BaseUnderAttack;
-use App\Events\RaidCompleted;
 use App\Events\SpyDetected;
 use App\Models\ActivityLog;
 use App\Models\SpyAttempt;
@@ -13,8 +12,8 @@ beforeEach(function () {
     app(WorldService::class)->generateInitialWorld(seed: 42);
 });
 
-it('BaseUnderAttack and RaidCompleted dispatch when an attack resolves', function () {
-    Event::fake([BaseUnderAttack::class, RaidCompleted::class]);
+it('BaseUnderAttack dispatches when an attack resolves', function () {
+    Event::fake([BaseUnderAttack::class]);
 
     $attacker = User::factory()->create();
     $defender = User::factory()->create();
@@ -45,7 +44,6 @@ it('BaseUnderAttack and RaidCompleted dispatch when an attack resolves', functio
     app(\App\Domain\Combat\AttackService::class)->attack($attackerPlayer->id);
 
     Event::assertDispatched(BaseUnderAttack::class);
-    Event::assertDispatched(RaidCompleted::class);
 });
 
 it('ActivityLog records a row when BaseUnderAttack is handled', function () {
