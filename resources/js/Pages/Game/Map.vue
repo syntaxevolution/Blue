@@ -271,13 +271,23 @@ function formatPrice(item: ShopItem): string {
     return parts.length ? parts.join(' · ') : 'Free';
 }
 
-// Attack button availability for enemy bases
+// Attack button availability for enemy bases.
+// last_attack_at is only sent by the server when it's still inside the
+// cooldown window, but if the player sits on the page across cooldown
+// expiry without reloading, we compare the timestamp against the local
+// clock so the button re-enables itself without needing a full reload.
 const canAttackNow = computed(() => {
     if (props.state.tile_detail?.kind !== 'enemy_base') return false;
     const d = props.state.tile_detail;
     if (d.owner_immune) return false;
     if (!d.has_active_spy) return false;
-    if (d.last_attack_at) return false; // still in cooldown
+    if (d.last_attack_at) {
+        const cooldownMs = (d.raid_cooldown_hours ?? 12) * 3600 * 1000;
+        const attackedAt = new Date(d.last_attack_at).getTime();
+        if (!Number.isNaN(attackedAt) && Date.now() - attackedAt < cooldownMs) {
+            return false;
+        }
+    }
     return true;
 });
 </script>

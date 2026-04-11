@@ -153,8 +153,15 @@ class MapStateBuilder
      */
     private function playerUnlocks(Player $player): array
     {
+        // Filter status='active' so a broken item never grants its
+        // feature unlock. Only set_drill_tier items are currently in the
+        // eligible_effect_keys list for break rolls, so the net effect
+        // is identical today — this is future-proofing for when other
+        // item classes get breakable.
         $rows = DB::table('player_items')
             ->where('player_items.player_id', $player->id)
+            ->where('player_items.status', 'active')
+            ->where('player_items.quantity', '>', 0)
             ->join('items_catalog', 'items_catalog.key', '=', 'player_items.item_key')
             ->whereNotNull('items_catalog.effects')
             ->pluck('items_catalog.effects')
@@ -176,12 +183,16 @@ class MapStateBuilder
     }
 
     /**
-     * @return list<array{key:string, name:string, description:string|null, post_type:string, quantity:int, effects:array<string,mixed>|null}>
+     * @return list<array{key:string, name:string, description:string|null, post_type:string, quantity:int, status:string, effects:array<string,mixed>|null}>
      */
     private function ownedItems(Player $player): array
     {
+        // Returns both active and broken rows so the frontend can render
+        // a broken drill with the right visual treatment. Callers that
+        // want only usable gear should filter by `status === 'active'`.
         return DB::table('player_items')
             ->where('player_items.player_id', $player->id)
+            ->where('player_items.quantity', '>', 0)
             ->join('items_catalog', 'items_catalog.key', '=', 'player_items.item_key')
             ->orderBy('items_catalog.post_type')
             ->orderBy('items_catalog.sort_order')
@@ -192,6 +203,7 @@ class MapStateBuilder
                 'items_catalog.post_type',
                 'items_catalog.effects',
                 'player_items.quantity',
+                'player_items.status',
             ])
             ->map(fn ($row) => [
                 'key' => $row->key,
@@ -199,6 +211,7 @@ class MapStateBuilder
                 'description' => $row->description,
                 'post_type' => $row->post_type,
                 'quantity' => (int) $row->quantity,
+                'status' => (string) $row->status,
                 'effects' => $row->effects ? json_decode($row->effects, true) : null,
             ])
             ->all();

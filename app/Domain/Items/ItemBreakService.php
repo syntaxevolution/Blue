@@ -134,9 +134,15 @@ class ItemBreakService
                 throw CannotPurchaseException::insufficientBarrels($player->oil_barrels, $cost);
             }
 
+            // lockForUpdate closes a theoretical race with a concurrent
+            // abandon() call (same player, two tabs). The outer player
+            // row lock already serializes same-player requests, but this
+            // is cheap belt-and-braces safety — and makes the lock intent
+            // explicit for future readers.
             $row = PlayerItem::query()
                 ->where('player_id', $player->id)
                 ->where('item_key', $key)
+                ->lockForUpdate()
                 ->firstOrFail();
 
             $row->update([
