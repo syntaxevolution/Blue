@@ -30,8 +30,8 @@ function submit() {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="mx-auto max-w-lg space-y-6 px-4 sm:px-6 lg:px-8">
+        <div class="py-4 sm:py-8">
+            <div class="mx-auto max-w-lg space-y-4 sm:space-y-6 px-3 sm:px-6 lg:px-8">
                 <p class="text-sm text-zinc-400">
                     Founding an MDN costs <span class="font-mono text-amber-300">A{{ creation_cost.toFixed(2) }}</span>
                     and immediately appoints you as leader.

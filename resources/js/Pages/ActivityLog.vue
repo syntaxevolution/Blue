@@ -34,7 +34,7 @@ function markAllRead() {
 
     <AuthenticatedLayout>
         <template #header>
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-xl font-bold uppercase tracking-wider text-amber-400">
                     Activity Log
                 </h2>
@@ -49,8 +49,8 @@ function markAllRead() {
             </div>
         </template>
 
-        <div class="py-8">
-            <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 space-y-3 font-mono">
+        <div class="py-4 sm:py-8">
+            <div class="mx-auto max-w-3xl px-3 sm:px-6 lg:px-8 space-y-3 font-mono">
                 <div
                     v-if="entries.data.length === 0"
                     class="rounded border border-zinc-800 bg-zinc-900/60 p-6 text-center text-sm text-zinc-500"
@@ -61,26 +61,26 @@ function markAllRead() {
                 <div
                     v-for="entry in entries.data"
                     :key="entry.id"
-                    class="rounded border bg-zinc-900/60 p-4"
+                    class="rounded border bg-zinc-900/60 p-3 sm:p-4"
                     :class="
                         entry.read_at
                             ? 'border-zinc-800 text-zinc-400'
                             : 'border-amber-700/40 text-zinc-100'
                     "
                 >
-                    <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-start justify-between gap-2 sm:gap-3">
                         <div class="flex-1 min-w-0">
-                            <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">
+                            <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1 break-words">
                                 {{ entry.type }} · {{ entry.created_at }}
                             </div>
-                            <div class="text-sm font-bold leading-tight">
+                            <div class="text-sm font-bold leading-tight break-words">
                                 {{ entry.title }}
                             </div>
                             <div
                                 v-if="entry.body"
-                                class="mt-2 text-[11px] text-zinc-500 break-all"
+                                class="mt-2 text-[11px] text-zinc-500 overflow-x-auto"
                             >
-                                <pre class="whitespace-pre-wrap">{{ JSON.stringify(entry.body, null, 2) }}</pre>
+                                <pre class="whitespace-pre-wrap break-all">{{ JSON.stringify(entry.body, null, 2) }}</pre>
                             </div>
                         </div>
                         <span

@@ -162,7 +162,7 @@ class AttackService
                 'outcome' => $result['outcome'],
                 'cash_stolen' => $cashStolen,
                 'attacker_escape' => false,
-                'rng_seed' => crc32($eventKey),
+                'rng_seed' => (int) sprintf('%u', crc32($eventKey)),
                 'rng_output' => (string) $result['final_score'],
                 'created_at' => now(),
             ]);

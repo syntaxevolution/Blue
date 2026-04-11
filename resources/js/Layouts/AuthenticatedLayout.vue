@@ -88,6 +88,12 @@ onBeforeUnmount(() => {
                                 Atlas
                             </NavLink>
                             <NavLink
+                                :href="route('attack_log.show')"
+                                :active="route().current('attack_log.show')"
+                            >
+                                Log
+                            </NavLink>
+                            <NavLink
                                 :href="route('mdn.index')"
                                 :active="route().current('mdn.*')"
                             >
@@ -218,6 +224,12 @@ onBeforeUnmount(() => {
                         :active="route().current('atlas.show')"
                     >
                         Atlas
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink
+                        :href="route('attack_log.show')"
+                        :active="route().current('attack_log.show')"
+                    >
+                        Attack Log
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
                         :href="route('mdn.index')"

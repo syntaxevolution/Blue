@@ -20,16 +20,16 @@ defineProps<{
             </h2>
         </template>
 
-        <div class="py-12">
-            <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 space-y-6">
-                <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-8">
+        <div class="py-6 sm:py-12">
+            <div class="mx-auto max-w-4xl px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
+                <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-5 sm:p-8">
                     <div class="font-mono text-xs uppercase tracking-widest text-zinc-500 mb-2">
                         Welcome to Akzar
                     </div>
-                    <h3 class="font-mono text-3xl font-black uppercase text-zinc-100 mb-4">
+                    <h3 class="font-mono text-2xl sm:text-3xl font-black uppercase text-zinc-100 mb-4 break-words">
                         The dust never settles.
                     </h3>
-                    <p class="text-zinc-400 leading-relaxed mb-6 max-w-2xl">
+                    <p class="text-zinc-400 leading-relaxed mb-6 max-w-2xl text-sm sm:text-base">
                         You've landed on a world of cracked earth, rusted rigs, and cash
                         stashed behind reinforced doors. Your base is already claimed.
                         The oil fields are waiting. Head to the map to start drilling,
@@ -37,7 +37,7 @@ defineProps<{
                     </p>
                     <Link
                         :href="route('map.show')"
-                        class="inline-flex items-center rounded-md bg-amber-500 px-6 py-3 font-mono text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
+                        class="inline-flex items-center rounded-md bg-amber-500 px-5 sm:px-6 py-3 font-mono text-sm sm:text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
                     >
                         Enter the map →
                     </Link>

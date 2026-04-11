@@ -38,33 +38,33 @@ const features = [
         class="min-h-screen bg-zinc-950 text-zinc-100 bg-[radial-gradient(ellipse_at_top,rgba(251,191,36,0.10),transparent_60%)]"
     >
         <!-- Top bar -->
-        <header class="mx-auto max-w-6xl px-6 py-6 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <ApplicationLogo class="h-10 w-10 text-amber-400" />
-                <span class="font-mono text-xl font-black uppercase tracking-widest text-amber-400">
+        <header class="mx-auto max-w-6xl px-4 sm:px-6 py-4 sm:py-6 flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-3 min-w-0">
+                <ApplicationLogo class="h-9 w-9 sm:h-10 sm:w-10 text-amber-400 shrink-0" />
+                <span class="font-mono text-base sm:text-xl font-black uppercase tracking-widest text-amber-400">
                     Clash Wars
                 </span>
             </div>
 
-            <nav v-if="canLogin" class="flex items-center gap-2">
+            <nav v-if="canLogin" class="flex items-center gap-1 sm:gap-2">
                 <Link
                     v-if="$page.props.auth.user"
                     :href="route('dashboard')"
-                    class="rounded-md border border-zinc-800 px-4 py-2 text-sm font-mono uppercase tracking-wider text-zinc-300 hover:border-amber-400 hover:text-amber-400 transition"
+                    class="rounded-md border border-zinc-800 px-3 sm:px-4 py-2 text-xs sm:text-sm font-mono uppercase tracking-wider text-zinc-300 hover:border-amber-400 hover:text-amber-400 transition"
                 >
                     Enter Akzar
                 </Link>
                 <template v-else>
                     <Link
                         :href="route('login')"
-                        class="rounded-md px-4 py-2 text-sm font-mono uppercase tracking-wider text-zinc-300 hover:text-amber-400 transition"
+                        class="rounded-md px-3 sm:px-4 py-2 text-xs sm:text-sm font-mono uppercase tracking-wider text-zinc-300 hover:text-amber-400 transition"
                     >
                         Log in
                     </Link>
                     <Link
                         v-if="canRegister"
                         :href="route('register')"
-                        class="rounded-md bg-amber-500 px-4 py-2 text-sm font-mono font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-lg shadow-amber-900/30"
+                        class="rounded-md bg-amber-500 px-3 sm:px-4 py-2 text-xs sm:text-sm font-mono font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-lg shadow-amber-900/30"
                     >
                         Claim a tile
                     </Link>
@@ -73,43 +73,43 @@ const features = [
         </header>
 
         <!-- Hero -->
-        <section class="mx-auto max-w-6xl px-6 pt-16 pb-24">
+        <section class="mx-auto max-w-6xl px-4 sm:px-6 pt-10 sm:pt-16 pb-16 sm:pb-24">
             <div class="max-w-3xl">
-                <div class="mb-4 inline-block rounded border border-amber-700/40 bg-amber-950/40 px-3 py-1 font-mono text-xs uppercase tracking-widest text-amber-400">
+                <div class="mb-4 inline-block rounded border border-amber-700/40 bg-amber-950/40 px-3 py-1 font-mono text-[10px] sm:text-xs uppercase tracking-widest text-amber-400">
                     A frontier rebuild of the 2001 classic
                 </div>
-                <h1 class="font-mono text-5xl md:text-7xl font-black uppercase leading-none tracking-tight text-zinc-50">
+                <h1 class="font-mono text-4xl sm:text-5xl md:text-7xl font-black uppercase leading-none tracking-tight text-zinc-50">
                     Drill it.<br />
                     Raid it.<br />
                     <span class="text-amber-400">Claim it.</span>
                 </h1>
-                <p class="mt-8 text-lg md:text-xl text-zinc-400 leading-relaxed max-w-2xl">
+                <p class="mt-6 sm:mt-8 text-base sm:text-lg md:text-xl text-zinc-400 leading-relaxed max-w-2xl">
                     Akzar is a dust-choked oil world, abandoned by its colonial charter
                     and run by squatters, drillers, and raiders. Start with five Akzar
                     cash and a toy drill. Every move matters. No pay-to-win.
                     No cash-out. Just the grid, the fog, and whoever's got the bigger base.
                 </p>
 
-                <div v-if="canLogin && !$page.props.auth.user" class="mt-10 flex flex-wrap gap-3">
+                <div v-if="canLogin && !$page.props.auth.user" class="mt-8 sm:mt-10 flex flex-wrap gap-3">
                     <Link
                         v-if="canRegister"
                         :href="route('register')"
-                        class="inline-flex items-center rounded-md bg-amber-500 px-6 py-3 font-mono text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
+                        class="inline-flex items-center rounded-md bg-amber-500 px-5 sm:px-6 py-3 font-mono text-sm sm:text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
                     >
                         Land on Akzar →
                     </Link>
                     <Link
                         :href="route('login')"
-                        class="inline-flex items-center rounded-md border border-zinc-700 px-6 py-3 font-mono text-base uppercase tracking-wider text-zinc-300 hover:border-amber-400 hover:text-amber-400 transition"
+                        class="inline-flex items-center rounded-md border border-zinc-700 px-5 sm:px-6 py-3 font-mono text-sm sm:text-base uppercase tracking-wider text-zinc-300 hover:border-amber-400 hover:text-amber-400 transition"
                     >
                         Log in
                     </Link>
                 </div>
 
-                <div v-else-if="$page.props.auth.user" class="mt-10">
+                <div v-else-if="$page.props.auth.user" class="mt-8 sm:mt-10">
                     <Link
                         :href="route('map.show')"
-                        class="inline-flex items-center rounded-md bg-amber-500 px-6 py-3 font-mono text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
+                        class="inline-flex items-center rounded-md bg-amber-500 px-5 sm:px-6 py-3 font-mono text-sm sm:text-base font-bold uppercase tracking-wider text-zinc-950 hover:bg-amber-400 transition shadow-xl shadow-amber-900/30"
                     >
                         Enter the map →
                     </Link>
@@ -119,29 +119,29 @@ const features = [
 
         <!-- Feature grid -->
         <section class="border-t border-zinc-900 bg-zinc-950/40">
-            <div class="mx-auto max-w-6xl px-6 py-20">
-                <div class="mb-12 max-w-2xl">
+            <div class="mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-20">
+                <div class="mb-8 sm:mb-12 max-w-2xl">
                     <div class="font-mono text-xs uppercase tracking-widest text-zinc-500 mb-3">
                         What you came for
                     </div>
-                    <h2 class="font-mono text-3xl md:text-4xl font-black uppercase text-zinc-100">
+                    <h2 class="font-mono text-2xl sm:text-3xl md:text-4xl font-black uppercase text-zinc-100">
                         A turn-limited strategy game that respects your time
                     </h2>
                 </div>
 
-                <div class="grid gap-6 md:grid-cols-2">
+                <div class="grid gap-4 sm:gap-6 md:grid-cols-2">
                     <div
                         v-for="feature in features"
                         :key="feature.title"
-                        class="rounded-lg border border-zinc-800 bg-zinc-900/60 p-6 hover:border-zinc-700 transition"
+                        class="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 sm:p-6 hover:border-zinc-700 transition"
                     >
                         <h3
-                            class="font-mono text-xl font-bold uppercase tracking-wider mb-3"
+                            class="font-mono text-lg sm:text-xl font-bold uppercase tracking-wider mb-3"
                             :class="feature.accent"
                         >
                             {{ feature.title }}
                         </h3>
-                        <p class="text-zinc-400 leading-relaxed">
+                        <p class="text-sm sm:text-base text-zinc-400 leading-relaxed">
                             {{ feature.body }}
                         </p>
                     </div>
@@ -151,8 +151,8 @@ const features = [
 
         <!-- Design pillars -->
         <section class="border-t border-zinc-900">
-            <div class="mx-auto max-w-6xl px-6 py-20">
-                <div class="grid gap-8 md:grid-cols-3 text-sm">
+            <div class="mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-20">
+                <div class="grid gap-6 sm:gap-8 md:grid-cols-3 text-sm">
                     <div>
                         <div class="font-mono text-xs uppercase tracking-widest text-amber-400 mb-2">
                             No pay-to-win
@@ -186,7 +186,7 @@ const features = [
 
         <!-- Footer -->
         <footer class="border-t border-zinc-900">
-            <div class="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-mono uppercase tracking-widest text-zinc-600">
+            <div class="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-10 flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] sm:text-xs font-mono uppercase tracking-widest text-zinc-600 text-center md:text-left">
                 <div>Clash Wars — a remake, with the RNG trap fixed.</div>
                 <div>Persistent world · Single shared grid · ~100 player alpha</div>
             </div>

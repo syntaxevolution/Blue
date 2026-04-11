@@ -387,8 +387,29 @@ class WorldService
                 count($candidateIds) - 1,
             );
 
-            /** @var Tile $spawnTile */
-            $spawnTile = Tile::findOrFail($candidateIds[$index]);
+            // Lock the candidate row so a concurrent spawnPlayer for a
+            // different user cannot pick the same tile between our read
+            // and our base-conversion write. If another process beat us,
+            // its conversion will have cleared 'wasteland' — walk the
+            // RNG-ordered candidate list until we find one still usable.
+            $spawnTile = null;
+            $probeCount = min(count($candidateIds), 32);
+            for ($i = 0; $i < $probeCount; $i++) {
+                $probeIndex = ($index + $i) % count($candidateIds);
+                /** @var Tile|null $probe */
+                $probe = Tile::query()
+                    ->whereKey($candidateIds[$probeIndex])
+                    ->lockForUpdate()
+                    ->first();
+                if ($probe !== null && $probe->type === 'wasteland') {
+                    $spawnTile = $probe;
+                    break;
+                }
+            }
+
+            if ($spawnTile === null) {
+                throw new RuntimeException('WorldService::spawnPlayer: could not claim a wasteland tile after concurrent race');
+            }
 
             $spawnTile->update([
                 'type' => 'base',

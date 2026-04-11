@@ -49,8 +49,8 @@ function join(mdnId: number) {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="mx-auto max-w-5xl space-y-6 px-4 sm:px-6 lg:px-8">
+        <div class="py-4 sm:py-8">
+            <div class="mx-auto max-w-5xl space-y-4 sm:space-y-6 px-3 sm:px-6 lg:px-8">
                 <div
                     v-if="flash?.status"
                     class="rounded border border-emerald-700 bg-emerald-900/40 px-4 py-2 text-sm text-emerald-200"
@@ -64,18 +64,18 @@ function join(mdnId: number) {
                     {{ errors.mdn }}
                 </div>
 
-                <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
                     <input
                         v-model="search"
                         type="text"
                         placeholder="Search MDN by name or tag…"
                         aria-label="Search MDNs by name or tag"
-                        class="flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
+                        class="w-full sm:flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
                     />
                     <Link
                         v-if="!own_mdn"
                         :href="route('mdn.create')"
-                        class="rounded bg-amber-500 px-4 py-2 font-mono text-sm font-bold uppercase tracking-widest text-zinc-950 hover:bg-amber-400"
+                        class="rounded bg-amber-500 px-4 py-2 font-mono text-sm font-bold uppercase tracking-widest text-zinc-950 hover:bg-amber-400 text-center whitespace-nowrap"
                     >
                         + Create MDN (A{{ creation_cost.toFixed(2) }})
                     </Link>
@@ -88,8 +88,8 @@ function join(mdnId: number) {
                     <div class="text-xs uppercase tracking-widest text-amber-400">
                         Your MDN
                     </div>
-                    <div class="mt-1 flex items-center justify-between">
-                        <div>
+                    <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
+                        <div class="min-w-0 break-words">
                             <span class="font-mono text-amber-300">[{{ own_mdn.tag }}]</span>
                             <span class="ml-2 font-bold text-zinc-100">{{ own_mdn.name }}</span>
                             <span class="ml-2 text-xs text-zinc-500">
@@ -98,15 +98,15 @@ function join(mdnId: number) {
                         </div>
                         <Link
                             :href="route('mdn.show', own_mdn.id)"
-                            class="text-sm text-amber-400 hover:underline"
+                            class="text-sm text-amber-400 hover:underline whitespace-nowrap"
                         >
                             View →
                         </Link>
                     </div>
                 </div>
 
-                <div class="overflow-hidden rounded border border-zinc-800">
-                    <table class="w-full text-left text-sm">
+                <div class="overflow-x-auto rounded border border-zinc-800">
+                    <table class="w-full min-w-[640px] text-left text-sm">
                         <thead class="bg-zinc-900 text-xs uppercase tracking-widest text-zinc-400">
                             <tr>
                                 <th class="px-4 py-2">Tag</th>

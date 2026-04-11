@@ -91,12 +91,12 @@ function isBase(t: AtlasTile | undefined): boolean {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="max-w-6xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="py-4 sm:py-8">
+            <div class="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
                 <!-- Locked state — player hasn't bought the atlas -->
                 <div
                     v-if="!owns_atlas"
-                    class="bg-zinc-900 border-2 border-zinc-800 rounded-lg p-12 text-center font-mono"
+                    class="bg-zinc-900 border-2 border-zinc-800 rounded-lg p-6 sm:p-12 text-center font-mono"
                 >
                     <div class="inline-flex mb-6 text-zinc-600">
                         <svg viewBox="0 0 48 48" class="w-20 h-20" fill="none" stroke="currentColor" stroke-width="2">
@@ -124,7 +124,7 @@ function isBase(t: AtlasTile | undefined): boolean {
                 <!-- Unlocked state — render the grid -->
                 <template v-else>
                     <!-- Summary bar -->
-                    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm font-mono">
+                    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-4 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 text-sm font-mono">
                         <div>
                             <div class="text-zinc-500 text-xs uppercase">Tiles discovered</div>
                             <div class="text-amber-400 text-lg">{{ tiles.length }}</div>
@@ -170,7 +170,7 @@ function isBase(t: AtlasTile | undefined): boolean {
                     <!-- Atlas grid -->
                     <div
                         v-else
-                        class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 overflow-auto"
+                        class="bg-zinc-900 border border-zinc-800 rounded-lg p-2 sm:p-4 overflow-auto"
                     >
                         <div class="inline-block">
                             <div
@@ -181,7 +181,7 @@ function isBase(t: AtlasTile | undefined): boolean {
                                 <div
                                     v-for="x in cols"
                                     :key="`${x}:${y}`"
-                                    class="w-9 h-9 rounded border flex items-center justify-center relative"
+                                    class="w-7 h-7 sm:w-9 sm:h-9 rounded border flex items-center justify-center relative shrink-0"
                                     :class="[
                                         tileByCoord[`${x}:${y}`]
                                             ? (isCurrent(tileByCoord[`${x}:${y}`])
@@ -198,7 +198,7 @@ function isBase(t: AtlasTile | undefined): boolean {
                                     <TileIcon
                                         v-if="tileByCoord[`${x}:${y}`]"
                                         :type="isBase(tileByCoord[`${x}:${y}`]) ? 'base' : tileByCoord[`${x}:${y}`].type"
-                                        class="w-6 h-6"
+                                        class="w-4 h-4 sm:w-6 sm:h-6"
                                         :class="tileColor(isBase(tileByCoord[`${x}:${y}`]) ? 'base' : tileByCoord[`${x}:${y}`].type)"
                                     />
                                 </div>

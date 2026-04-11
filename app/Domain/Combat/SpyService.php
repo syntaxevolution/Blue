@@ -123,7 +123,7 @@ class SpyService
                 'target_base_tile_id' => $tile->id,
                 'success' => $success,
                 'detected' => $detected,
-                'rng_seed' => crc32($eventKey),
+                'rng_seed' => (int) sprintf('%u', crc32($eventKey)),
                 'rng_output' => (string) $roll,
                 'created_at' => now(),
             ]);

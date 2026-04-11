@@ -420,10 +420,12 @@ class BotDecisionService
     private function randomWalk(Player $bot): void
     {
         $dirs = ['n', 's', 'e', 'w'];
-        // RNG-seeded so a replay would produce the same walk.
+        // Microtime salt ensures multiple fallback walks in the same tick
+        // get different rolls; otherwise a bot wedged against the world
+        // edge would pick the same direction every attempt.
         $idx = $this->rng->rollInt(
             'bot.walk',
-            'bot.'.$bot->id.'.'.now()->timestamp,
+            'bot.'.$bot->id.'.'.microtime(true),
             0,
             3,
         );

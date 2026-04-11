@@ -14,15 +14,15 @@ function accent(type: string): string {
 
 <template>
     <div
-        class="pointer-events-auto w-80 rounded-lg border-2 p-4 shadow-xl font-mono text-sm"
+        class="pointer-events-auto w-full sm:w-80 max-w-full rounded-lg border-2 p-3 sm:p-4 shadow-xl font-mono text-sm"
         :class="accent(toast.type)"
     >
         <div class="flex items-start justify-between gap-2">
-            <div class="flex-1">
-                <div class="font-bold uppercase tracking-wider text-xs mb-1 opacity-80">
+            <div class="flex-1 min-w-0">
+                <div class="font-bold uppercase tracking-wider text-xs mb-1 opacity-80 break-words">
                     {{ toast.type.replace('.', ' · ') }}
                 </div>
-                <div class="text-base font-semibold leading-tight">
+                <div class="text-sm sm:text-base font-semibold leading-tight break-words">
                     {{ toast.title }}
                 </div>
             </div>

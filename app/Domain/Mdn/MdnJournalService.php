@@ -87,6 +87,7 @@ class MdnJournalService
             $existing = MdnJournalVote::query()
                 ->where('entry_id', $entry->id)
                 ->where('player_id', $player->id)
+                ->lockForUpdate()
                 ->first();
 
             if ($existing !== null) {

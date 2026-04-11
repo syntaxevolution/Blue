@@ -17,9 +17,9 @@ function submit() {
 </script>
 
 <template>
-    <div class="fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/90 backdrop-blur">
-        <div class="w-full max-w-md rounded-lg border border-amber-600/40 bg-zinc-900 p-6 shadow-2xl">
-            <h2 class="font-mono text-xl font-bold uppercase tracking-widest text-amber-400 mb-2">
+    <div class="fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/90 backdrop-blur px-3 sm:px-4">
+        <div class="w-full max-w-md rounded-lg border border-amber-600/40 bg-zinc-900 p-4 sm:p-6 shadow-2xl">
+            <h2 class="font-mono text-lg sm:text-xl font-bold uppercase tracking-widest text-amber-400 mb-2">
                 Claim your handle
             </h2>
             <p class="text-zinc-400 text-sm mb-5 leading-relaxed">

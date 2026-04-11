@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\MdnException;
 use App\Domain\Mdn\MdnJournalService;
 use App\Domain\World\WorldService;
@@ -14,12 +15,15 @@ class MdnJournalController extends Controller
     public function __construct(
         private readonly WorldService $world,
         private readonly MdnJournalService $journal,
+        private readonly GameConfigResolver $config,
     ) {}
 
     public function store(Request $request, int $mdn): RedirectResponse
     {
+        $bodyMax = (int) $this->config->get('mdn.journal.body_max_length', 1000);
+
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:1000'],
+            'body' => ['required', 'string', 'max:'.$bodyMax],
             'tile_id' => ['nullable', 'integer'],
         ]);
 

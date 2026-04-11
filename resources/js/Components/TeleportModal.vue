@@ -51,8 +51,8 @@ function go() {
 </script>
 
 <template>
-    <div class="fixed inset-0 z-30 flex items-center justify-center bg-zinc-950/80 backdrop-blur">
-        <div class="w-full max-w-md rounded-lg border border-violet-600/50 bg-zinc-900 p-6 shadow-2xl">
+    <div class="fixed inset-0 z-30 flex items-center justify-center bg-zinc-950/80 backdrop-blur px-3 sm:px-4">
+        <div class="w-full max-w-md rounded-lg border border-violet-600/50 bg-zinc-900 p-4 sm:p-6 shadow-2xl">
             <div class="flex items-start justify-between mb-2">
                 <h2 class="font-mono text-xl font-bold uppercase tracking-widest text-violet-300">
                     Teleporter

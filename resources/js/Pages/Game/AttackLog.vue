@@ -48,12 +48,12 @@ function formatTimestamp(iso: string): string {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="max-w-4xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="py-4 sm:py-8">
+            <div class="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
                 <!-- Locked state -->
                 <div
                     v-if="!owns_attack_log"
-                    class="bg-zinc-900 border-2 border-zinc-800 rounded-lg p-12 text-center font-mono"
+                    class="bg-zinc-900 border-2 border-zinc-800 rounded-lg p-6 sm:p-12 text-center font-mono"
                 >
                     <div class="inline-flex mb-6 text-zinc-600">
                         <svg viewBox="0 0 48 48" class="w-20 h-20" fill="none" stroke="currentColor" stroke-width="2">
@@ -81,7 +81,7 @@ function formatTimestamp(iso: string): string {
                 <!-- Unlocked -->
                 <template v-else>
                     <!-- Summary bar -->
-                    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm font-mono">
+                    <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-4 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 text-sm font-mono">
                         <div>
                             <div class="text-zinc-500 text-xs uppercase">Raids recorded</div>
                             <div class="text-amber-400 text-lg">{{ attacks.length }}</div>
@@ -103,7 +103,7 @@ function formatTimestamp(iso: string): string {
                     <!-- Empty state -->
                     <div
                         v-if="attacks.length === 0"
-                        class="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center font-mono text-zinc-500"
+                        class="bg-zinc-900 border border-zinc-800 rounded-lg p-6 sm:p-12 text-center font-mono text-zinc-500"
                     >
                         No raids on your base yet. Enjoy the quiet — it won't last.
                     </div>
@@ -116,7 +116,7 @@ function formatTimestamp(iso: string): string {
                         <div
                             v-for="attack in attacks"
                             :key="attack.id"
-                            class="p-4 flex items-start justify-between gap-4"
+                            class="p-3 sm:p-4 flex items-start justify-between gap-3 sm:gap-4"
                         >
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-baseline gap-2 flex-wrap">
@@ -128,7 +128,7 @@ function formatTimestamp(iso: string): string {
                                     >
                                         {{ attack.outcome === 'success' ? 'Breached' : 'Repelled' }}
                                     </span>
-                                    <span class="text-zinc-100 font-bold">{{ attack.attacker_username }}</span>
+                                    <span class="text-zinc-100 font-bold break-words">{{ attack.attacker_username }}</span>
                                     <span class="text-zinc-500 text-xs">attacker</span>
                                 </div>
                                 <div class="text-zinc-500 text-xs mt-1">

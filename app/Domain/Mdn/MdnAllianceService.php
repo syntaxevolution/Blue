@@ -22,7 +22,7 @@ class MdnAllianceService
     {
         return DB::transaction(function () use ($leaderPlayerId, $otherMdnId) {
             /** @var Player $leader */
-            $leader = Player::query()->findOrFail($leaderPlayerId);
+            $leader = Player::query()->lockForUpdate()->findOrFail($leaderPlayerId);
 
             if ($leader->mdn_id === null) {
                 throw MdnException::notAMember();
@@ -68,7 +68,7 @@ class MdnAllianceService
     {
         DB::transaction(function () use ($leaderPlayerId, $allianceId) {
             /** @var Player $leader */
-            $leader = Player::query()->findOrFail($leaderPlayerId);
+            $leader = Player::query()->lockForUpdate()->findOrFail($leaderPlayerId);
 
             if ($leader->mdn_id === null) {
                 throw MdnException::notAMember();

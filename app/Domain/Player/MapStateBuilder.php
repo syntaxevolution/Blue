@@ -244,11 +244,8 @@ class MapStateBuilder
 
         $grid = [];
         $dailyCount = 0;
-        // Same defensive fallback as DrillService — if the config key
-        // isn't populated (stale config:cache, fresh deploy, etc.),
-        // default to 5 rather than 0 which would mis-report "limit reached".
-        $dailyLimitRaw = $this->config->get('drilling.daily_limit_per_field');
-        $dailyLimit = $dailyLimitRaw === null ? 5 : (int) $dailyLimitRaw;
+        // Same defensive fallback as DrillService.
+        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field', 5);
         if ($dailyLimit <= 0) {
             $dailyLimit = 5;
         }

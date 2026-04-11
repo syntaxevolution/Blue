@@ -114,8 +114,8 @@ function revokeAlliance(allianceId: number) {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="mx-auto max-w-5xl space-y-6 px-4 sm:px-6 lg:px-8">
+        <div class="py-4 sm:py-8">
+            <div class="mx-auto max-w-5xl space-y-4 sm:space-y-6 px-3 sm:px-6 lg:px-8">
                 <div
                     v-if="flash?.status"
                     class="rounded border border-emerald-700 bg-emerald-900/40 px-4 py-2 text-sm text-emerald-200"
@@ -130,16 +130,16 @@ function revokeAlliance(allianceId: number) {
                     {{ err }}
                 </div>
 
-                <div class="flex items-start justify-between">
-                    <div>
+                <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div class="min-w-0">
                         <div class="text-xs uppercase tracking-widest text-zinc-500">
                             {{ mdn.member_count }} members
                         </div>
-                        <p v-if="mdn.motto" class="mt-1 text-sm italic text-zinc-300">
+                        <p v-if="mdn.motto" class="mt-1 text-sm italic text-zinc-300 break-words">
                             “{{ mdn.motto }}”
                         </p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
                         <button
                             v-if="!is_member && own_mdn_id === null"
                             type="button"
@@ -167,7 +167,7 @@ function revokeAlliance(allianceId: number) {
                     </div>
                 </div>
 
-                <div role="tablist" aria-label="MDN sections" class="flex border-b border-zinc-800">
+                <div role="tablist" aria-label="MDN sections" class="flex flex-wrap border-b border-zinc-800">
                     <button
                         id="mdn-tab-members"
                         type="button"
@@ -218,9 +218,9 @@ function revokeAlliance(allianceId: number) {
                     id="mdn-panel-members"
                     role="tabpanel"
                     aria-labelledby="mdn-tab-members"
-                    class="overflow-hidden rounded border border-zinc-800"
+                    class="overflow-x-auto rounded border border-zinc-800"
                 >
-                    <table class="w-full text-left text-sm">
+                    <table class="w-full min-w-[560px] text-left text-sm">
                         <thead class="bg-zinc-900 text-xs uppercase tracking-widest text-zinc-400">
                             <tr>
                                 <th class="px-4 py-2">Name</th>
@@ -351,9 +351,9 @@ function revokeAlliance(allianceId: number) {
                     <div
                         v-for="a in alliances"
                         :key="a.id"
-                        class="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900/30 p-3 text-sm"
+                        class="flex items-center justify-between gap-2 rounded border border-zinc-800 bg-zinc-900/30 p-3 text-sm"
                     >
-                        <div v-if="a.other_mdn">
+                        <div v-if="a.other_mdn" class="min-w-0 break-words">
                             <span class="font-mono text-amber-300">[{{ a.other_mdn.tag }}]</span>
                             <span class="ml-2 text-zinc-200">{{ a.other_mdn.name }}</span>
                         </div>

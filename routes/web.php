@@ -3,6 +3,7 @@
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Web\ActivityLogController;
 use App\Http\Controllers\Web\AtlasController;
+use App\Http\Controllers\Web\AttackLogController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\ItemBreakController;
 use App\Http\Controllers\Web\MapController;
@@ -63,8 +64,10 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
     Route::post('/activity/{activityLog}/read', [ActivityLogController::class, 'markRead'])->name('activity.read');
     Route::post('/activity/read-all', [ActivityLogController::class, 'markAllRead'])->name('activity.read_all');
 
-    // Everything else gets the broken-item guard.
-    Route::middleware('block.broken_item')->group(function () {
+    // Everything else gets the broken-item guard + a baseline throttle.
+    // Domain services are the real gate for game economy, but throttling
+    // protects the shared VPS from script-level spam holding row locks.
+    Route::middleware(['block.broken_item', 'throttle:120,1'])->group(function () {
         Route::get('/map', [MapController::class, 'show'])->name('map.show');
         Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
         Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');
@@ -78,6 +81,8 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
         Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
 
         Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
+
+        Route::get('/attack-log', [AttackLogController::class, 'show'])->name('attack_log.show');
 
         // MDN (Mutual Defense Network) — social layer. Same-MDN attack
         // blocking lives in AttackService/SpyService → MdnService, not

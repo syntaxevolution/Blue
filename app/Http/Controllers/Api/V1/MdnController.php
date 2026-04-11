@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\MdnException;
 use App\Domain\Mdn\MdnJournalService;
 use App\Domain\Mdn\MdnService;
@@ -19,6 +20,7 @@ class MdnController extends Controller
         private readonly WorldService $world,
         private readonly MdnService $mdnSvc,
         private readonly MdnJournalService $journalSvc,
+        private readonly GameConfigResolver $config,
     ) {}
 
     public function index(): JsonResponse
@@ -51,10 +53,14 @@ class MdnController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $nameMax = (int) $this->config->get('mdn.name_max_length', 50);
+        $tagMax = (int) $this->config->get('mdn.tag_max_length', 6);
+        $mottoMax = (int) $this->config->get('mdn.motto_max_length', 200);
+
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:50'],
-            'tag' => ['required', 'string', 'max:8'],
-            'motto' => ['nullable', 'string', 'max:200'],
+            'name' => ['required', 'string', 'max:'.$nameMax],
+            'tag' => ['required', 'string', 'max:'.$tagMax],
+            'motto' => ['nullable', 'string', 'max:'.$mottoMax],
         ]);
 
         $user = $request->user();

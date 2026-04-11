@@ -308,10 +308,10 @@ const canAttackNow = computed(() => {
             </h2>
         </template>
 
-        <div class="py-8">
-            <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="py-4 sm:py-8">
+            <div class="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
                 <!-- Top resource bar (with home base coords) -->
-                <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm font-mono">
+                <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-4 grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4 text-sm font-mono">
                     <div>
                         <div class="text-zinc-500 text-xs uppercase">Akzar Cash</div>
                         <div class="text-amber-400 text-lg">A{{ state.player.akzar_cash.toFixed(2) }}</div>
@@ -339,26 +339,26 @@ const canAttackNow = computed(() => {
                 </div>
 
                 <!-- Stats row -->
-                <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 grid grid-cols-5 gap-4 text-sm font-mono">
+                <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 sm:p-4 grid grid-cols-5 gap-2 sm:gap-4 text-sm font-mono">
                     <div class="text-center">
-                        <div class="text-zinc-500 text-xs uppercase">Strength</div>
-                        <div class="text-rose-400 text-xl">{{ state.player.strength }}</div>
+                        <div class="text-zinc-500 text-[10px] sm:text-xs uppercase">Strength</div>
+                        <div class="text-rose-400 text-lg sm:text-xl">{{ state.player.strength }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-zinc-500 text-xs uppercase">Fort</div>
-                        <div class="text-emerald-400 text-xl">{{ state.player.fortification }}</div>
+                        <div class="text-zinc-500 text-[10px] sm:text-xs uppercase">Fort</div>
+                        <div class="text-emerald-400 text-lg sm:text-xl">{{ state.player.fortification }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-zinc-500 text-xs uppercase">Stealth</div>
-                        <div class="text-violet-400 text-xl">{{ state.player.stealth }}</div>
+                        <div class="text-zinc-500 text-[10px] sm:text-xs uppercase">Stealth</div>
+                        <div class="text-violet-400 text-lg sm:text-xl">{{ state.player.stealth }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-zinc-500 text-xs uppercase">Security</div>
-                        <div class="text-sky-400 text-xl">{{ state.player.security }}</div>
+                        <div class="text-zinc-500 text-[10px] sm:text-xs uppercase">Security</div>
+                        <div class="text-sky-400 text-lg sm:text-xl">{{ state.player.security }}</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-zinc-500 text-xs uppercase">Drill</div>
-                        <div class="text-amber-400 text-xl">T{{ state.player.drill_tier }}</div>
+                        <div class="text-zinc-500 text-[10px] sm:text-xs uppercase">Drill</div>
+                        <div class="text-amber-400 text-lg sm:text-xl">T{{ state.player.drill_tier }}</div>
                     </div>
                 </div>
 
@@ -396,58 +396,58 @@ const canAttackNow = computed(() => {
                 <div v-if="attackError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ attackError }}</div>
 
                 <!-- MAIN MAP PANEL -->
-                <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
+                <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-3 sm:p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
                     <!-- N button on top -->
                     <button
                         type="button"
-                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-3 py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mb-3"
+                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mb-3"
                         :disabled="!neighborByDirection.n"
                         @click="travel('n')"
                     >
-                        <span class="text-amber-400 text-2xl">↑</span>
-                        <TileIcon v-if="neighborByDirection.n" :type="neighborByDirection.n.type" class="w-8 h-8" :class="tileColor(neighborByDirection.n.type)" />
-                        <div class="text-left">
-                            <div class="text-xs text-zinc-500 uppercase tracking-widest">North</div>
-                            <div class="text-sm text-zinc-300">{{ neighborByDirection.n?.type ?? '— edge —' }}</div>
+                        <span class="text-amber-400 text-xl sm:text-2xl">↑</span>
+                        <TileIcon v-if="neighborByDirection.n" :type="neighborByDirection.n.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.n.type)" />
+                        <div class="text-left min-w-0">
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">North</div>
+                            <div class="text-xs sm:text-sm text-zinc-300 break-words">{{ neighborByDirection.n?.type ?? '— edge —' }}</div>
                         </div>
                     </button>
 
-                    <div class="flex items-stretch gap-3">
+                    <div class="flex items-stretch gap-2 sm:gap-3">
                         <!-- W button -->
                         <button
                             type="button"
-                            class="w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-2 px-2 py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            class="w-14 sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
                             :disabled="!neighborByDirection.w"
                             @click="travel('w')"
                         >
-                            <span class="text-amber-400 text-2xl">←</span>
-                            <TileIcon v-if="neighborByDirection.w" :type="neighborByDirection.w.type" class="w-8 h-8" :class="tileColor(neighborByDirection.w.type)" />
-                            <div class="text-xs text-zinc-500 uppercase tracking-widest">West</div>
-                            <div class="text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.w?.type ?? '— edge —' }}</div>
+                            <span class="text-amber-400 text-xl sm:text-2xl">←</span>
+                            <TileIcon v-if="neighborByDirection.w" :type="neighborByDirection.w.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.w.type)" />
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">West</div>
+                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.w?.type ?? '— edge —' }}</div>
                         </button>
 
                         <!-- CENTER -->
-                        <div class="flex-1 min-w-0 bg-zinc-950/60 border border-amber-500/20 rounded-lg p-5 flex flex-col items-center text-center">
+                        <div class="flex-1 min-w-0 bg-zinc-950/60 border border-amber-500/20 rounded-lg p-3 sm:p-5 flex flex-col items-center text-center">
                             <div class="text-amber-400 text-xs uppercase tracking-[0.3em] mb-3 flex items-center gap-2">
                                 <span class="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
                                 You are here
                             </div>
 
                             <div
-                                class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 mb-3"
+                                class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 sm:p-4 mb-3"
                                 :class="tileColor(state.current_tile.is_own_base ? 'base' : state.current_tile.type)"
                             >
                                 <TileIcon
                                     :type="state.current_tile.is_own_base ? 'base' : state.current_tile.type"
-                                    class="w-20 h-20"
+                                    class="w-14 h-14 sm:w-20 sm:h-20"
                                 />
                             </div>
 
-                            <div class="text-amber-400 text-sm mb-1">
+                            <div class="text-amber-400 text-xs sm:text-sm mb-1 break-words">
                                 ({{ state.current_tile.x }}, {{ state.current_tile.y }})
-                                <span class="text-zinc-600 text-xs ml-1">· tile #{{ state.current_tile.id }}</span>
+                                <span class="text-zinc-600 text-[10px] sm:text-xs ml-1">· tile #{{ state.current_tile.id }}</span>
                             </div>
-                            <div class="text-zinc-100 text-2xl font-bold mb-1">{{ tileLabel(state.current_tile) }}</div>
+                            <div class="text-zinc-100 text-xl sm:text-2xl font-bold mb-1 break-words">{{ tileLabel(state.current_tile) }}</div>
                             <div v-if="state.current_tile.flavor_text" class="text-zinc-400 italic text-sm mb-4">
                                 {{ state.current_tile.flavor_text }}
                             </div>
@@ -463,13 +463,13 @@ const canAttackNow = computed(() => {
                                         </span>
                                         <span v-if="dailyDrillLimitReached" class="text-rose-400 ml-2">· limit reached, returns at midnight</span>
                                     </div>
-                                    <div class="inline-block">
+                                    <div class="inline-block max-w-full">
                                         <div v-for="y in [4, 3, 2, 1, 0]" :key="y" class="flex gap-1 mb-1 justify-center">
                                             <button
                                                 v-for="x in [0, 1, 2, 3, 4]"
                                                 :key="`${x}:${y}`"
                                                 type="button"
-                                                class="w-11 h-11 rounded border flex items-center justify-center text-lg transition"
+                                                class="w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
                                                 :disabled="drillGridMap[`${x}:${y}`]?.drilled || dailyDrillLimitReached"
                                                 @click="drill(drillGridMap[`${x}:${y}`])"
@@ -490,17 +490,17 @@ const canAttackNow = computed(() => {
                                         <div
                                             v-for="item in state.tile_detail.items"
                                             :key="item.key"
-                                            class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-3"
+                                            class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-2 sm:gap-3"
                                         >
                                             <div class="flex-1 min-w-0">
-                                                <div class="text-zinc-100 text-sm font-bold">{{ item.name }}</div>
-                                                <div v-if="item.description" class="text-zinc-500 text-xs mt-0.5">{{ item.description }}</div>
-                                                <div class="text-emerald-400 text-xs mt-1">
+                                                <div class="text-zinc-100 text-sm font-bold break-words">{{ item.name }}</div>
+                                                <div v-if="item.description" class="text-zinc-500 text-xs mt-0.5 break-words">{{ item.description }}</div>
+                                                <div class="text-emerald-400 text-xs mt-1 break-words">
                                                     <span v-for="(effect, idx) in formatEffects(item.effects)" :key="idx" class="mr-2">{{ effect }}</span>
                                                 </div>
                                             </div>
-                                            <div class="shrink-0 flex flex-col items-end gap-2">
-                                                <div class="text-amber-400 text-xs font-bold whitespace-nowrap">{{ formatPrice(item) }}</div>
+                                            <div class="shrink-0 flex flex-col items-end gap-2 max-w-[45%]">
+                                                <div class="text-amber-400 text-xs font-bold text-right break-words">{{ formatPrice(item) }}</div>
                                                 <button
                                                     type="button"
                                                     class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
@@ -515,28 +515,28 @@ const canAttackNow = computed(() => {
                                 </div>
 
                                 <!-- Own base -->
-                                <div v-else-if="state.tile_detail?.kind === 'own_base'" class="rounded border border-zinc-800 bg-zinc-900 p-4">
+                                <div v-else-if="state.tile_detail?.kind === 'own_base'" class="rounded border border-zinc-800 bg-zinc-900 p-3 sm:p-4">
                                     <div class="text-zinc-500 text-xs uppercase mb-3 tracking-widest">Your base vault</div>
-                                    <div class="grid grid-cols-3 gap-4 text-sm">
-                                        <div>
-                                            <div class="text-zinc-500 text-xs">Stored cash</div>
-                                            <div class="text-amber-400 text-lg">A{{ state.tile_detail.stored_cash.toFixed(2) }}</div>
+                                    <div class="grid grid-cols-3 gap-2 sm:gap-4 text-sm">
+                                        <div class="min-w-0">
+                                            <div class="text-zinc-500 text-[10px] sm:text-xs">Stored cash</div>
+                                            <div class="text-amber-400 text-base sm:text-lg break-words">A{{ state.tile_detail.stored_cash.toFixed(2) }}</div>
                                         </div>
-                                        <div>
-                                            <div class="text-zinc-500 text-xs">Oil barrels</div>
-                                            <div class="text-zinc-100 text-lg">{{ state.tile_detail.stored_oil_barrels }}</div>
+                                        <div class="min-w-0">
+                                            <div class="text-zinc-500 text-[10px] sm:text-xs">Oil barrels</div>
+                                            <div class="text-zinc-100 text-base sm:text-lg break-words">{{ state.tile_detail.stored_oil_barrels }}</div>
                                         </div>
-                                        <div>
-                                            <div class="text-zinc-500 text-xs">Intel</div>
-                                            <div class="text-zinc-100 text-lg">{{ state.tile_detail.stored_intel }}</div>
+                                        <div class="min-w-0">
+                                            <div class="text-zinc-500 text-[10px] sm:text-xs">Intel</div>
+                                            <div class="text-zinc-100 text-base sm:text-lg break-words">{{ state.tile_detail.stored_intel }}</div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- ENEMY BASE with spy/attack -->
-                                <div v-else-if="state.tile_detail?.kind === 'enemy_base'" class="rounded border border-rose-900/60 bg-rose-950/20 p-4 text-left">
+                                <div v-else-if="state.tile_detail?.kind === 'enemy_base'" class="rounded border border-rose-900/60 bg-rose-950/20 p-3 sm:p-4 text-left">
                                     <div class="text-rose-400 text-xs uppercase tracking-widest mb-2">Enemy base</div>
-                                    <div class="text-2xl font-bold text-zinc-100 mb-1">
+                                    <div class="text-xl sm:text-2xl font-bold text-zinc-100 mb-1 break-words">
                                         {{ state.tile_detail.owner_username ?? 'Unknown' }}
                                         <span
                                             v-if="state.tile_detail.owner_mdn_tag"
@@ -574,7 +574,7 @@ const canAttackNow = computed(() => {
                                         Spy intel is fresh. You can raid.
                                     </div>
 
-                                    <div class="flex gap-2 mt-4">
+                                    <div class="flex flex-col sm:flex-row gap-2 mt-4">
                                         <button
                                             type="button"
                                             class="flex-1 bg-violet-800 hover:bg-violet-700 border border-violet-600 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
@@ -602,29 +602,29 @@ const canAttackNow = computed(() => {
                         <!-- E button -->
                         <button
                             type="button"
-                            class="w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-2 px-2 py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            class="w-14 sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
                             :disabled="!neighborByDirection.e"
                             @click="travel('e')"
                         >
-                            <span class="text-amber-400 text-2xl">→</span>
-                            <TileIcon v-if="neighborByDirection.e" :type="neighborByDirection.e.type" class="w-8 h-8" :class="tileColor(neighborByDirection.e.type)" />
-                            <div class="text-xs text-zinc-500 uppercase tracking-widest">East</div>
-                            <div class="text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.e?.type ?? '— edge —' }}</div>
+                            <span class="text-amber-400 text-xl sm:text-2xl">→</span>
+                            <TileIcon v-if="neighborByDirection.e" :type="neighborByDirection.e.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.e.type)" />
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">East</div>
+                            <div class="hidden sm:block text-xs text-zinc-300 break-words text-center">{{ neighborByDirection.e?.type ?? '— edge —' }}</div>
                         </button>
                     </div>
 
                     <!-- S button -->
                     <button
                         type="button"
-                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-3 py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mt-3"
+                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mt-3"
                         :disabled="!neighborByDirection.s"
                         @click="travel('s')"
                     >
-                        <span class="text-amber-400 text-2xl">↓</span>
-                        <TileIcon v-if="neighborByDirection.s" :type="neighborByDirection.s.type" class="w-8 h-8" :class="tileColor(neighborByDirection.s.type)" />
-                        <div class="text-left">
-                            <div class="text-xs text-zinc-500 uppercase tracking-widest">South</div>
-                            <div class="text-sm text-zinc-300">{{ neighborByDirection.s?.type ?? '— edge —' }}</div>
+                        <span class="text-amber-400 text-xl sm:text-2xl">↓</span>
+                        <TileIcon v-if="neighborByDirection.s" :type="neighborByDirection.s.type" class="w-6 h-6 sm:w-8 sm:h-8" :class="tileColor(neighborByDirection.s.type)" />
+                        <div class="text-left min-w-0">
+                            <div class="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest">South</div>
+                            <div class="text-xs sm:text-sm text-zinc-300 break-words">{{ neighborByDirection.s?.type ?? '— edge —' }}</div>
                         </div>
                     </button>
 
