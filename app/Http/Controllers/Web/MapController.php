@@ -107,10 +107,12 @@ class MapController extends Controller
             ]);
         }
 
-        return redirect()->route('map.show')->with(
-            'drill_result',
-            "Drilled a {$result['quality']} point: +{$result['barrels']} barrels.",
-        );
+        return redirect()->route('map.show')->with('drill_result', [
+            'barrels' => (int) $result['barrels'],
+            'quality' => (string) $result['quality'],
+            'grid_x' => (int) $request->validated('grid_x'),
+            'grid_y' => (int) $request->validated('grid_y'),
+        ]);
     }
 
     public function purchase(PurchaseRequest $request): RedirectResponse

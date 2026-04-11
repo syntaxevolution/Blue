@@ -155,11 +155,24 @@ const drillError = computed(() => errors.value.drill ?? null);
 const purchaseError = computed(() => errors.value.purchase ?? null);
 const spyError = computed(() => errors.value.spy ?? null);
 const attackError = computed(() => errors.value.attack ?? null);
-const flash = computed(() => (page.props.flash as Record<string, string>) ?? {});
-const drillResult = computed(() => flash.value.drill_result ?? null);
-const purchaseResult = computed(() => flash.value.purchase_result ?? null);
-const spyResult = computed(() => flash.value.spy_result ?? null);
-const attackResult = computed(() => flash.value.attack_result ?? null);
+const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
+interface DrillResult {
+    barrels: number;
+    quality: string;
+    grid_x: number;
+    grid_y: number;
+}
+const drillResult = computed<DrillResult | null>(
+    () => (flash.value.drill_result as DrillResult | undefined) ?? null,
+);
+const drillResultText = computed<string | null>(() => {
+    const r = drillResult.value;
+    if (!r) return null;
+    return `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
+});
+const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
+const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
+const attackResult = computed(() => (flash.value.attack_result as string | undefined) ?? null);
 
 const neighborByDirection = computed<Record<string, Neighbor | null>>(() => {
     const map: Record<string, Neighbor | null> = { n: null, s: null, e: null, w: null };
@@ -407,7 +420,7 @@ const canAttackNow = computed(() => {
                 </div>
 
                 <!-- Flash messages -->
-                <div v-if="drillResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ drillResult }}</div>
+                <div v-if="drillResultText" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ drillResultText }}</div>
                 <div v-if="purchaseResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ purchaseResult }}</div>
                 <div v-if="spyResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ spyResult }}</div>
                 <div v-if="attackResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ attackResult }}</div>
@@ -494,13 +507,21 @@ const canAttackNow = computed(() => {
                                                 v-for="x in [0, 1, 2, 3, 4]"
                                                 :key="`${x}:${y}`"
                                                 type="button"
-                                                class="w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
+                                                class="relative w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
                                                 :disabled="drillGridMap[`${x}:${y}`]?.drilled || dailyDrillLimitReached"
                                                 @click="drill(drillGridMap[`${x}:${y}`])"
                                                 :title="`(${x}, ${y})`"
                                             >
                                                 {{ drillCellLabel(drillGridMap[`${x}:${y}`]) }}
+                                                <span
+                                                    v-if="drillResult && drillResult.grid_x === x && drillResult.grid_y === y"
+                                                    :key="`pop-${x}-${y}-${drillResult.barrels}`"
+                                                    class="drill-popup pointer-events-none absolute left-1/2 -top-1 -translate-x-1/2 font-mono font-bold text-sm sm:text-base select-none whitespace-nowrap"
+                                                    :class="drillResult.barrels > 0 ? 'text-emerald-400' : 'text-zinc-500'"
+                                                >
+                                                    {{ drillResult.barrels > 0 ? `+${drillResult.barrels}` : 'dry' }}
+                                                </span>
                                             </button>
                                         </div>
                                     </div>
@@ -672,3 +693,16 @@ const canAttackNow = computed(() => {
         />
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+@keyframes drill-popup-float {
+    0%   { opacity: 0;   transform: translate(-50%, 0);     }
+    15%  { opacity: 1;   transform: translate(-50%, -6px);  }
+    70%  { opacity: 1;   transform: translate(-50%, -26px); }
+    100% { opacity: 0;   transform: translate(-50%, -40px); }
+}
+.drill-popup {
+    animation: drill-popup-float 1300ms ease-out forwards;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+</style>
