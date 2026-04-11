@@ -3,6 +3,7 @@
 namespace App\Domain\Bot;
 
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Config\RngService;
 use App\Domain\World\WorldService;
 use App\Models\Player;
 use App\Models\Tile;
@@ -33,6 +34,7 @@ class BotSpawnService
     public function __construct(
         private readonly GameConfigResolver $config,
         private readonly WorldService $world,
+        private readonly RngService $rng,
     ) {}
 
     public function availableDifficulties(): array
@@ -145,17 +147,19 @@ class BotSpawnService
     /**
      * Build a random bot name from the configured adjective/noun pool.
      * Always 5..15 chars to pass the username rule and contains only
-     * alphanumerics.
+     * alphanumerics. All random picks go through RngService so name
+     * generation stays auditable and replay-safe.
      */
     public function generateName(): string
     {
         $pool = $this->config->get('bots.name_pool', []);
-        $adjectives = $pool['adjectives'] ?? ['Rusty'];
-        $nouns = $pool['nouns'] ?? ['Drifter'];
+        $adjectives = array_values((array) ($pool['adjectives'] ?? ['Rusty']));
+        $nouns = array_values((array) ($pool['nouns'] ?? ['Drifter']));
 
-        $adj = $adjectives[array_rand($adjectives)];
-        $noun = $nouns[array_rand($nouns)];
-        $suffix = (string) random_int(10, 99);
+        $eventKey = 'bot.name.'.microtime(true);
+        $adj = $adjectives[$this->rng->rollInt('bot.name', $eventKey.'.adj', 0, count($adjectives) - 1)];
+        $noun = $nouns[$this->rng->rollInt('bot.name', $eventKey.'.noun', 0, count($nouns) - 1)];
+        $suffix = (string) $this->rng->rollInt('bot.name', $eventKey.'.suf', 10, 99);
 
         $candidate = $this->sanitizeName($adj.$noun.$suffix);
         return $this->uniquifyName($candidate);
@@ -165,7 +169,8 @@ class BotSpawnService
     {
         $raw = preg_replace('/[^A-Za-z0-9]/', '', $raw) ?? '';
         if (mb_strlen($raw) < 5) {
-            $raw = str_pad($raw, 5, (string) random_int(0, 9));
+            $pad = (string) $this->rng->rollInt('bot.name.pad', 'pad-'.microtime(true), 0, 9);
+            $raw = str_pad($raw, 5, $pad);
         }
         if (mb_strlen($raw) > 15) {
             $raw = mb_substr($raw, 0, 15);

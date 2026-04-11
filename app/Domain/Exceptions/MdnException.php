@@ -109,4 +109,9 @@ class MdnException extends RuntimeException
     {
         return new self('That journal entry does not belong to your MDN');
     }
+
+    public static function bodyInvalid(string $reason): self
+    {
+        return new self("Journal entry is invalid: {$reason}");
+    }
 }

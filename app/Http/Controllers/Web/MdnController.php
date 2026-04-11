@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\MdnException;
 use App\Domain\Mdn\MdnJournalService;
 use App\Domain\Mdn\MdnService;
@@ -27,6 +28,7 @@ class MdnController extends Controller
         private readonly WorldService $world,
         private readonly MdnService $mdnSvc,
         private readonly MdnJournalService $journalSvc,
+        private readonly GameConfigResolver $config,
     ) {}
 
     public function index(Request $request): Response
@@ -45,27 +47,27 @@ class MdnController extends Controller
             'mdns' => $mdns,
             'own_mdn' => $ownMdn,
             'player_id' => $player->id,
-            'max_members' => (int) config('game.mdn.max_members', 50),
-            'creation_cost' => (float) config('game.mdn.creation_cost_cash', 0),
+            'max_members' => (int) $this->config->get('mdn.max_members', 50),
+            'creation_cost' => (float) $this->config->get('mdn.creation_cost_cash', 0),
         ]);
     }
 
     public function create(Request $request): Response
     {
         return Inertia::render('Game/Mdn/Create', [
-            'name_max' => (int) config('game.mdn.name_max_length', 50),
-            'tag_max' => (int) config('game.mdn.tag_max_length', 6),
-            'motto_max' => (int) config('game.mdn.motto_max_length', 200),
-            'creation_cost' => (float) config('game.mdn.creation_cost_cash', 0),
+            'name_max' => (int) $this->config->get('mdn.name_max_length', 50),
+            'tag_max' => (int) $this->config->get('mdn.tag_max_length', 6),
+            'motto_max' => (int) $this->config->get('mdn.motto_max_length', 200),
+            'creation_cost' => (float) $this->config->get('mdn.creation_cost_cash', 0),
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:50'],
-            'tag' => ['required', 'string', 'max:8'],
-            'motto' => ['nullable', 'string', 'max:200'],
+            'name' => ['required', 'string', 'max:'.(int) $this->config->get('mdn.name_max_length', 50)],
+            'tag' => ['required', 'string', 'max:'.(int) $this->config->get('mdn.tag_max_length', 6)],
+            'motto' => ['nullable', 'string', 'max:'.(int) $this->config->get('mdn.motto_max_length', 200)],
         ]);
 
         $user = $request->user();

@@ -48,7 +48,6 @@ class MdnService
         $tagMax = (int) $this->config->get('mdn.tag_max_length', 6);
         $mottoMax = (int) $this->config->get('mdn.motto_max_length', 200);
         $cost = (float) $this->config->get('mdn.creation_cost_cash', 0);
-        $memberCap = (int) $this->config->get('mdn.max_members', 50);
 
         if ($name === '' || mb_strlen($name) > $nameMax) {
             throw MdnException::nameInvalid("length must be 1..{$nameMax}");
@@ -66,7 +65,7 @@ class MdnService
             throw MdnException::nameInvalid("motto must be <= {$mottoMax} chars");
         }
 
-        return DB::transaction(function () use ($leaderPlayerId, $name, $tag, $motto, $cost, $memberCap) {
+        $result = DB::transaction(function () use ($leaderPlayerId, $name, $tag, $motto, $cost) {
             /** @var Player $leader */
             $leader = Player::query()->lockForUpdate()->findOrFail($leaderPlayerId);
 
@@ -109,8 +108,17 @@ class MdnService
                 'mdn_left_at' => null,
             ]);
 
-            return $mdn;
+            return ['mdn' => $mdn, 'user_id' => (int) $leader->user_id];
         });
+
+        MdnEvent::dispatch(
+            $result['user_id'],
+            'created',
+            'MDN founded',
+            ['mdn_id' => $result['mdn']->id, 'name' => $result['mdn']->name, 'tag' => $result['mdn']->tag],
+        );
+
+        return $result['mdn'];
     }
 
     public function join(int $playerId, int $mdnId): void
@@ -399,7 +407,13 @@ class MdnService
 
         $wasLeader = $membership->role === self::ROLE_LEADER;
 
-        $membership->delete();
+        // Use query-builder delete rather than $membership->delete() —
+        // MdnMembership has a composite PK and Eloquent's ->delete()
+        // on an instance with $primaryKey = null cannot build the WHERE.
+        MdnMembership::query()
+            ->where('mdn_id', $mdn->id)
+            ->where('player_id', $player->id)
+            ->delete();
 
         $player->update([
             'mdn_id' => null,

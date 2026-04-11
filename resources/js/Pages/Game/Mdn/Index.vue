@@ -69,6 +69,7 @@ function join(mdnId: number) {
                         v-model="search"
                         type="text"
                         placeholder="Search MDN by name or tag…"
+                        aria-label="Search MDNs by name or tag"
                         class="flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
                     />
                     <Link

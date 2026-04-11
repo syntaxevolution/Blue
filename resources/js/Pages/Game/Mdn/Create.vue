@@ -39,10 +39,11 @@ function submit() {
 
                 <form @submit.prevent="submit" class="space-y-4">
                     <div>
-                        <label class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
+                        <label for="mdn-name" class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
                             Name (max {{ name_max }})
                         </label>
                         <input
+                            id="mdn-name"
                             v-model="form.name"
                             type="text"
                             :maxlength="name_max"
@@ -53,10 +54,11 @@ function submit() {
                         </p>
                     </div>
                     <div>
-                        <label class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
+                        <label for="mdn-tag" class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
                             Tag (max {{ tag_max }}, alphanumeric)
                         </label>
                         <input
+                            id="mdn-tag"
                             v-model="form.tag"
                             type="text"
                             :maxlength="tag_max"
@@ -67,10 +69,11 @@ function submit() {
                         </p>
                     </div>
                     <div>
-                        <label class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
+                        <label for="mdn-motto" class="mb-1 block text-xs uppercase tracking-widest text-zinc-400">
                             Motto (optional, max {{ motto_max }})
                         </label>
                         <textarea
+                            id="mdn-motto"
                             v-model="form.motto"
                             :maxlength="motto_max"
                             rows="2"

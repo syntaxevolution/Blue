@@ -82,6 +82,14 @@ class MdnResource extends Resource
             ->defaultSort('member_count', 'desc');
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            MdnResource\RelationManagers\MembershipsRelationManager::class,
+            MdnResource\RelationManagers\JournalEntriesRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [

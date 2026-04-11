@@ -33,10 +33,10 @@ class MdnJournalService
 
         $body = trim($body);
         if ($body === '') {
-            throw MdnException::nameInvalid('journal body cannot be empty');
+            throw MdnException::bodyInvalid('cannot be empty');
         }
         if (mb_strlen($body) > $bodyMax) {
-            throw MdnException::nameInvalid("journal body must be <= {$bodyMax} chars");
+            throw MdnException::bodyInvalid("must be <= {$bodyMax} chars");
         }
 
         return DB::transaction(function () use ($playerId, $tileId, $body, $entryCap) {

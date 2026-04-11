@@ -297,7 +297,7 @@ return [
         'same_mdn_attacks_blocked' => true,
         'formal_alliances_prevent_attacks' => false,
         'name_max_length' => 50,
-        'tag_max_length' => 6,
+        'tag_max_length' => 8,
         'motto_max_length' => 200,
         'creation_cost_cash' => 10.00,
         'journal' => [

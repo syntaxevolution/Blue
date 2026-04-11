@@ -220,6 +220,12 @@ onBeforeUnmount(() => {
                         Atlas
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
+                        :href="route('mdn.index')"
+                        :active="route().current('mdn.*')"
+                    >
+                        MDN
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink
                         :href="route('activity.index')"
                         :active="route().current('activity.index')"
                     >
