@@ -22,6 +22,7 @@ use App\Domain\Mdn\MdnJournalService;
 use App\Domain\Mdn\MdnService;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
+use App\Domain\Leaderboard\LeaderboardService;
 use App\Domain\Notifications\ActivityLogService;
 use App\Domain\Player\AtlasService;
 use App\Domain\Player\MapStateBuilder;
@@ -76,6 +77,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(MdnService::class);
         $this->app->singleton(MdnAllianceService::class);
         $this->app->singleton(MdnJournalService::class);
+
+        // Phase 5 (partial) — leaderboards
+        $this->app->singleton(LeaderboardService::class);
 
         // Bot players (Improvements II — autonomous AI opponents)
         $this->app->singleton(BotSpawnService::class);

@@ -189,11 +189,19 @@ return [
             'landmarks_per_tile' => 0.005,
         ],
         'growth' => [
+            // Kill-switch for WorldService::expandWorld (and the nightly
+            // world:grow command). Flip to false in the admin panel to
+            // pause all automatic map expansion without redeploying.
+            'enabled' => true,
             'trigger_players_per_tile' => 0.015,
-            'expansion_ring_width' => 10,
+            // Ring width per growth pass. Interpretation: each nightly
+            // run that fires adds exactly ONE concentric integer ring
+            // around the current frontier. The world keeps growing a
+            // ring per night until density falls below the trigger.
+            'expansion_ring_width' => 1,
         ],
         'abandonment' => [
-            'days_inactive' => 30,
+            'days_inactive' => 90,
             'ruin_loot_min' => 0.5,
             'ruin_loot_max' => 2.0,
         ],

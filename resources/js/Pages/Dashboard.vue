@@ -2,12 +2,64 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 
-defineProps<{
+interface LeaderboardRow {
+    rank: number;
+    player_id: number;
+    username: string;
+    mdn_tag: string | null;
+    value: number;
+}
+
+interface Leaderboards {
+    akzar_cash: LeaderboardRow[];
+    stored_oil: LeaderboardRow[];
+    stat_total: LeaderboardRow[];
+}
+
+const props = defineProps<{
     startingCash: string;
     dailyRegen: number;
     bankCap: number;
     immunityHours: number;
+    leaderboards: Leaderboards;
+    currentPlayerId: number | null;
 }>();
+
+function formatCash(v: number): string {
+    return `A${v.toFixed(2)}`;
+}
+
+function formatBarrels(v: number): string {
+    return `${v.toLocaleString()}`;
+}
+
+function formatStats(v: number): string {
+    return `${v}`;
+}
+
+const boards = [
+    {
+        key: 'akzar_cash' as const,
+        title: 'Akzar Cash',
+        subtitle: 'Richest on Akzar',
+        rows: props.leaderboards.akzar_cash,
+        format: formatCash,
+    },
+    {
+        key: 'stored_oil' as const,
+        title: 'Stored Oil',
+        subtitle: 'Biggest barrel hoards',
+        rows: props.leaderboards.stored_oil,
+        format: formatBarrels,
+    },
+    {
+        key: 'stat_total' as const,
+        title: 'Stat Total',
+        subtitle: 'Str + Fort + Stealth + Sec',
+        rows: props.leaderboards.stat_total,
+        format: formatStats,
+    },
+];
 </script>
 
 <template>
@@ -66,6 +118,46 @@ defineProps<{
                             New player immunity
                         </div>
                         <div class="text-xl text-zinc-100">{{ immunityHours }} hours</div>
+                    </div>
+                </div>
+
+                <!-- Leaderboards -->
+                <div class="grid gap-4 md:grid-cols-3">
+                    <div
+                        v-for="board in boards"
+                        :key="board.key"
+                        class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 sm:p-5 font-mono"
+                    >
+                        <div class="flex items-baseline justify-between mb-3">
+                            <div>
+                                <div class="text-amber-400 text-sm sm:text-base font-bold uppercase tracking-widest">{{ board.title }}</div>
+                                <div class="text-zinc-500 text-[10px] uppercase tracking-widest mt-0.5">{{ board.subtitle }}</div>
+                            </div>
+                            <div class="text-zinc-600 text-[10px] uppercase tracking-widest">Top {{ board.rows.length }}</div>
+                        </div>
+                        <div v-if="board.rows.length === 0" class="text-zinc-500 italic text-xs text-center py-3">
+                            No players yet.
+                        </div>
+                        <ol v-else class="space-y-1.5">
+                            <li
+                                v-for="row in board.rows"
+                                :key="row.player_id"
+                                class="flex items-center gap-2 sm:gap-3 rounded px-2 py-1.5 text-xs sm:text-sm"
+                                :class="row.player_id === currentPlayerId
+                                    ? 'bg-amber-500/10 border border-amber-500/40 text-amber-100'
+                                    : 'bg-zinc-950/40 border border-transparent text-zinc-300'"
+                            >
+                                <span
+                                    class="w-5 text-right font-bold"
+                                    :class="row.rank === 1 ? 'text-amber-400' : 'text-zinc-500'"
+                                >{{ row.rank }}</span>
+                                <span class="flex-1 min-w-0 truncate">
+                                    {{ row.username }}
+                                    <span v-if="row.mdn_tag" class="text-amber-400/70 ml-1">[{{ row.mdn_tag }}]</span>
+                                </span>
+                                <span class="shrink-0 tabular-nums">{{ board.format(row.value) }}</span>
+                            </li>
+                        </ol>
                     </div>
                 </div>
             </div>

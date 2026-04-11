@@ -39,3 +39,17 @@ Schedule::command('bots:tick')
     ->cron("*/{$interval} * * * *")
     ->withoutOverlapping(10)
     ->appendOutputTo(storage_path('logs/bots_tick.log'));
+
+// Nightly world growth pass. Adds ONE integer ring at the frontier if
+// human player density has crossed `world.growth.trigger_players_per_tile`
+// — which, combined with `expansion_ring_width: 1`, means the world
+// grows smoothly a single ring at a time on consecutive nights until
+// density falls back below the threshold.
+//
+// Runs inline (no runInBackground, same reasoning as bots:tick) and
+// the mutex expires after 30 minutes — generous since a ring-1 pass
+// inserts at most a couple hundred tiles and should finish in seconds.
+Schedule::command('world:grow')
+    ->daily()
+    ->withoutOverlapping(30)
+    ->appendOutputTo(storage_path('logs/world_grow.log'));

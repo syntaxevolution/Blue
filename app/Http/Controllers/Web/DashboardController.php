@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Leaderboard\LeaderboardService;
 use App\Domain\Player\MoveRegenService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -12,13 +13,16 @@ use Inertia\Response;
 /**
  * Renders the dashboard with configuration-sourced stat boxes so
  * immunity hours, daily regen, starting cash, and bank cap reflect
- * live config (tunable via the admin panel without a deploy).
+ * live config (tunable via the admin panel without a deploy). Also
+ * surfaces the three cached top-5 leaderboards from LeaderboardService
+ * so players land on something dynamic, not a static stat panel.
  */
 class DashboardController extends Controller
 {
     public function __construct(
         private readonly GameConfigResolver $config,
         private readonly MoveRegenService $moveRegen,
+        private readonly LeaderboardService $leaderboards,
     ) {}
 
     public function show(Request $request): Response
@@ -39,6 +43,10 @@ class DashboardController extends Controller
             'dailyRegen' => $dailyRegen,
             'bankCap' => $bankCap,
             'immunityHours' => (int) $this->config->get('new_player.immunity_hours'),
+            'leaderboards' => $this->leaderboards->boards(),
+            // Passed separately so the Vue side can highlight the
+            // viewer's own row across any of the three boards.
+            'currentPlayerId' => $player?->id,
         ]);
     }
 }

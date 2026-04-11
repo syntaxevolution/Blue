@@ -10,6 +10,7 @@ use App\Models\Player;
 use App\Models\Post;
 use App\Models\Tile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -134,23 +135,7 @@ class WorldService
     public function planInitialWorld(int $seed = 0): array
     {
         $radius = (int) $this->config->get('world.initial_radius');
-        $densityPosts = (float) $this->config->get('world.density.posts_per_tile');
-        $densityOilFields = (float) $this->config->get('world.density.oil_fields_per_tile');
-        $densityLandmarks = (float) $this->config->get('world.density.landmarks_per_tile');
-
-        $postCutoff = $densityPosts;
-        $oilFieldCutoff = $postCutoff + $densityOilFields;
-        $landmarkCutoff = $oilFieldCutoff + $densityLandmarks;
-
         $radiusSquared = $radius * $radius;
-
-        $postWeights = [
-            'strength' => 1,
-            'stealth' => 1,
-            'fort' => 1,
-            'tech' => 1,
-            'general' => 1,
-        ];
 
         $tiles = [];
 
@@ -160,61 +145,121 @@ class WorldService
                     continue;
                 }
 
-                $eventKey = "{$seed}:{$x}:{$y}";
-                $tileSeed = (int) sprintf('%u', crc32($eventKey));
-
-                if ($x === 0 && $y === 0) {
-                    $tiles[] = [
-                        'x' => $x,
-                        'y' => $y,
-                        'type' => 'landmark',
-                        'subtype' => 'the_landing',
-                        'seed' => $tileSeed,
-                    ];
-
-                    continue;
-                }
-
-                $roll = $this->rng->rollFloat('world.tile_type', $eventKey, 0.0, 1.0);
-
-                if ($roll < $postCutoff) {
-                    $postType = $this->rng->rollWeighted('world.post_type', $eventKey, $postWeights);
-                    $tiles[] = [
-                        'x' => $x,
-                        'y' => $y,
-                        'type' => 'post',
-                        'subtype' => (string) $postType,
-                        'seed' => $tileSeed,
-                    ];
-                } elseif ($roll < $oilFieldCutoff) {
-                    $tiles[] = [
-                        'x' => $x,
-                        'y' => $y,
-                        'type' => 'oil_field',
-                        'subtype' => null,
-                        'seed' => $tileSeed,
-                    ];
-                } elseif ($roll < $landmarkCutoff) {
-                    $tiles[] = [
-                        'x' => $x,
-                        'y' => $y,
-                        'type' => 'landmark',
-                        'subtype' => 'ruin',
-                        'seed' => $tileSeed,
-                    ];
-                } else {
-                    $tiles[] = [
-                        'x' => $x,
-                        'y' => $y,
-                        'type' => 'wasteland',
-                        'subtype' => null,
-                        'seed' => $tileSeed,
-                    ];
-                }
+                $tiles[] = $this->rollTileSpec($x, $y, $seed);
             }
         }
 
         return $tiles;
+    }
+
+    /**
+     * Plan tile specs for all integer (x,y) in the annulus
+     * innerRSqExclusive < x²+y² <= outerRSqInclusive. Used by growth
+     * to generate the next frontier ring without re-emitting tiles
+     * that already exist. (0,0) is always inside the initial world so
+     * the_landing is never re-rolled here.
+     *
+     * @return list<array{x:int,y:int,type:string,subtype:string|null,seed:int}>
+     */
+    public function planAnnulus(int $innerRSqExclusive, int $outerRSqInclusive, int $seed): array
+    {
+        $outerR = (int) ceil(sqrt((float) $outerRSqInclusive));
+
+        $tiles = [];
+        for ($y = -$outerR; $y <= $outerR; $y++) {
+            for ($x = -$outerR; $x <= $outerR; $x++) {
+                $rSq = $x * $x + $y * $y;
+                if ($rSq <= $innerRSqExclusive || $rSq > $outerRSqInclusive) {
+                    continue;
+                }
+
+                $tiles[] = $this->rollTileSpec($x, $y, $seed);
+            }
+        }
+
+        return $tiles;
+    }
+
+    /**
+     * Roll a single deterministic tile spec for (x,y) under $seed.
+     * Shared by planInitialWorld and planAnnulus so the two paths
+     * use identical density cutoffs and post-type weighting. (0,0)
+     * is reserved for the_landing landmark and returns directly.
+     *
+     * @return array{x:int,y:int,type:string,subtype:string|null,seed:int}
+     */
+    private function rollTileSpec(int $x, int $y, int $seed): array
+    {
+        $eventKey = "{$seed}:{$x}:{$y}";
+        $tileSeed = (int) sprintf('%u', crc32($eventKey));
+
+        if ($x === 0 && $y === 0) {
+            return [
+                'x' => $x,
+                'y' => $y,
+                'type' => 'landmark',
+                'subtype' => 'the_landing',
+                'seed' => $tileSeed,
+            ];
+        }
+
+        $densityPosts = (float) $this->config->get('world.density.posts_per_tile');
+        $densityOilFields = (float) $this->config->get('world.density.oil_fields_per_tile');
+        $densityLandmarks = (float) $this->config->get('world.density.landmarks_per_tile');
+
+        $postCutoff = $densityPosts;
+        $oilFieldCutoff = $postCutoff + $densityOilFields;
+        $landmarkCutoff = $oilFieldCutoff + $densityLandmarks;
+
+        $postWeights = [
+            'strength' => 1,
+            'stealth' => 1,
+            'fort' => 1,
+            'tech' => 1,
+            'general' => 1,
+        ];
+
+        $roll = $this->rng->rollFloat('world.tile_type', $eventKey, 0.0, 1.0);
+
+        if ($roll < $postCutoff) {
+            $postType = $this->rng->rollWeighted('world.post_type', $eventKey, $postWeights);
+
+            return [
+                'x' => $x,
+                'y' => $y,
+                'type' => 'post',
+                'subtype' => (string) $postType,
+                'seed' => $tileSeed,
+            ];
+        }
+
+        if ($roll < $oilFieldCutoff) {
+            return [
+                'x' => $x,
+                'y' => $y,
+                'type' => 'oil_field',
+                'subtype' => null,
+                'seed' => $tileSeed,
+            ];
+        }
+
+        if ($roll < $landmarkCutoff) {
+            return [
+                'x' => $x,
+                'y' => $y,
+                'type' => 'landmark',
+                'subtype' => 'ruin',
+                'seed' => $tileSeed,
+            ];
+        }
+
+        return [
+            'x' => $x,
+            'y' => $y,
+            'type' => 'wasteland',
+            'subtype' => null,
+            'seed' => $tileSeed,
+        ];
     }
 
     /**
@@ -237,14 +282,37 @@ class WorldService
     public function generateInitialWorld(int $seed = 0): array
     {
         $plan = $this->planInitialWorld($seed);
-        $qualityWeights = (array) $this->config->get('drilling.quality_weights');
 
+        return $this->persistTilePlan($plan, $seed);
+    }
+
+    /**
+     * Persist a list of tile specs to the DB, wiring up oil_fields,
+     * drill_points, and posts in a single transaction. Shared by
+     * generateInitialWorld and expandWorld so both growth paths use
+     * identical insertion logic.
+     *
+     * Idempotency-ish: this method assumes none of the planned (x,y)
+     * tiles already exist. Callers MUST enforce that (initial world:
+     * always empty when called; growth: coordinate filter excludes the
+     * existing disc).
+     *
+     * @param  list<array{x:int,y:int,type:string,subtype:string|null,seed:int}>  $plan
+     * @return array{tiles:int, oil_fields:int, drill_points:int, posts:int}
+     */
+    private function persistTilePlan(array $plan, int $seed): array
+    {
+        $qualityWeights = (array) $this->config->get('drilling.quality_weights');
         $stats = ['tiles' => 0, 'oil_fields' => 0, 'drill_points' => 0, 'posts' => 0];
+
+        if ($plan === []) {
+            return $stats;
+        }
 
         DB::transaction(function () use ($plan, $seed, $qualityWeights, &$stats) {
             $now = now();
 
-            // 1. Bulk-insert all tiles.
+            // 1. Bulk-insert planned tiles.
             $tileRows = array_map(fn (array $spec) => [
                 'x' => $spec['x'],
                 'y' => $spec['y'],
@@ -260,8 +328,17 @@ class WorldService
             }
             $stats['tiles'] = count($tileRows);
 
-            // 2. Re-fetch tiles to map (x,y) -> id for child inserts.
+            // 2. Map (x,y) -> id for just the newly-inserted tiles.
+            //    Scoping the re-fetch to the planned coordinates keeps
+            //    growth runs cheap — there's no need to pull every tile
+            //    that was already in the world.
+            $planCoords = array_map(fn ($t) => [$t['x'], $t['y']], $plan);
             $tileIdByXy = Tile::query()
+                ->where(function ($q) use ($planCoords) {
+                    foreach ($planCoords as [$x, $y]) {
+                        $q->orWhere(fn ($q2) => $q2->where('x', $x)->where('y', $y));
+                    }
+                })
                 ->get(['id', 'x', 'y'])
                 ->mapWithKeys(fn (Tile $t) => ["{$t->x}:{$t->y}" => $t->id])
                 ->all();
@@ -282,8 +359,10 @@ class WorldService
             }
             $stats['oil_fields'] = count($oilFieldRows);
 
-            // 4. Re-fetch oil_fields for tile_id -> oil_field_id map.
+            // 4. Re-fetch oil_fields restricted to the new tile IDs.
+            $newTileIds = array_values($tileIdByXy);
             $oilFieldIdByTile = OilField::query()
+                ->whereIn('tile_id', $newTileIds)
                 ->get(['id', 'tile_id'])
                 ->mapWithKeys(fn (OilField $of) => [$of->tile_id => $of->id])
                 ->all();
@@ -466,13 +545,103 @@ class WorldService
     }
 
     /**
-     * Ring expansion — adds a new ring of tiles on the frontier when
-     * population density crosses the configured threshold. Called by
-     * WorldGrowthJob nightly. Implemented in Phase 5.
+     * Ring expansion — adds a one-tile-thick integer ring to the world
+     * frontier when population density crosses the configured threshold.
+     *
+     * Decision flow:
+     *   1. If world.growth.enabled = false, return 0 (kill-switch).
+     *   2. Count human players (bots excluded by email domain) and total
+     *      tiles. If density <= world.growth.trigger_players_per_tile,
+     *      return 0 — the world is still roomy enough.
+     *   3. Otherwise compute the next integer frontier radius:
+     *        current_r = ceil(sqrt(max(x²+y²)))
+     *        new_r = current_r + 1
+     *      and plan every integer (x,y) in the annulus
+     *        (current_max_r_sq, new_r²]
+     *      using planAnnulus(). The density config drives the type mix
+     *      exactly as it did for the initial disc.
+     *   4. Persist the plan via the shared persistTilePlan() helper.
+     *
+     * Returns the number of new tiles added (0 if nothing happened).
+     * Safe to call concurrently — the whole thing runs inside a single
+     * DB transaction and the coordinate filter guarantees we never
+     * duplicate tiles that already exist.
      */
     public function expandWorld(): int
     {
-        throw new RuntimeException('WorldService::expandWorld not implemented until Phase 5');
+        if (! (bool) $this->config->get('world.growth.enabled')) {
+            return 0;
+        }
+
+        $trigger = (float) $this->config->get('world.growth.trigger_players_per_tile');
+        $density = $this->currentHumanPlayerDensity();
+
+        if ($density <= $trigger) {
+            return 0;
+        }
+
+        // Current max radius squared — the outer edge of the existing disc.
+        $currentMaxRSq = (int) Tile::query()->selectRaw('COALESCE(MAX(x * x + y * y), 0) as max_sq')->value('max_sq');
+
+        if ($currentMaxRSq <= 0) {
+            // No world yet — refuse to grow an empty map. The caller
+            // should run the initial world generation first.
+            return 0;
+        }
+
+        $currentR = (int) ceil(sqrt((float) $currentMaxRSq));
+        $ringWidth = max(1, (int) $this->config->get('world.growth.expansion_ring_width'));
+        $newR = $currentR + $ringWidth;
+        $newRSq = $newR * $newR;
+
+        // Seed derived from the target radius — unique per growth pass,
+        // deterministic, and orthogonal to whatever seed the initial
+        // world used (event keys embed the seed + coordinates).
+        $growthSeed = $newRSq;
+
+        $plan = $this->planAnnulus($currentMaxRSq, $newRSq, $growthSeed);
+        if ($plan === []) {
+            return 0;
+        }
+
+        $stats = $this->persistTilePlan($plan, $growthSeed);
+
+        Log::info('world.growth.ring_added', [
+            'from_max_r_sq' => $currentMaxRSq,
+            'to_max_r_sq' => $newRSq,
+            'new_r' => $newR,
+            'tiles_added' => $stats['tiles'],
+            'oil_fields_added' => $stats['oil_fields'],
+            'posts_added' => $stats['posts'],
+            'density_before' => $density,
+            'trigger' => $trigger,
+        ]);
+
+        return (int) $stats['tiles'];
+    }
+
+    /**
+     * Density used for the growth trigger: (human player count) / (tile count).
+     * Bots are excluded because they're spawned en masse via bots:spawn and
+     * would otherwise force a ring expansion the moment you seed a test
+     * population. Exposed for the world:grow command's dry-run output.
+     */
+    public function currentHumanPlayerDensity(): float
+    {
+        $botDomain = (string) $this->config->get('bots.email_domain');
+
+        $humanCount = (int) Player::query()
+            ->whereHas('user', function ($q) use ($botDomain) {
+                $q->where('email', 'NOT LIKE', '%@'.$botDomain);
+            })
+            ->count();
+
+        $tileCount = (int) Tile::query()->count();
+        if ($tileCount === 0) {
+            return 0.0;
+        }
+
+        return $humanCount / $tileCount;
     }
 
     /**
