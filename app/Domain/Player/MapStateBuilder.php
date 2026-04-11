@@ -312,11 +312,11 @@ class MapStateBuilder
         if ($post) {
             $items = Item::query()
                 ->where('post_type', $post->post_type)
-                ->orderBy('sort_order')
                 ->get()
-                ->map(function (Item $item) use ($player) {
+                ->map(function (Item $item) use ($player, $post) {
                     $canAfford = $this->canAfford($player, $item);
                     $reason = $this->purchaseBlockReason($player, $item);
+                    [$category, $categoryOrder] = $this->itemCategory($post->post_type, $item->effects);
 
                     return [
                         'key' => $item->key,
@@ -326,11 +326,19 @@ class MapStateBuilder
                         'price_cash' => (float) $item->price_cash,
                         'price_intel' => (int) $item->price_intel,
                         'effects' => $item->effects,
+                        'category' => $category,
+                        'category_order' => $categoryOrder,
                         'can_afford' => $canAfford,
                         'can_purchase' => $canAfford && $reason === null,
                         'block_reason' => $reason,
                     ];
                 })
+                ->sortBy([
+                    ['category_order', 'asc'],
+                    ['price_barrels', 'asc'],
+                    ['name', 'asc'],
+                ])
+                ->values()
                 ->all();
         }
 
@@ -340,6 +348,64 @@ class MapStateBuilder
             'name' => $post?->name,
             'items' => $items,
         ];
+    }
+
+    /**
+     * Derive a display sub-category for an item inside its post.
+     * Returns [label, sort_order]. The client renders a header whenever
+     * this label changes between adjacent items, so ordering here dictates
+     * visual grouping in the shop list.
+     *
+     * @param  array<string,mixed>|null  $effects
+     * @return array{0:string,1:int}
+     */
+    private function itemCategory(string $postType, ?array $effects): array
+    {
+        $effects = $effects ?? [];
+
+        return match ($postType) {
+            'strength' => ['Strength', 1],
+            'stealth' => ['Stealth', 1],
+            'fort' => isset($effects['stat_add']['security'])
+                ? ['Security', 2]
+                : ['Fortification', 1],
+            'tech' => isset($effects['set_drill_tier'])
+                ? ['Drill Equipment', 1]
+                : ['Drill Upgrades', 2],
+            'general' => $this->generalStoreCategory($effects),
+            default => ['Items', 1],
+        };
+    }
+
+    /**
+     * General store sub-categories. Ordered by how players typically
+     * shop: cheap utilities first, then consumables, then passive
+     * drill boosts, then big-ticket transport, teleport last.
+     *
+     * @param  array<string,mixed>  $effects
+     * @return array{0:string,1:int}
+     */
+    private function generalStoreCategory(array $effects): array
+    {
+        if (isset($effects['unlocks'])) {
+            return ['Utility', 1];
+        }
+        if (isset($effects['grant_moves'])) {
+            return ['Moves & Rations', 2];
+        }
+        if (isset($effects['daily_drill_limit_bonus'])
+            || isset($effects['drill_yield_bonus_pct'])
+            || isset($effects['break_chance_reduction_pct'])) {
+            return ['Drill Boosts', 3];
+        }
+        if (isset($effects['unlocks_transport'])) {
+            return ['Transport', 4];
+        }
+        if (isset($effects['unlocks_teleport'])) {
+            return ['Teleport', 5];
+        }
+
+        return ['Other', 99];
     }
 
     private function canAfford(Player $player, Item $item): bool

@@ -71,6 +71,8 @@ interface ShopItem {
     price_cash: number;
     price_intel: number;
     effects: Effects | null;
+    category: string;
+    category_order: number;
     can_afford: boolean;
     can_purchase: boolean;
     block_reason: string | null;
@@ -510,30 +512,36 @@ const canAttackNow = computed(() => {
                                     <div class="text-zinc-500 text-xs uppercase mb-3 tracking-widest text-center">{{ state.tile_detail.post_type }} post · inventory</div>
                                     <div v-if="state.tile_detail.items.length === 0" class="text-zinc-500 text-sm italic text-center">No items for sale at this post type yet.</div>
                                     <div v-else class="space-y-2">
-                                        <div
-                                            v-for="item in state.tile_detail.items"
-                                            :key="item.key"
-                                            class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-2 sm:gap-3"
-                                        >
-                                            <div class="flex-1 min-w-0">
-                                                <div class="text-zinc-100 text-sm font-bold break-words">{{ item.name }}</div>
-                                                <div v-if="item.description" class="text-zinc-500 text-xs mt-0.5 break-words">{{ item.description }}</div>
-                                                <div class="text-emerald-400 text-xs mt-1 break-words">
-                                                    <span v-for="(effect, idx) in formatEffects(item.effects)" :key="idx" class="mr-2">{{ effect }}</span>
+                                        <template v-for="(item, idx) in state.tile_detail.items" :key="item.key">
+                                            <div
+                                                v-if="item.category && item.category !== state.tile_detail.items[idx - 1]?.category"
+                                                class="flex items-center gap-3 pt-3 first:pt-0"
+                                            >
+                                                <div class="h-px flex-1 bg-zinc-800"></div>
+                                                <div class="text-amber-400 text-[10px] sm:text-xs uppercase tracking-widest font-bold">{{ item.category }}</div>
+                                                <div class="h-px flex-1 bg-zinc-800"></div>
+                                            </div>
+                                            <div class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-2 sm:gap-3">
+                                                <div class="flex-1 min-w-0">
+                                                    <div class="text-zinc-100 text-sm font-bold break-words">{{ item.name }}</div>
+                                                    <div v-if="item.description" class="text-zinc-500 text-xs mt-0.5 break-words">{{ item.description }}</div>
+                                                    <div class="text-emerald-400 text-xs mt-1 break-words">
+                                                        <span v-for="(effect, effectIdx) in formatEffects(item.effects)" :key="effectIdx" class="mr-2">{{ effect }}</span>
+                                                    </div>
+                                                </div>
+                                                <div class="shrink-0 flex flex-col items-end gap-2 max-w-[45%]">
+                                                    <div class="text-amber-400 text-xs font-bold text-right break-words">{{ formatPrice(item) }}</div>
+                                                    <button
+                                                        type="button"
+                                                        class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        :disabled="!item.can_purchase"
+                                                        @click="buy(item)"
+                                                    >Buy</button>
+                                                    <div v-if="!item.can_afford" class="text-rose-400 text-[10px] uppercase tracking-widest">Can't afford</div>
+                                                    <div v-else-if="item.block_reason" class="text-rose-400 text-[10px] uppercase tracking-widest">{{ item.block_reason }}</div>
                                                 </div>
                                             </div>
-                                            <div class="shrink-0 flex flex-col items-end gap-2 max-w-[45%]">
-                                                <div class="text-amber-400 text-xs font-bold text-right break-words">{{ formatPrice(item) }}</div>
-                                                <button
-                                                    type="button"
-                                                    class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    :disabled="!item.can_purchase"
-                                                    @click="buy(item)"
-                                                >Buy</button>
-                                                <div v-if="!item.can_afford" class="text-rose-400 text-[10px] uppercase tracking-widest">Can't afford</div>
-                                                <div v-else-if="item.block_reason" class="text-rose-400 text-[10px] uppercase tracking-widest">{{ item.block_reason }}</div>
-                                            </div>
-                                        </div>
+                                        </template>
                                     </div>
                                 </div>
 

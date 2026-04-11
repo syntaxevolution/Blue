@@ -154,8 +154,8 @@ return [
             2 => ['name' => 'Shovel Rig',     'yield_multiplier' => 1.3, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],
             3 => ['name' => 'Medium Drill',   'yield_multiplier' => 1.6, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],
             4 => ['name' => 'Heavy Drill',    'yield_multiplier' => 2.0, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],
-            5 => ['name' => 'Industrial Rig', 'yield_multiplier' => 2.5, 'eliminates_dry' => true,  'guarantees_standard_plus' => 0],
-            6 => ['name' => 'Refinery',       'yield_multiplier' => 3.0, 'eliminates_dry' => true,  'guarantees_standard_plus' => 1],
+            5 => ['name' => 'Industrial Rig', 'yield_multiplier' => 2.2, 'eliminates_dry' => true,  'guarantees_standard_plus' => 0],
+            6 => ['name' => 'Refinery',       'yield_multiplier' => 2.6, 'eliminates_dry' => true,  'guarantees_standard_plus' => 1],
         ],
     ],
 
