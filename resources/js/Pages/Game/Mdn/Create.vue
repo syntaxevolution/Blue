@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, useForm, Link } from '@inertiajs/vue3';
+import { Head, useForm, Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 defineProps<{
     name_max: number;
@@ -14,6 +15,14 @@ const form = useForm<{ name: string; tag: string; motto: string }>({
     tag: '',
     motto: '',
 });
+
+// The backend surfaces MdnException messages via withErrors(['mdn' => …]),
+// which isn't a form field, so it won't appear on form.errors. Read it
+// off the shared Inertia error bag instead.
+const page = usePage();
+const mdnError = computed<string | null>(
+    () => ((page.props.errors as Record<string, string> | undefined)?.mdn) ?? null,
+);
 
 function submit() {
     form.post(route('mdn.store'));
@@ -82,10 +91,10 @@ function submit() {
                     </div>
 
                     <div
-                        v-if="form.errors.mdn"
+                        v-if="mdnError"
                         class="rounded border border-rose-700 bg-rose-900/40 px-3 py-2 text-xs text-rose-200"
                     >
-                        {{ form.errors.mdn }}
+                        {{ mdnError }}
                     </div>
 
                     <div class="flex items-center justify-between">
