@@ -42,10 +42,9 @@ class RaidCompleted implements ShouldBroadcast
         return [
             'type' => 'raid.completed',
             'title' => $this->outcome === 'success'
-                ? "Raid by {$this->attackerUsername} succeeded"
-                : "Raid by {$this->attackerUsername} was repelled",
+                ? 'A raid on your base succeeded'
+                : 'A raid on your base was repelled',
             'body' => [
-                'attacker' => $this->attackerUsername,
                 'outcome' => $this->outcome,
                 'cash_stolen' => $this->cashStolen,
                 'attack_id' => $this->attackId,

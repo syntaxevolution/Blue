@@ -41,13 +41,16 @@ class BaseUnderAttack implements ShouldBroadcast
 
     public function broadcastWith(): array
     {
+        // Activity log is intentionally anonymous — attacker identity
+        // is only revealed on /attack-log behind the Counter-Intel
+        // Dossier unlock. This creates a gameplay loop: "you were
+        // raided" → curiosity → buy the dossier → see WHO did it.
         return [
             'type' => 'attack.incoming',
             'title' => $this->outcome === 'success'
-                ? "{$this->attackerUsername} raided your base"
-                : "{$this->attackerUsername} tried to raid your base",
+                ? 'Your base was raided'
+                : 'Someone tried to raid your base — they were repelled',
             'body' => [
-                'attacker' => $this->attackerUsername,
                 'outcome' => $this->outcome,
                 'cash_stolen' => $this->cashStolen,
                 'attack_id' => $this->attackId,

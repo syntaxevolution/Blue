@@ -43,7 +43,6 @@ class SpyDetected implements ShouldBroadcast
             'type' => 'spy.detected',
             'title' => 'Spy detected at your base',
             'body' => [
-                'spy' => $this->spyUsername,
                 'spy_succeeded' => $this->spySucceeded,
             ],
             'timestamp' => now()->toIso8601String(),

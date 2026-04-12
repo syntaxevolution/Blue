@@ -77,10 +77,29 @@ function markAllRead() {
                                 {{ entry.title }}
                             </div>
                             <div
-                                v-if="entry.body"
-                                class="mt-2 text-[11px] text-zinc-500 overflow-x-auto"
+                                v-if="entry.body && Object.keys(entry.body).length > 0"
+                                class="mt-2 text-[11px] text-zinc-500 space-y-0.5"
                             >
-                                <pre class="whitespace-pre-wrap break-all">{{ JSON.stringify(entry.body, null, 2) }}</pre>
+                                <div v-if="entry.body.outcome" class="flex gap-1">
+                                    <span class="text-zinc-600">outcome:</span>
+                                    <span :class="entry.body.outcome === 'success' ? 'text-rose-400' : 'text-emerald-400'">
+                                        {{ entry.body.outcome === 'success' ? 'breached' : 'repelled' }}
+                                    </span>
+                                </div>
+                                <div v-if="entry.body.cash_stolen > 0" class="flex gap-1">
+                                    <span class="text-zinc-600">stolen:</span>
+                                    <span class="text-rose-400">A{{ Number(entry.body.cash_stolen).toFixed(2) }}</span>
+                                </div>
+                                <div v-if="entry.body.tiles_added" class="flex gap-1">
+                                    <span class="text-zinc-600">new tiles:</span>
+                                    <span class="text-amber-400">{{ entry.body.tiles_added }}</span>
+                                </div>
+                                <div v-if="entry.body.spy_succeeded !== undefined" class="flex gap-1">
+                                    <span class="text-zinc-600">intel compromised:</span>
+                                    <span :class="entry.body.spy_succeeded ? 'text-rose-400' : 'text-emerald-400'">
+                                        {{ entry.body.spy_succeeded ? 'yes' : 'no' }}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         <span
