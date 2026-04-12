@@ -416,7 +416,8 @@ class BotDecisionService
             ->where('type', 'oil_field')
             ->get();
 
-        return $candidates
+        /** @var Tile|null $nearest */
+        $nearest = $candidates
             ->filter(function (Tile $t) use ($bot, $dailyLimit, $today) {
                 $field = \App\Models\OilField::query()->where('tile_id', $t->id)->first();
                 if ($field === null) {
@@ -439,6 +440,8 @@ class BotDecisionService
             })
             ->sortBy(fn (Tile $t) => abs($t->x - $current->x) + abs($t->y - $current->y))
             ->first();
+
+        return $nearest;
     }
 
     /**
@@ -457,12 +460,15 @@ class BotDecisionService
             return null;
         }
 
-        return Tile::query()
+        /** @var Tile|null $nearest */
+        $nearest = Tile::query()
             ->whereIn('id', $discovered)
             ->where('type', $type)
             ->get()
             ->sortBy(fn (Tile $t) => abs($t->x - $current->x) + abs($t->y - $current->y))
             ->first();
+
+        return $nearest;
     }
 
     /**
