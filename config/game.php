@@ -464,6 +464,9 @@ return [
             'min_bet_barrels' => 10,
             'max_bet_barrels' => 50000,
             'reel_count' => 3,
+            // Minimum seconds between consecutive spins by the same player.
+            // Protects against bot/script spam beyond the global throttle.
+            'min_interval_seconds' => 1,
             'symbols' => [
                 'cherry'     => ['weight' => 30, 'display' => 'Cherry'],
                 'bar'        => ['weight' => 25, 'display' => 'BAR'],
@@ -537,6 +540,12 @@ return [
             'rake_pct' => 0.05,
             'rake_cap_cash' => 5.00,
             'rake_cap_barrels' => 500,
+            // Default blind levels used at auto-created tables. Per-currency
+            // since cash and oil tables have vastly different denominations.
+            'default_blinds' => [
+                'akzar_cash' => ['small' => 0.05, 'big' => 0.10],
+                'oil_barrels' => ['small' => 5, 'big' => 10],
+            ],
             'blinds' => [
                 'cash' => [
                     ['small' => 0.05, 'big' => 0.10],

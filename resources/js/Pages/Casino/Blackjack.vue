@@ -3,8 +3,10 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import CasinoNav from '@/Components/Casino/CasinoNav.vue';
 import CardHand from '@/Components/Casino/CardHand.vue';
 import ChipSelector from '@/Components/Casino/ChipSelector.vue';
+import TableChat from '@/Components/Casino/TableChat.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { useCasinoTableStore } from '@/stores/casinoTable';
 
 interface CardDisplay { rank: string; suit: string; display: string }
 
@@ -38,12 +40,53 @@ const props = defineProps<{ state: any; table: TableState }>();
 
 const page = usePage();
 const errors = computed(() => (page.props.errors as Record<string, string>) ?? {});
+const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
 const bjError = computed(() => errors.value.blackjack ?? null);
+const bjResult = computed(() => flash.value.blackjack_result as { action?: string; dealer_total?: number; dealer_bust?: boolean; results?: Array<{ player_id: number; outcome: string; bet: number; payout: number }> } | undefined);
+
+const store = useCasinoTableStore();
+
+onMounted(() => {
+    const userId = (page.props.auth as any)?.user?.id ?? null;
+    store.subscribe(props.table.table_id, userId);
+});
+
+onBeforeUnmount(() => {
+    store.unsubscribe();
+});
 
 const bet = ref(props.table.currency === 'akzar_cash' ? 1.00 : 100);
 const isWaiting = computed(() => ['waiting', 'betting'].includes(props.table.phase));
 const isMyTurn = computed(() => props.table.is_my_turn);
-const myHand = computed(() => props.table.hands.find(h => h.seat === props.table.my_seat));
+const myHand = computed(() => {
+    // Use current_seat, not my_seat, because after split the player's
+    // active hand is the one with current_seat (not necessarily my_seat).
+    if (props.table.current_seat === null) return null;
+    return props.table.hands[props.table.current_seat] ?? null;
+});
+
+const canDouble = computed(() =>
+    myHand.value && myHand.value.cards.length === 2 && myHand.value.status === 'playing'
+);
+
+const canSplit = computed(() => {
+    if (!myHand.value || myHand.value.cards.length !== 2) return false;
+    // Same display rank = pair (10/J/Q/K all count as splittable in typical rules)
+    const [c1, c2] = myHand.value.cards;
+    const tenRanks = ['10', 'J', 'Q', 'K'];
+    if (tenRanks.includes(c1.rank) && tenRanks.includes(c2.rank)) return true;
+    return c1.rank === c2.rank;
+});
+
+const canSurrender = computed(() =>
+    myHand.value && myHand.value.cards.length === 2 && myHand.value.status === 'playing'
+);
+
+const canInsurance = computed(() => {
+    if (!myHand.value || myHand.value.cards.length !== 2) return false;
+    const dealerUp = props.table.dealer?.cards[0];
+    return dealerUp?.rank === 'A';
+});
 
 function formatAmount(v: number): string {
     return props.table.currency === 'akzar_cash' ? `A${v.toFixed(2)}` : `${v.toLocaleString()} bbl`;
@@ -74,6 +117,28 @@ function doAction(action: string) {
             </div>
 
             <div v-if="bjError" class="mt-3 rounded bg-red-900/30 px-3 py-2 text-sm text-red-400">{{ bjError }}</div>
+
+            <!-- Round result banner -->
+            <div v-if="bjResult && bjResult.action === 'round_resolved'" class="mt-3 rounded border border-zinc-700 bg-zinc-800/60 p-3 text-center">
+                <p class="text-xs text-zinc-400">
+                    Dealer: {{ bjResult.dealer_total }}<span v-if="bjResult.dealer_bust" class="text-red-400"> (bust)</span>
+                </p>
+                <div class="mt-1 space-y-0.5">
+                    <div v-for="r in bjResult.results" :key="r.player_id" class="text-xs">
+                        <span class="font-semibold"
+                            :class="{
+                                'text-green-400': ['win', 'blackjack'].includes(r.outcome),
+                                'text-amber-400': r.outcome === 'push',
+                                'text-red-400': ['bust', 'loss'].includes(r.outcome),
+                                'text-zinc-400': r.outcome === 'surrendered',
+                            }"
+                        >
+                            {{ r.outcome.toUpperCase() }}
+                        </span>
+                        <span class="text-zinc-500"> — payout {{ formatAmount(r.payout) }}</span>
+                    </div>
+                </div>
+            </div>
 
             <!-- Dealer hand -->
             <div class="mt-6 flex justify-center">
@@ -141,9 +206,13 @@ function doAction(action: string) {
                         class="rounded bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600">Hit</button>
                     <button @click="doAction('stand')"
                         class="rounded bg-zinc-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-500">Stand</button>
-                    <button v-if="myHand && myHand.cards.length === 2" @click="doAction('double')"
+                    <button v-if="canDouble" @click="doAction('double')"
                         class="rounded bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600">Double</button>
-                    <button v-if="myHand && myHand.cards.length === 2" @click="doAction('surrender')"
+                    <button v-if="canSplit" @click="doAction('split')"
+                        class="rounded bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600">Split</button>
+                    <button v-if="canInsurance" @click="doAction('insurance')"
+                        class="rounded bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600">Insurance</button>
+                    <button v-if="canSurrender" @click="doAction('surrender')"
                         class="rounded bg-red-800 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Surrender</button>
                 </div>
 
@@ -153,5 +222,6 @@ function doAction(action: string) {
                 </div>
             </div>
         </div>
+        <TableChat :table-id="table.table_id" />
     </AuthenticatedLayout>
 </template>

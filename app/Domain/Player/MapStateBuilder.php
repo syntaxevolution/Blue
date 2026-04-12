@@ -9,6 +9,7 @@ use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
 use App\Domain\World\FogOfWarService;
 use App\Models\Casino;
+use App\Models\CasinoSession;
 use App\Models\DrillPoint;
 use App\Models\Item;
 use App\Models\OilField;
@@ -551,11 +552,19 @@ class MapStateBuilder
     {
         $casino = Casino::query()->where('tile_id', $tile->id)->first();
 
+        $session = CasinoSession::query()
+            ->where('player_id', $player->id)
+            ->where('expires_at', '>', now())
+            ->orderByDesc('expires_at')
+            ->first();
+
         return [
             'kind' => 'casino',
             'name' => $casino?->name ?? "Roughneck's Saloon",
             'entry_fee_barrels' => (int) $this->config->get('casino.entry_fee_barrels'),
             'casino_enabled' => (bool) $this->config->get('casino.enabled'),
+            'has_active_session' => $session !== null,
+            'session_expires_at' => $session?->expires_at?->toIso8601String(),
         ];
     }
 

@@ -1,23 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, nextTick, watch, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
-
-interface ChatMessage {
-    username: string;
-    message: string;
-    timestamp: string;
-}
+import { useCasinoTableStore } from '@/stores/casinoTable';
 
 const props = defineProps<{
     tableId: number;
 }>();
 
-const messages = ref<ChatMessage[]>([]);
+const store = useCasinoTableStore();
+const messages = computed(() => store.chatMessages);
 const newMessage = ref('');
 const chatContainer = ref<HTMLElement | null>(null);
 const isOpen = ref(false);
-
-let echoListener: any = null;
 
 function scrollToBottom() {
     nextTick(() => {
@@ -27,23 +21,8 @@ function scrollToBottom() {
     });
 }
 
-onMounted(() => {
-    if (typeof window !== 'undefined' && (window as any).Echo) {
-        echoListener = (window as any).Echo.join(`casino.table.${props.tableId}`)
-            .listen('.TableChatMessage', (e: ChatMessage & { table_id: number }) => {
-                messages.value.push({
-                    username: e.username,
-                    message: e.message,
-                    timestamp: e.timestamp,
-                });
-                scrollToBottom();
-            });
-    }
-});
-
-onBeforeUnmount(() => {
-    // Channel cleanup handled by the game page's store unsubscribe
-});
+// Auto-scroll when messages arrive.
+watch(() => store.chatMessages.length, () => scrollToBottom());
 
 function sendMessage() {
     if (!newMessage.value.trim()) return;
@@ -95,10 +74,10 @@ function formatTime(ts: string): string {
             <div ref="chatContainer" class="flex-1 overflow-y-auto px-3 py-2 space-y-1">
                 <div v-for="(msg, i) in messages" :key="i" class="text-xs">
                     <span class="font-semibold text-amber-400">{{ msg.username }}</span>
-                    <span class="text-zinc-500 ml-1">{{ formatTime(msg.timestamp) }}</span>
+                    <span class="ml-1 text-zinc-500">{{ formatTime(msg.timestamp) }}</span>
                     <p class="text-zinc-300">{{ msg.message }}</p>
                 </div>
-                <div v-if="messages.length === 0" class="text-center text-xs text-zinc-600 mt-4">
+                <div v-if="messages.length === 0" class="mt-4 text-center text-xs text-zinc-600">
                     No messages yet
                 </div>
             </div>

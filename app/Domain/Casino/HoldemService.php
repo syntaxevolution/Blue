@@ -35,8 +35,8 @@ class HoldemService
                 throw CasinoException::invalidAction('not a holdem table');
             }
 
-            $state = $table->state_json ?? $this->freshState();
-            $blindLevel = $state['blind_level'] ?? ['small' => 0.05, 'big' => 0.10];
+            $state = $table->state_json ?? $this->freshState($table->currency);
+            $blindLevel = $state['blind_level'] ?? $this->defaultBlinds($table->currency);
             $bigBlind = $blindLevel['big'];
 
             $minMultiplier = (int) $this->config->get('casino.holdem.min_buy_in_multiplier', 20);
@@ -105,7 +105,7 @@ class HoldemService
         return DB::transaction(function () use ($playerId, $tableId) {
             /** @var CasinoTable $table */
             $table = CasinoTable::query()->lockForUpdate()->findOrFail($tableId);
-            $state = $table->state_json ?? $this->freshState();
+            $state = $table->state_json ?? $this->freshState($table->currency);
 
             $seat = CasinoTablePlayer::query()
                 ->where('casino_table_id', $tableId)
@@ -155,7 +155,7 @@ class HoldemService
             }
 
             $table->round_number++;
-            $blindLevel = $state['blind_level'] ?? ['small' => 0.05, 'big' => 0.10];
+            $blindLevel = $state['blind_level'] ?? $this->defaultBlinds($table->currency);
             $dealerSeat = (($state['dealer_seat'] ?? -1) + 1) % $seated->count();
 
             $deck = CardDeck::shuffle(
@@ -206,7 +206,11 @@ class HoldemService
                     ->update(['stack' => $p['stack']]);
             }
 
-            $utg = ($dealerSeat + 3) % count($players);
+            // Heads-up exception: the dealer (SB) acts first pre-flop.
+            // Otherwise UTG = 3 seats left of dealer.
+            $utg = count($players) === 2
+                ? $sbIndex
+                : ($dealerSeat + 3) % count($players);
 
             $state = [
                 'phase' => 'pre_flop',
@@ -216,8 +220,14 @@ class HoldemService
                 'pot' => $sb + $bb,
                 'side_pots' => [],
                 'current_bet' => $bb,
+                'last_raise_size' => $bb,      // minimum future raise increment
                 'action_on' => $utg,
-                'last_raiser' => $bbIndex,
+                // last_voluntary_raiser tracks the last player who actually
+                // chose to raise this street. On pre-flop it is null until
+                // someone raises, giving the big blind their option.
+                'last_voluntary_raiser' => null,
+                'bb_option_pending' => true,   // pre-flop BB gets to act last
+                'bb_index' => $bbIndex,
                 'dealer_seat' => $dealerSeat,
                 'blind_level' => $blindLevel,
                 'actions_this_round' => 0,
@@ -281,16 +291,25 @@ class HoldemService
                     break;
 
                 case 'raise':
-                    $minRaise = $state['current_bet'] * 2;
-                    $raiseTotal = max($amount, $minRaise);
+                    // Min raise = current bet + last raise increment.
+                    // On pre-flop, last_raise_size starts at BB.
+                    $minRaiseTotal = $state['current_bet'] + $state['last_raise_size'];
+                    $raiseTotal = max($amount, $minRaiseTotal);
                     $raiseAmount = $raiseTotal - $player['bet_this_round'];
                     $raiseAmount = min($raiseAmount, $player['stack']);
                     $player['stack'] -= $raiseAmount;
                     $player['bet_this_round'] += $raiseAmount;
                     $player['total_bet'] += $raiseAmount;
                     $state['pot'] += $raiseAmount;
+
+                    $raiseIncrement = $player['bet_this_round'] - $state['current_bet'];
+                    if ($raiseIncrement >= $state['last_raise_size']) {
+                        // Full raise — resets action for everyone behind.
+                        $state['last_raise_size'] = $raiseIncrement;
+                    }
                     $state['current_bet'] = $player['bet_this_round'];
-                    $state['last_raiser'] = $actionOn;
+                    $state['last_voluntary_raiser'] = $actionOn;
+                    $state['bb_option_pending'] = false;
                     if ($player['stack'] <= 0) {
                         $player['all_in'] = true;
                     }
@@ -304,8 +323,13 @@ class HoldemService
                     $player['stack'] = 0;
                     $player['all_in'] = true;
                     if ($player['bet_this_round'] > $state['current_bet']) {
+                        $raiseIncrement = $player['bet_this_round'] - $state['current_bet'];
+                        if ($raiseIncrement >= $state['last_raise_size']) {
+                            $state['last_raise_size'] = $raiseIncrement;
+                        }
                         $state['current_bet'] = $player['bet_this_round'];
-                        $state['last_raiser'] = $actionOn;
+                        $state['last_voluntary_raiser'] = $actionOn;
+                        $state['bb_option_pending'] = false;
                     }
                     break;
 
@@ -315,6 +339,14 @@ class HoldemService
 
             $state['actions_this_round']++;
             $state['players'][$actionOn] = $player;
+
+            // If the BB just acted pre-flop (any action), clear their option.
+            if ($state['phase'] === 'pre_flop'
+                && ($state['bb_option_pending'] ?? false)
+                && $actionOn === ($state['bb_index'] ?? -1)
+            ) {
+                $state['bb_option_pending'] = false;
+            }
 
             $state = $this->advanceAction($state);
 
@@ -387,52 +419,147 @@ class HoldemService
     public function tableState(int $tableId, int $playerId): array
     {
         $table = CasinoTable::query()->findOrFail($tableId);
-        $state = $table->state_json ?? $this->freshState();
+        $state = $table->state_json ?? $this->freshState($table->currency);
 
         return $this->sanitizedState($state, $playerId, $table);
     }
 
+    /**
+     * Advance action to the next player who can act. If the betting round
+     * is complete (all non-folded non-all-in players have called the
+     * current bet AND either voluntarily acted or had the BB option), move
+     * to the next street.
+     */
     private function advanceAction(array $state): array
     {
         $players = $state['players'];
         $total = count($players);
-        $active = array_filter($players, fn ($p) => ! $p['folded']);
 
-        if (count($active) <= 1) {
+        // Only one non-folded player left → showdown.
+        $activeNotFolded = array_filter($players, fn ($p) => ! $p['folded']);
+        if (count($activeNotFolded) <= 1) {
             $state['phase'] = 'showdown';
 
             return $state;
         }
 
-        $next = ($state['action_on'] + 1) % $total;
-        $checked = 0;
+        // Round complete when all non-folded, non-all-in players have
+        // matched the current bet AND either someone raised (and action
+        // returned to them) OR everyone checked around (and BB option is
+        // no longer pending).
+        if ($this->bettingRoundComplete($state)) {
+            return $this->advanceStreet($state);
+        }
 
-        while ($checked < $total) {
+        // Find the next player to act.
+        $next = ($state['action_on'] + 1) % $total;
+        for ($checked = 0; $checked < $total; $checked++) {
             $p = $players[$next];
             if (! $p['folded'] && ! $p['all_in']) {
-                if ($next === $state['last_raiser'] && $state['actions_this_round'] >= $total) {
-                    $state['phase'] = $this->nextStreet($state['phase']);
-                    $state['action_on'] = $this->firstActiveAfterDealer($state);
-                    $state['current_bet'] = 0;
-                    $state['last_raiser'] = $state['action_on'];
-                    $state['actions_this_round'] = 0;
-                    foreach ($state['players'] as &$pl) {
-                        $pl['bet_this_round'] = 0;
-                    }
-                    unset($pl);
-
-                    return $state;
-                }
-
                 $state['action_on'] = $next;
 
                 return $state;
             }
             $next = ($next + 1) % $total;
-            $checked++;
         }
 
+        // No one else can act — round is done.
+        return $this->advanceStreet($state);
+    }
+
+    private function bettingRoundComplete(array $state): bool
+    {
+        $players = $state['players'];
+        $currentBet = $state['current_bet'];
+
+        // Every non-folded player must have either matched the current
+        // bet or be all-in for less.
+        foreach ($players as $p) {
+            if ($p['folded']) {
+                continue;
+            }
+            if ($p['all_in']) {
+                continue;
+            }
+            if ($p['bet_this_round'] < $currentBet) {
+                return false;
+            }
+        }
+
+        // At least one player must be able to voluntarily close the action.
+        // Pre-flop special case: if nobody has raised and the BB still has
+        // their option, the round cannot end until the BB acts.
+        if ($state['phase'] === 'pre_flop' && ($state['bb_option_pending'] ?? false)) {
+            $bbIdx = $state['bb_index'] ?? null;
+            if ($bbIdx !== null) {
+                $bb = $players[$bbIdx] ?? null;
+                if ($bb !== null && ! $bb['folded'] && ! $bb['all_in']) {
+                    // BB hasn't had their turn yet. Round cannot end unless
+                    // action is currently on them and they just acted.
+                    // We detect "just acted" by the action_on having moved
+                    // past the BB in a complete loop.
+                    if ($state['action_on'] !== $bbIdx) {
+                        return false;
+                    }
+                    // action_on is BB — check if they have voluntarily acted.
+                    // The simplest proxy: once advanceAction is called after
+                    // the BB's action, bb_option_pending will be cleared by
+                    // the post-action path. We set it false on any BB action
+                    // via the action-taken branch.
+                    return $state['bb_option_pending'] === false;
+                }
+            }
+        }
+
+        // Post-flop / after a raise: if someone voluntarily raised, action
+        // must return to them (they can then check, not act again). When
+        // the next-to-act loop finds them, the round is complete.
+        $lastRaiser = $state['last_voluntary_raiser'] ?? null;
+        if ($lastRaiser !== null) {
+            // Round is complete when the action would return to the raiser.
+            // We detect this by checking whether all subsequent non-folded
+            // non-all-in players between action_on and the raiser have matched.
+            // Since we already verified all bets are equal above, and the
+            // raiser is by definition matched, the round is effectively done
+            // once action has cycled back.
+            $total = count($players);
+            $current = $state['action_on'];
+            $steps = 0;
+            $next = ($current + 1) % $total;
+            while ($next !== $lastRaiser && $steps < $total) {
+                $p = $players[$next];
+                if (! $p['folded'] && ! $p['all_in'] && $p['bet_this_round'] < $currentBet) {
+                    return false;
+                }
+                $next = ($next + 1) % $total;
+                $steps++;
+            }
+
+            return true;
+        }
+
+        // No raise yet this street and it's not pre-flop BB option: round
+        // is done once everyone who can act has checked. We approximate
+        // this by requiring actions_this_round >= number of still-active
+        // (not folded, not all-in) players.
+        $stillActing = count(array_filter($players, fn ($p) => ! $p['folded'] && ! $p['all_in']));
+
+        return ($state['actions_this_round'] ?? 0) >= $stillActing;
+    }
+
+    private function advanceStreet(array $state): array
+    {
         $state['phase'] = $this->nextStreet($state['phase']);
+        $state['action_on'] = $this->firstActiveAfterDealer($state);
+        $state['current_bet'] = 0;
+        $state['last_raise_size'] = $state['blind_level']['big'] ?? 1;
+        $state['last_voluntary_raiser'] = null;
+        $state['bb_option_pending'] = false;
+        $state['actions_this_round'] = 0;
+        foreach ($state['players'] as &$pl) {
+            $pl['bet_this_round'] = 0;
+        }
+        unset($pl);
 
         return $state;
     }
@@ -519,16 +646,24 @@ class HoldemService
     {
         $state = $table->state_json;
 
+        // Fill remaining community cards WITHOUT burning extra cards when
+        // called mid-street. Burn cards only happen during voluntary street
+        // transitions in dealCommunityCards(). If someone went all-in early
+        // and we need to deal more community cards to reach river, we fill
+        // straight from the deck — the burns that would have happened at
+        // street transitions were not performed (this is acceptable and
+        // matches live-poker "run it out" conventions).
         while (count($state['community']) < 5) {
-            array_shift($state['deck']);
             $state['community'][] = array_shift($state['deck']);
         }
 
         $activePlayers = array_filter($state['players'], fn ($p) => ! $p['folded']);
 
+        // Only one player left → they win everything (rake still applies).
         if (count($activePlayers) === 1) {
             $winner = array_values($activePlayers)[0];
-            $winnings = $state['pot'];
+            $rake = $this->calculateRake($table, $state['pot']);
+            $winnings = $state['pot'] - $rake;
 
             $this->awardPot($table, $winner['player_id'], $winnings);
 
@@ -539,40 +674,154 @@ class HoldemService
             ]]);
         }
 
+        // Evaluate hands for all active players.
         $evaluations = [];
         foreach ($activePlayers as $idx => $p) {
             $allCards = array_merge($p['hole_cards'], $state['community']);
             $eval = $this->handEvaluator->evaluate($allCards);
-            $evaluations[$idx] = ['player' => $p, 'eval' => $eval];
+            $evaluations[$idx] = [
+                'idx' => $idx,
+                'player' => $p,
+                'eval' => $eval,
+            ];
         }
 
-        uasort($evaluations, fn ($a, $b) => $b['eval']['rank'] <=> $a['eval']['rank']);
-        $sorted = array_values($evaluations);
+        // Compute side pots from total_bet contributions. Side pot logic:
+        // sort contributions ascending, pots are layered at each distinct
+        // contribution level. Folded players contribute but cannot win.
+        $pots = $this->computeSidePots($state['players']);
 
+        // Apply rake once on the combined pot total, scaled proportionally
+        // across the layered pots so each pot contributes its share.
+        $totalPot = array_sum(array_column($pots, 'amount'));
+        $totalRake = $this->calculateRake($table, $totalPot);
+
+        $playerPayouts = [];
+        foreach ($pots as $pot) {
+            if ($pot['amount'] <= 0) {
+                continue;
+            }
+
+            // Rake for this pot is proportional to its share of the total.
+            $potRake = $totalPot > 0
+                ? round($totalRake * ($pot['amount'] / $totalPot), 2)
+                : 0.0;
+            $distributable = max(0, $pot['amount'] - $potRake);
+
+            // Eligible winners are the evaluated players whose idx is in
+            // this pot's eligible set (i.e., they contributed to this layer).
+            $eligibleEvals = array_values(array_filter(
+                $evaluations,
+                fn ($e) => in_array($e['idx'], $pot['eligible'], true),
+            ));
+
+            if (count($eligibleEvals) === 0) {
+                continue;
+            }
+
+            usort($eligibleEvals, fn ($a, $b) => $b['eval']['rank'] <=> $a['eval']['rank']);
+            $bestRank = $eligibleEvals[0]['eval']['rank'];
+            $winners = array_values(array_filter(
+                $eligibleEvals,
+                fn ($e) => $e['eval']['rank'] === $bestRank,
+            ));
+
+            $share = round($distributable / count($winners), 2);
+            foreach ($winners as $w) {
+                $pid = $w['player']['player_id'];
+                $playerPayouts[$pid] = ($playerPayouts[$pid] ?? 0) + $share;
+                $playerPayouts[$pid.'_hand'] = $w['eval']['category_name'];
+            }
+        }
+
+        // Apply the credits.
+        $results = [];
+        foreach ($playerPayouts as $key => $value) {
+            if (str_ends_with((string) $key, '_hand')) {
+                continue;
+            }
+            $pid = (int) $key;
+            $amount = (float) $value;
+            $this->awardPot($table, $pid, $amount);
+            $results[] = [
+                'player_id' => $pid,
+                'amount' => $amount,
+                'hand' => $playerPayouts[$pid.'_hand'] ?? null,
+            ];
+        }
+
+        return $this->finishHand($table, $state, $results);
+    }
+
+    /**
+     * Compute layered side pots from player total_bet contributions.
+     * Each pot has an amount and a list of eligible player indices.
+     *
+     * @param  list<array<string,mixed>>  $players
+     * @return list<array{amount: float, eligible: list<int>}>
+     */
+    private function computeSidePots(array $players): array
+    {
+        // Contribution levels from all players (including folded — their
+        // chips are in the pot).
+        $contributions = [];
+        foreach ($players as $idx => $p) {
+            if ($p['total_bet'] > 0) {
+                $contributions[$idx] = (float) $p['total_bet'];
+            }
+        }
+
+        if (empty($contributions)) {
+            return [];
+        }
+
+        // Sorted distinct contribution levels.
+        $levels = array_values(array_unique(array_values($contributions)));
+        sort($levels);
+
+        $pots = [];
+        $previousLevel = 0.0;
+
+        foreach ($levels as $level) {
+            $layerSize = $level - $previousLevel;
+            if ($layerSize <= 0) {
+                continue;
+            }
+
+            // Every player who contributed at least this level puts
+            // $layerSize into this layer.
+            $contributors = array_keys(array_filter(
+                $contributions,
+                fn ($c) => $c >= $level,
+            ));
+
+            $potAmount = round($layerSize * count($contributors), 2);
+
+            // Eligible winners = contributors who are NOT folded.
+            $eligible = array_values(array_filter(
+                $contributors,
+                fn ($idx) => ! $players[$idx]['folded'],
+            ));
+
+            $pots[] = [
+                'amount' => $potAmount,
+                'eligible' => $eligible,
+            ];
+
+            $previousLevel = $level;
+        }
+
+        return $pots;
+    }
+
+    private function calculateRake(CasinoTable $table, float $potAmount): float
+    {
         $rakePct = (float) $this->config->get('casino.holdem.rake_pct', 0.05);
         $rakeCap = $table->currency === 'akzar_cash'
             ? (float) $this->config->get('casino.holdem.rake_cap_cash', 5.0)
             : (float) $this->config->get('casino.holdem.rake_cap_barrels', 500);
 
-        $rake = min($state['pot'] * $rakePct, $rakeCap);
-        $distributable = $state['pot'] - $rake;
-
-        // Simple pot distribution (no side pots for now — award to best hand)
-        $bestRank = $sorted[0]['eval']['rank'];
-        $winners = array_filter($sorted, fn ($e) => $e['eval']['rank'] === $bestRank);
-        $share = round($distributable / count($winners), 2);
-
-        $results = [];
-        foreach ($winners as $w) {
-            $this->awardPot($table, $w['player']['player_id'], $share);
-            $results[] = [
-                'player_id' => $w['player']['player_id'],
-                'amount' => $share,
-                'hand' => $w['eval']['category_name'],
-            ];
-        }
-
-        return $this->finishHand($table, $state, $results);
+        return round(min($potAmount * $rakePct, $rakeCap), 2);
     }
 
     private function finishHand(CasinoTable $table, array $state, array $results): array
@@ -722,7 +971,7 @@ class HoldemService
         return null;
     }
 
-    private function freshState(): array
+    private function freshState(string $currency = 'akzar_cash'): array
     {
         return [
             'phase' => 'waiting',
@@ -732,12 +981,33 @@ class HoldemService
             'pot' => 0,
             'side_pots' => [],
             'current_bet' => 0,
+            'last_raise_size' => 0,
             'action_on' => null,
-            'last_raiser' => null,
+            'last_voluntary_raiser' => null,
+            'bb_option_pending' => false,
+            'bb_index' => null,
             'dealer_seat' => -1,
-            'blind_level' => ['small' => 0.05, 'big' => 0.10],
+            'blind_level' => $this->defaultBlinds($currency),
             'actions_this_round' => 0,
         ];
+    }
+
+    /**
+     * @return array{small: float, big: float}
+     */
+    private function defaultBlinds(string $currency): array
+    {
+        $levels = (array) $this->config->get('casino.holdem.default_blinds', []);
+        if (isset($levels[$currency]) && is_array($levels[$currency])) {
+            return [
+                'small' => (float) $levels[$currency]['small'],
+                'big' => (float) $levels[$currency]['big'],
+            ];
+        }
+
+        return $currency === 'akzar_cash'
+            ? ['small' => 0.05, 'big' => 0.10]
+            : ['small' => 5.0, 'big' => 10.0];
     }
 
     private function assertAffordable(Player $player, string $currency, float $amount): void

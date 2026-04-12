@@ -28,10 +28,14 @@ class RouletteController extends Controller
         private readonly WorldService $world,
     ) {}
 
-    public function show(Request $request, int $tableId): Response
+    public function show(Request $request, int $tableId)
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        if (! $this->casinoService->hasActiveSession($player->id)) {
+            return redirect()->route('casino.show');
+        }
 
         $tableState = $this->roulette->tableState($tableId, $player->id);
 
@@ -42,10 +46,14 @@ class RouletteController extends Controller
         ]);
     }
 
-    public function index(Request $request): Response
+    public function index(Request $request)
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        if (! $this->casinoService->hasActiveSession($player->id)) {
+            return redirect()->route('casino.show');
+        }
 
         $this->tableManager->ensureRouletteTablesExist();
 

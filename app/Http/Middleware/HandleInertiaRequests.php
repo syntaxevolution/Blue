@@ -132,6 +132,9 @@ class HandleInertiaRequests extends Middleware
                 'teleport_purchase_cost_barrels' => (int) app(GameConfigResolver::class)->get('teleport.purchase_cost_barrels'),
                 'casino_enabled' => (bool) app(GameConfigResolver::class)->get('casino.enabled'),
                 'casino_entry_fee_barrels' => (int) app(GameConfigResolver::class)->get('casino.entry_fee_barrels'),
+                'holdem_turn_seconds' => (int) app(GameConfigResolver::class)->get('casino.holdem.turn_timer_seconds'),
+                'holdem_rake_pct' => (float) app(GameConfigResolver::class)->get('casino.holdem.rake_pct'),
+                'slots_min_interval_seconds' => (int) app(GameConfigResolver::class)->get('casino.slots.min_interval_seconds', 1),
             ],
         ];
     }

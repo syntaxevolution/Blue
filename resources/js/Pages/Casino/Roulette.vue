@@ -3,6 +3,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import CasinoNav from '@/Components/Casino/CasinoNav.vue';
 import ChipSelector from '@/Components/Casino/ChipSelector.vue';
 import RouletteBoard from '@/Components/Casino/RouletteBoard.vue';
+import TableChat from '@/Components/Casino/TableChat.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useCasinoTableStore } from '@/stores/casinoTable';
@@ -70,10 +71,10 @@ watch(() => props.table.expires_at, (val) => {
 }, { immediate: true });
 
 onMounted(() => {
-    store.subscribe(props.table.id);
-    if (props.table.expires_at && props.table.phase === 'betting') {
-        startCountdown(props.table.expires_at);
-    }
+    const userId = (page.props.auth as any)?.user?.id ?? null;
+    store.subscribe(props.table.id, userId);
+    // Countdown is started by the expires_at watcher with immediate: true,
+    // so no explicit call needed here.
 });
 
 onBeforeUnmount(() => {
@@ -186,5 +187,6 @@ const balance = computed(() =>
                 </div>
             </div>
         </div>
+        <TableChat :table-id="table.id" />
     </AuthenticatedLayout>
 </template>

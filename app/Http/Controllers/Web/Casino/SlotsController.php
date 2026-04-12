@@ -23,10 +23,14 @@ class SlotsController extends Controller
         private readonly WorldService $world,
     ) {}
 
-    public function show(Request $request): Response
+    public function show(Request $request)
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        if (! $this->casinoService->hasActiveSession($player->id)) {
+            return redirect()->route('casino.show');
+        }
 
         return Inertia::render('Casino/Slots', [
             'state' => $this->mapState->build($player),

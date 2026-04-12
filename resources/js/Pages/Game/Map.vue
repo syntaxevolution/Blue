@@ -3,7 +3,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import TileIcon from '@/Components/TileIcon.vue';
 import TransportSwitcher from '@/Components/TransportSwitcher.vue';
 import TeleportModal from '@/Components/TeleportModal.vue';
-import { Head, router, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface PlayerState {
@@ -242,6 +242,7 @@ function tileColor(type: string): string {
         auction: 'text-rose-400',
         ruin: 'text-zinc-500',
         wasteland: 'text-zinc-600',
+        casino: 'text-yellow-400',
     }[type] ?? 'text-zinc-500';
 }
 
@@ -623,14 +624,19 @@ const canAttackNow = computed(() => {
                                         {{ (state.tile_detail as { name: string }).name }}
                                     </div>
                                     <div class="text-zinc-500 text-xs mb-3">
-                                        Entry fee: <span class="text-amber-400 font-semibold">{{ (state.tile_detail as { entry_fee_barrels: number }).entry_fee_barrels }} barrels</span>
+                                        <span v-if="(state.tile_detail as { has_active_session?: boolean }).has_active_session">
+                                            You have an active session &mdash; resume play
+                                        </span>
+                                        <span v-else>
+                                            Entry fee: <span class="text-amber-400 font-semibold">{{ (state.tile_detail as { entry_fee_barrels: number }).entry_fee_barrels }} barrels</span>
+                                        </span>
                                     </div>
-                                    <a
+                                    <Link
                                         :href="route('casino.show')"
                                         class="inline-block bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition"
                                     >
-                                        Enter Saloon
-                                    </a>
+                                        {{ (state.tile_detail as { has_active_session?: boolean }).has_active_session ? 'Resume' : 'Enter Saloon' }}
+                                    </Link>
                                 </div>
 
                                 <!-- Own base -->

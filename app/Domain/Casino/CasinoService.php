@@ -30,7 +30,11 @@ class CasinoService
             /** @var Player $player */
             $player = Player::query()->lockForUpdate()->findOrFail($playerId);
 
-            $tile = Tile::query()->find($player->current_tile_id);
+            // Lock the tile row too — tile.type is effectively immutable
+            // post-generation, but locking protects against concurrent
+            // world growth / retrofit commands and any future world
+            // service that could mutate the tile.
+            $tile = Tile::query()->lockForUpdate()->find($player->current_tile_id);
             if ($tile === null || $tile->type !== 'casino') {
                 throw CasinoException::notOnCasinoTile($tile?->type ?? 'unknown');
             }

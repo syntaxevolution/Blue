@@ -8,6 +8,12 @@ use App\Domain\Casino\CasinoTableManager;
 use App\Domain\Exceptions\CasinoException;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\World\WorldService;
+use App\Events\Casino\BlackjackDealerTurn;
+use App\Events\Casino\BlackjackHandDealt;
+use App\Events\Casino\BlackjackPayout;
+use App\Events\Casino\BlackjackPlayerAction;
+use App\Events\Casino\PlayerJoinedTable;
+use App\Events\Casino\PlayerLeftTable;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Casino\BlackjackActionRequest;
 use App\Models\CasinoTable;
@@ -26,10 +32,14 @@ class BlackjackController extends Controller
         private readonly WorldService $world,
     ) {}
 
-    public function index(Request $request): Response
+    public function index(Request $request)
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        if (! $this->casinoService->hasActiveSession($player->id)) {
+            return redirect()->route('casino.show');
+        }
 
         $this->tableManager->ensureBlackjackTablesExist();
 
@@ -55,10 +65,14 @@ class BlackjackController extends Controller
         ]);
     }
 
-    public function show(Request $request, int $tableId): Response
+    public function show(Request $request, int $tableId)
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        if (! $this->casinoService->hasActiveSession($player->id)) {
+            return redirect()->route('casino.show');
+        }
 
         return Inertia::render('Casino/Blackjack', [
             'state' => $this->mapState->build($player),
@@ -72,7 +86,10 @@ class BlackjackController extends Controller
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
 
         try {
-            $this->blackjack->joinTable($player->id, $tableId);
+            $result = $this->blackjack->joinTable($player->id, $tableId);
+            if (! ($result['already_seated'] ?? false)) {
+                PlayerJoinedTable::dispatch($tableId, $user->name, (int) $result['seat']);
+            }
         } catch (CasinoException $e) {
             return redirect()->route('casino.blackjack.show', $tableId)->withErrors(['blackjack' => $e->getMessage()]);
         }
@@ -89,6 +106,7 @@ class BlackjackController extends Controller
 
         try {
             $result = $this->blackjack->placeBet($player->id, $tableId, (float) $request->input('amount'));
+            $this->dispatchBlackjackEvents($tableId, $result);
         } catch (CasinoException $e) {
             return redirect()->route('casino.blackjack.show', $tableId)->withErrors(['blackjack' => $e->getMessage()]);
         }
@@ -100,9 +118,25 @@ class BlackjackController extends Controller
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+        $actionName = $request->validated('action');
 
         try {
-            $result = $this->blackjack->playerAction($player->id, $tableId, $request->validated('action'));
+            $state = $this->blackjack->tableState($tableId, $player->id);
+            $seatBefore = $state['current_seat'];
+            $handBefore = $seatBefore !== null ? ($state['hands'][$seatBefore] ?? null) : null;
+
+            $result = $this->blackjack->playerAction($player->id, $tableId, $actionName);
+
+            if ($handBefore !== null) {
+                BlackjackPlayerAction::dispatch(
+                    $tableId,
+                    (int) $seatBefore,
+                    $actionName,
+                    (int) ($handBefore['total'] ?? 0),
+                );
+            }
+
+            $this->dispatchBlackjackEvents($tableId, $result);
         } catch (CasinoException $e) {
             return redirect()->route('casino.blackjack.show', $tableId)->withErrors(['blackjack' => $e->getMessage()]);
         }
@@ -116,7 +150,45 @@ class BlackjackController extends Controller
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
 
         $this->blackjack->leaveTable($player->id, $tableId);
+        PlayerLeftTable::dispatch($tableId, $user->name);
 
         return redirect()->route('casino.show');
+    }
+
+    private function dispatchBlackjackEvents(int $tableId, array $result): void
+    {
+        $action = $result['action'] ?? null;
+
+        if ($action === 'dealt') {
+            $state = CasinoTable::find($tableId)?->state_json ?? [];
+            $dealerCards = $state['dealer']['cards'] ?? [];
+            $upCard = $dealerCards[0] ?? null;
+
+            BlackjackHandDealt::dispatch(
+                $tableId,
+                (int) ($state['round_number'] ?? 0),
+                array_map(fn ($h) => count($h['cards'] ?? []), $state['hands'] ?? []),
+                $upCard !== null ? [
+                    'rank' => \App\Domain\Casino\CardDeck::rankName($upCard),
+                    'suit' => \App\Domain\Casino\CardDeck::suitName($upCard),
+                ] : ['rank' => '?', 'suit' => '?'],
+            );
+        }
+
+        if ($action === 'round_resolved') {
+            BlackjackDealerTurn::dispatch(
+                $tableId,
+                (array) ($result['dealer_cards'] ?? []),
+                (int) ($result['dealer_total'] ?? 0),
+                (bool) ($result['dealer_bust'] ?? false),
+            );
+
+            BlackjackPayout::dispatch(
+                $tableId,
+                (int) ($result['dealer_total'] ?? 0),
+                (bool) ($result['dealer_bust'] ?? false),
+                (array) ($result['results'] ?? []),
+            );
+        }
     }
 }

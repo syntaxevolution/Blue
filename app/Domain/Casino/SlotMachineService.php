@@ -8,6 +8,7 @@ use App\Domain\Exceptions\CasinoException;
 use App\Models\CasinoBet;
 use App\Models\CasinoRound;
 use App\Models\Player;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class SlotMachineService
@@ -30,6 +31,7 @@ class SlotMachineService
         $this->casinoService->requireActiveSession($playerId);
 
         $this->validateBet($currency, $betAmount);
+        $this->enforceSpinInterval($playerId);
 
         return DB::transaction(function () use ($playerId, $currency, $betAmount) {
             /** @var Player $player */
@@ -148,7 +150,11 @@ class SlotMachineService
                         $matched++;
                     }
                 }
-                if ($matched >= $count) {
+                // Exact match of 2 — a 3-of-a-kind must be handled by the
+                // 3-of-a-kind entry (which should be ordered before this
+                // rule in the pay table anyway). Using === $count prevents
+                // the 2-of-a-kind rule from silently capturing a triple.
+                if ($matched === $count) {
                     return [
                         'payout' => round($betAmount * $multiplier, 2),
                         'multiplier' => (float) $multiplier,
@@ -225,9 +231,43 @@ class SlotMachineService
 
     private function playerSpinCount(int $playerId): int
     {
-        return (int) CasinoRound::query()
-            ->where('game_type', 'slots')
-            ->whereHas('bets', fn ($q) => $q->where('player_id', $playerId))
+        // Per-spin counter used as a deterministic event key component.
+        // Cached in Redis to avoid a whereHas N+1 on every spin; falls
+        // back to a DB count if the cache is cold.
+        $cacheKey = "casino.slots.spin_count:{$playerId}";
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            Cache::increment($cacheKey);
+
+            return (int) $cached;
+        }
+
+        $count = (int) CasinoBet::query()
+            ->where('player_id', $playerId)
+            ->whereHas('round', fn ($q) => $q->where('game_type', 'slots'))
             ->count();
+
+        Cache::put($cacheKey, $count + 1, now()->addDays(30));
+
+        return $count;
+    }
+
+    private function enforceSpinInterval(int $playerId): void
+    {
+        $minSeconds = (int) $this->config->get('casino.slots.min_interval_seconds', 1);
+        if ($minSeconds <= 0) {
+            return;
+        }
+
+        $lockKey = "casino.slots.last_spin:{$playerId}";
+        $lastSpin = Cache::get($lockKey);
+        $now = microtime(true);
+
+        if ($lastSpin !== null && ($now - (float) $lastSpin) < $minSeconds) {
+            throw CasinoException::invalidAction("Please wait {$minSeconds}s between spins");
+        }
+
+        Cache::put($lockKey, $now, now()->addMinutes(5));
     }
 }

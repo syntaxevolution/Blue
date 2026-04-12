@@ -10,12 +10,16 @@ namespace App\Domain\Casino;
  * via their rank integers.
  *
  * Rank encoding (32-bit integer):
- *   bits 24-27: hand category (0=high card .. 9=royal flush)
- *   bits 20-23: primary kicker (e.g. pair rank)
- *   bits 16-19: secondary kicker
- *   bits 12-15: third kicker
- *   bits 8-11:  fourth kicker
- *   bits 4-7:   fifth kicker
+ *   bits 28-31: hand category (0=high card .. 9=royal flush)
+ *   bits 24-27: primary kicker (e.g. quad/trip/pair rank)
+ *   bits 20-23: secondary kicker
+ *   bits 16-19: third kicker
+ *   bits 12-15: fourth kicker
+ *   bits 8-11:  fifth kicker
+ *
+ * Each rank slot holds a 4-bit card rank (0-12). Category is shifted to
+ * bit 28 so it always dominates kickers when comparing. Higher integer
+ * value = stronger hand.
  */
 class HandEvaluator
 {
@@ -199,9 +203,11 @@ class HandEvaluator
 
     private function encode(int $category, array $kickers): int
     {
-        $rank = $category << 20;
+        // Category at bits 28-31 dominates all kickers.
+        // Kickers occupy bits 24, 20, 16, 12, 8 (4 bits each, most significant first).
+        $rank = $category << 28;
         foreach (array_slice($kickers, 0, 5) as $i => $k) {
-            $rank |= ($k & 0xF) << (16 - $i * 4);
+            $rank |= ($k & 0xF) << (24 - $i * 4);
         }
 
         return $rank;

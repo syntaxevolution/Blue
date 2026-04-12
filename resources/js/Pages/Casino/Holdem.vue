@@ -5,8 +5,10 @@ import CardHand from '@/Components/Casino/CardHand.vue';
 import PlayerSeat from '@/Components/Casino/PlayerSeat.vue';
 import PotDisplay from '@/Components/Casino/PotDisplay.vue';
 import TurnTimer from '@/Components/Casino/TurnTimer.vue';
+import TableChat from '@/Components/Casino/TableChat.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { useCasinoTableStore } from '@/stores/casinoTable';
 
 interface CardDisplay { rank: string; suit: string; display: string }
 
@@ -30,7 +32,24 @@ const props = defineProps<{ state: any; table: TableState }>();
 
 const page = usePage();
 const errors = computed(() => (page.props.errors as Record<string, string>) ?? {});
+const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
 const holdemError = computed(() => errors.value.holdem ?? null);
+const holdemResult = computed(() => flash.value.holdem_result as { action?: string; results?: Array<{ player_id: number; amount: number; hand: string | null }>; community?: any[] } | undefined);
+
+const turnTimerSeconds = computed(() =>
+    Number((page.props.game as { holdem_turn_seconds?: number } | undefined)?.holdem_turn_seconds ?? 30),
+);
+
+const store = useCasinoTableStore();
+
+onMounted(() => {
+    const userId = (page.props.auth as any)?.user?.id ?? null;
+    store.subscribe(props.table.table_id, userId);
+});
+
+onBeforeUnmount(() => {
+    store.unsubscribe();
+});
 
 const buyIn = ref(props.table.blind_level ? props.table.blind_level.big * 50 : 5);
 const raiseAmount = ref(props.table.current_bet * 2 || (props.table.blind_level?.big ?? 0.10) * 2);
@@ -40,9 +59,18 @@ const isMyTurn = computed(() => props.table.is_my_turn);
 const isWaiting = computed(() => props.table.phase === 'waiting');
 const isPlaying = computed(() => ['pre_flop', 'flop', 'turn', 'river', 'showdown'].includes(props.table.phase));
 
+// Find my player by seat NUMBER (not array index).
 const myPlayer = computed(() => {
     if (props.table.my_seat === null) return null;
-    return props.table.players.find(p => p.seat === props.table.players[props.table.my_seat!]?.seat);
+    return props.table.players.find(p => p.seat === props.table.my_seat) ?? null;
+});
+
+// The player whose seat matches action_on (action_on is an array index in
+// the state's players list — which is ordered by seat_number, so
+// action_on=0 means the first seated player).
+const actionOnPlayer = computed(() => {
+    if (props.table.action_on === null) return null;
+    return props.table.players[props.table.action_on] ?? null;
 });
 
 const toCall = computed(() => {
@@ -95,8 +123,8 @@ function leaveTable() {
                 <CardHand :cards="table.community" label="Community" />
             </div>
 
-            <!-- Player seats -->
-            <div class="mt-6 flex flex-wrap justify-center gap-3">
+            <!-- Player seats: grid layout that roughly resembles a poker table -->
+            <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <PlayerSeat
                     v-for="p in table.players"
                     :key="p.seat"
@@ -106,16 +134,28 @@ function leaveTable() {
                     :bet-this-round="p.bet_this_round"
                     :folded="p.folded"
                     :all-in="p.all_in"
-                    :hole-cards="p.hole_cards"
+                    :hole-cards="p.player_id === state.player.id ? (store.holdemHoleCards ?? p.hole_cards) : p.hole_cards"
                     :is-current-player="p.player_id === state.player.id"
-                    :is-action-on="table.action_on !== null && table.players[table.action_on]?.player_id === p.player_id"
+                    :is-action-on="actionOnPlayer?.player_id === p.player_id"
+                    :is-dealer="table.dealer_seat !== null && p.seat === table.players[table.dealer_seat]?.seat"
                     :currency="table.currency"
                 />
             </div>
 
             <!-- Turn timer -->
             <div v-if="isMyTurn" class="mt-3 flex justify-center">
-                <TurnTimer :seconds="30" :active="true" />
+                <TurnTimer :seconds="turnTimerSeconds" :active="true" />
+            </div>
+
+            <!-- Showdown / result banner -->
+            <div v-if="holdemResult && holdemResult.action === 'showdown'" class="mt-3 rounded border border-zinc-700 bg-zinc-800/60 p-3 text-center">
+                <p class="text-xs uppercase tracking-wider text-zinc-500">Showdown</p>
+                <div class="mt-1 space-y-0.5">
+                    <div v-for="r in holdemResult.results" :key="r.player_id" class="text-xs">
+                        <span class="font-semibold text-green-400">+{{ formatAmount(r.amount) }}</span>
+                        <span v-if="r.hand" class="text-zinc-500"> ({{ r.hand }})</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Controls -->
@@ -171,5 +211,6 @@ function leaveTable() {
                 </div>
             </div>
         </div>
+        <TableChat :table-id="table.table_id" />
     </AuthenticatedLayout>
 </template>

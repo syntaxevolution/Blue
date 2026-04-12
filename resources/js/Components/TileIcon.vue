@@ -186,6 +186,32 @@ defineProps<{
         <circle cx="36" cy="38" r="1.5" fill="currentColor" />
     </svg>
 
+    <!-- Casino — chip + two cards + spade -->
+    <svg
+        v-else-if="type === 'casino'"
+        viewBox="0 0 48 48"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-label="Casino"
+    >
+        <!-- Chip (background) -->
+        <circle cx="18" cy="28" r="10" />
+        <circle cx="18" cy="28" r="5" />
+        <path d="M18 18 L18 22" opacity="0.6" />
+        <path d="M18 34 L18 38" opacity="0.6" />
+        <path d="M8 28 L12 28" opacity="0.6" />
+        <path d="M24 28 L28 28" opacity="0.6" />
+        <!-- Card (front) -->
+        <rect x="26" y="10" width="14" height="20" rx="2" fill="currentColor" fill-opacity="0.2" />
+        <!-- Spade on card -->
+        <path d="M33 15 C30 18, 30 22, 33 22 C36 22, 36 18, 33 15 Z" fill="currentColor" stroke="none" />
+        <path d="M33 22 L33 25" />
+    </svg>
+
     <!-- Fallback: question mark in a circle -->
     <svg
         v-else

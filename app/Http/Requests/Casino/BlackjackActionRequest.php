@@ -14,7 +14,7 @@ class BlackjackActionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => ['required', 'string', 'in:hit,stand,double,surrender'],
+            'action' => ['required', 'string', 'in:hit,stand,double,surrender,split,insurance'],
         ];
     }
 }

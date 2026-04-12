@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import CasinoNav from '@/Components/Casino/CasinoNav.vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 interface BlindLevel { small: number; big: number }
 interface TableInfo {
@@ -10,6 +11,11 @@ interface TableInfo {
 }
 
 defineProps<{ state: any; tables: TableInfo[] }>();
+
+const page = usePage();
+const rakePct = computed(() =>
+    Number((page.props.game as { holdem_rake_pct?: number } | undefined)?.holdem_rake_pct ?? 0.05),
+);
 
 function formatBlinds(bl: BlindLevel | null, c: string): string {
     if (!bl) return '—';
@@ -26,7 +32,7 @@ function formatBlinds(bl: BlindLevel | null, c: string): string {
             <CasinoNav current-page="holdem" />
             <div class="mt-6 text-center">
                 <h1 class="text-xl font-bold text-amber-400">Texas Hold'em</h1>
-                <p class="mt-1 text-xs text-zinc-500">No-limit poker &mdash; player vs player, rake {{ (5) }}%</p>
+                <p class="mt-1 text-xs text-zinc-500">No-limit poker &mdash; player vs player, rake {{ (rakePct * 100).toFixed(1) }}%</p>
             </div>
             <div class="mt-6 grid gap-4 sm:grid-cols-2">
                 <div v-for="table in tables" :key="table.id" class="rounded-lg border border-zinc-700 bg-zinc-800/60 p-4">

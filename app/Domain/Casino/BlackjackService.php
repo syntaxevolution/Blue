@@ -216,6 +216,93 @@ class BlackjackService
                     $state = $this->advanceToNextHand($state);
                     break;
 
+                case 'split':
+                    if (count($hand['cards']) !== 2) {
+                        throw CasinoException::invalidAction('can only split on first two cards');
+                    }
+                    // Same rank (both 10-value cards count as splittable for simplicity)
+                    $r0 = CardDeck::blackjackValue($hand['cards'][0]);
+                    $r1 = CardDeck::blackjackValue($hand['cards'][1]);
+                    // Allow split if values match (e.g., two 10s, two Jacks, or two Aces)
+                    $aces = CardDeck::isAce($hand['cards'][0]) && CardDeck::isAce($hand['cards'][1]);
+                    if (! $aces && $r0 !== $r1) {
+                        throw CasinoException::invalidAction('can only split a pair');
+                    }
+
+                    // Check split count limit
+                    $currentSplits = $hand['split_count'] ?? 0;
+                    $maxSplits = (int) $this->config->get('casino.blackjack.max_splits', 3);
+                    if ($currentSplits >= $maxSplits) {
+                        throw CasinoException::invalidAction("maximum {$maxSplits} splits reached");
+                    }
+
+                    // Deduct a second bet equal to the original
+                    $bet = $hand['bet'];
+                    /** @var Player $player */
+                    $player = Player::query()->lockForUpdate()->findOrFail($playerId);
+                    $this->assertAffordable($player, $table->currency, $bet);
+                    $this->deductCurrency($player, $table->currency, $bet);
+
+                    // Create two new hands, each with one of the original cards.
+                    $card1 = $hand['cards'][0];
+                    $card2 = $hand['cards'][1];
+
+                    $hand['cards'] = [$card1, array_shift($state['deck'])];
+                    $hand['split_count'] = $currentSplits + 1;
+                    $val = CardDeck::blackjackHandValue($hand['cards']);
+                    $hand['total'] = $val['total'];
+                    $hand['soft'] = $val['soft'];
+
+                    // Aces split → auto-stand (industry standard).
+                    if ($aces) {
+                        $hand['status'] = 'stood';
+                    }
+
+                    $newHand = [
+                        'player_id' => $playerId,
+                        'cards' => [$card2, array_shift($state['deck'])],
+                        'bet' => $bet,
+                        'total' => 0,
+                        'soft' => false,
+                        'status' => $aces ? 'stood' : 'playing',
+                        'split_count' => $currentSplits + 1,
+                    ];
+                    $val2 = CardDeck::blackjackHandValue($newHand['cards']);
+                    $newHand['total'] = $val2['total'];
+                    $newHand['soft'] = $val2['soft'];
+
+                    // Insert the new hand right after the current seat
+                    array_splice($state['hands'], $playerSeat + 1, 0, [$newHand]);
+
+                    if ($aces) {
+                        $state = $this->advanceToNextHand($state);
+                    }
+                    break;
+
+                case 'insurance':
+                    if (! (bool) $this->config->get('casino.blackjack.insurance_enabled')) {
+                        throw CasinoException::invalidAction('insurance not enabled');
+                    }
+                    if (count($hand['cards']) !== 2) {
+                        throw CasinoException::invalidAction('insurance only on initial deal');
+                    }
+                    $dealerUp = $state['dealer']['cards'][0] ?? null;
+                    if ($dealerUp === null || ! CardDeck::isAce($dealerUp)) {
+                        throw CasinoException::invalidAction('insurance only when dealer shows Ace');
+                    }
+                    if (! empty($hand['insurance_bet'])) {
+                        throw CasinoException::invalidAction('insurance already placed');
+                    }
+
+                    $insuranceBet = round($hand['bet'] / 2, 2);
+                    /** @var Player $player */
+                    $player = Player::query()->lockForUpdate()->findOrFail($playerId);
+                    $this->assertAffordable($player, $table->currency, $insuranceBet);
+                    $this->deductCurrency($player, $table->currency, $insuranceBet);
+
+                    $hand['insurance_bet'] = $insuranceBet;
+                    break;
+
                 default:
                     throw CasinoException::invalidAction($action);
             }
@@ -382,21 +469,33 @@ class BlackjackService
                 }
             }
 
-            $hand['payout'] = $payout;
-            $hand['outcome'] = $outcome;
+            // Insurance side bet: pays 2:1 if dealer has blackjack, else lost.
+            $insuranceBet = (float) ($hand['insurance_bet'] ?? 0);
+            $insurancePayout = 0.0;
+            if ($insuranceBet > 0) {
+                if ($dealerBJ) {
+                    // Stake returned + 2x winnings = 3x the insurance bet.
+                    $insurancePayout = round($insuranceBet * 3, 2);
+                }
+            }
 
-            if ($payout > 0) {
+            $hand['payout'] = $payout + $insurancePayout;
+            $hand['outcome'] = $outcome;
+            $hand['insurance_payout'] = $insurancePayout;
+
+            $totalCredit = $payout + $insurancePayout;
+            if ($totalCredit > 0) {
                 /** @var Player $player */
                 $player = Player::query()->lockForUpdate()->findOrFail($hand['player_id']);
-                $this->creditCurrency($player, $table->currency, $payout);
+                $this->creditCurrency($player, $table->currency, $totalCredit);
             }
 
             CasinoBet::create([
                 'casino_round_id' => $round->id,
                 'player_id' => $hand['player_id'],
                 'bet_type' => $outcome,
-                'amount' => $hand['bet'],
-                'payout' => $payout,
+                'amount' => $hand['bet'] + $insuranceBet,
+                'payout' => $totalCredit,
             ]);
 
             $results[] = [

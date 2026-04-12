@@ -206,7 +206,14 @@ class RouletteService
                 ];
             }
 
-            foreach ($payoutsByPlayer as $pid => $totalPayout) {
+            // Sort player IDs ascending to guarantee a consistent lock
+            // ordering across concurrent table resolutions — prevents
+            // deadlocks when two tables resolve simultaneously and share
+            // winning players.
+            $sortedPids = array_keys($payoutsByPlayer);
+            sort($sortedPids);
+            foreach ($sortedPids as $pid) {
+                $totalPayout = $payoutsByPlayer[$pid];
                 /** @var Player $player */
                 $player = Player::query()->lockForUpdate()->findOrFail($pid);
                 $this->creditWinnings($player, $table->currency, $totalPayout);
