@@ -164,6 +164,8 @@ interface DrillResult {
     quality: string;
     grid_x: number;
     grid_y: number;
+    drill_broke: boolean;
+    broken_item_key: string | null;
 }
 const drillResult = computed<DrillResult | null>(
     () => (flash.value.drill_result as DrillResult | undefined) ?? null,
@@ -171,7 +173,11 @@ const drillResult = computed<DrillResult | null>(
 const drillResultText = computed<string | null>(() => {
     const r = drillResult.value;
     if (!r) return null;
-    return `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
+    const core = `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
+    if (r.drill_broke) {
+        return `${core} Your drill broke — head to a Tech post to repair or replace it.`;
+    }
+    return core;
 });
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
@@ -556,6 +562,13 @@ const canAttackNow = computed(() => {
                                                 >
                                                     {{ drillResult.barrels > 0 ? `+${drillResult.barrels}` : 'dry' }}
                                                 </span>
+                                                <span
+                                                    v-if="drillResult && drillResult.drill_broke && drillResult.grid_x === x && drillResult.grid_y === y"
+                                                    :key="`break-${x}-${y}-${drillResult.broken_item_key}`"
+                                                    class="drill-popup-break pointer-events-none absolute left-1/2 -bottom-1 -translate-x-1/2 font-mono font-black text-[10px] sm:text-xs select-none whitespace-nowrap text-rose-400"
+                                                >
+                                                    BREAK
+                                                </span>
                                             </button>
                                         </div>
                                     </div>
@@ -756,5 +769,21 @@ const canAttackNow = computed(() => {
 .drill-popup {
     animation: drill-popup-float 1300ms ease-out forwards;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+/* Break popup shakes briefly in place below the cell, then fades. */
+@keyframes drill-popup-break {
+    0%   { opacity: 0;   transform: translate(-50%, 0)    scale(0.8); }
+    10%  { opacity: 1;   transform: translate(-55%, 2px)  scale(1.1); }
+    20%  { opacity: 1;   transform: translate(-45%, 4px)  scale(1.1); }
+    30%  { opacity: 1;   transform: translate(-55%, 2px)  scale(1.0); }
+    40%  { opacity: 1;   transform: translate(-45%, 4px)  scale(1.0); }
+    80%  { opacity: 1;   transform: translate(-50%, 6px)  scale(1.0); }
+    100% { opacity: 0;   transform: translate(-50%, 14px) scale(0.9); }
+}
+.drill-popup-break {
+    animation: drill-popup-break 1600ms ease-out forwards;
+    text-shadow: 0 0 6px rgba(244, 63, 94, 0.9), 0 1px 2px rgba(0, 0, 0, 0.9);
+    letter-spacing: 0.08em;
 }
 </style>

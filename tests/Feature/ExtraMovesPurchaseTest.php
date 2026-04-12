@@ -40,9 +40,9 @@ it('allows repeated purchases', function () {
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
     app(ShopService::class)->purchase($player->id, 'extra_moves_pack');
 
-    // Each pack grants 50 moves and costs 1000 barrels.
+    // Each pack grants 50 moves and costs 1500 barrels.
     expect($player->fresh()->moves_current)->toBe(200);
-    expect($player->fresh()->oil_barrels)->toBe(7000);
+    expect($player->fresh()->oil_barrels)->toBe(10000 - 3 * 1500);
 });
 
 it('can push moves above the bank cap', function () {

@@ -403,8 +403,15 @@ class MapStateBuilder
 
     /**
      * General store sub-categories. Ordered by how players typically
-     * shop: cheap utilities first, then consumables, then passive
-     * drill boosts, then big-ticket transport, teleport last.
+     * shop: cheap utilities first, then consumable moves, then passive
+     * drill boosts, then permanent conditioning upgrades, then
+     * big-ticket transport, teleport last.
+     *
+     * Note: bank_cap_bonus lives in its own "Conditioning" group
+     * rather than under "Moves & Rations" — the price gap from
+     * Caffeine Tin (120) to Iron Lungs (2500) was too jarring to
+     * share a header, and the semantics are different (permanent
+     * upgrade vs one-shot consumable).
      *
      * @param  array<string,mixed>  $effects
      * @return array{0:string,1:int}
@@ -414,7 +421,7 @@ class MapStateBuilder
         if (isset($effects['unlocks'])) {
             return ['Utility', 1];
         }
-        if (isset($effects['grant_moves']) || isset($effects['bank_cap_bonus'])) {
+        if (isset($effects['grant_moves'])) {
             return ['Moves & Rations', 2];
         }
         if (isset($effects['daily_drill_limit_bonus'])
@@ -422,11 +429,14 @@ class MapStateBuilder
             || isset($effects['break_chance_reduction_pct'])) {
             return ['Drill Boosts', 3];
         }
+        if (isset($effects['bank_cap_bonus'])) {
+            return ['Conditioning', 4];
+        }
         if (isset($effects['unlocks_transport'])) {
-            return ['Transport', 4];
+            return ['Transport', 5];
         }
         if (isset($effects['unlocks_teleport'])) {
-            return ['Teleport', 5];
+            return ['Teleport', 6];
         }
 
         return ['Other', 99];

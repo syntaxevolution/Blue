@@ -112,6 +112,8 @@ class MapController extends Controller
             'quality' => (string) $result['quality'],
             'grid_x' => (int) $request->validated('grid_x'),
             'grid_y' => (int) $request->validated('grid_y'),
+            'drill_broke' => (bool) ($result['drill_broke'] ?? false),
+            'broken_item_key' => $result['broken_item_key'] ?? null,
         ]);
     }
 

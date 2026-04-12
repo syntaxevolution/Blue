@@ -265,7 +265,14 @@ return [
     'general_store' => [
         'extra_moves' => [
             'enabled' => true,
-            'cost_barrels' => 1000,
+            // Pricing rationale: Caffeine Tin (120/15 = 8 barrels/move)
+            // and Emergency Ration (150/20 = 7.5/move) are the cheap
+            // consumables. Extra Moves Pack is the "big click" burst —
+            // you pay a convenience premium of ~30 barrels/move to get
+            // +50 in one action instead of spamming the cheaper items.
+            // This keeps all three meaningful and prevents EMP from
+            // strictly dominating via sheer click-efficiency.
+            'cost_barrels' => 1500,
             'amount' => 50,
         ],
         // Stackable bank-cap upgrade (Iron Lungs item). Each copy grants
