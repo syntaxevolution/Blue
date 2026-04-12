@@ -99,15 +99,19 @@ class BotDecisionService
 
         $tickSalt = ($bot->bot_last_tick_at?->timestamp ?? 0).'-'.now()->timestamp;
 
-        // Scouting direction: when the bot has no viable targets (no
-        // known oil fields with drill points, no known posts), it walks
-        // in one consistent direction for the entire tick rather than
-        // zigzagging randomly. This is picked once per tick and reused
-        // across all fallback walks so the bot scouts a straight line,
-        // discovering new tiles efficiently. Null means "not committed
-        // yet" — set on the first random-walk fallback and sticky
-        // after that.
-        $this->scoutDirection = null;
+        // Load the scout heading FROM the player row instead of nulling
+        // it every tick. Sticky across ticks, re-rolled only when the
+        // bot has held the same direction for
+        // bots.scout_max_ticks_per_direction ticks with no target hit,
+        // or explicitly cleared when a real target is found.
+        $this->scoutDirection = $bot->bot_scout_direction;
+        $this->scoutTicksHeld = (int) ($bot->bot_scout_ticks_held ?? 0);
+
+        $maxHeldTicks = max(1, (int) $this->config->get('bots.scout_max_ticks_per_direction', 20));
+        if ($this->scoutTicksHeld >= $maxHeldTicks) {
+            $this->scoutDirection = null;
+            $this->scoutTicksHeld = 0;
+        }
 
         for ($i = 0; $i < $maxActions; $i++) {
             if ($bot->moves_current <= 0) {
@@ -136,17 +140,37 @@ class BotDecisionService
             $bot->refresh();
         }
 
-        $bot->update(['bot_last_tick_at' => now()]);
+        $bot->update([
+            'bot_last_tick_at' => now(),
+            'bot_scout_direction' => $this->scoutDirection,
+            'bot_scout_ticks_held' => $this->scoutTicksHeld,
+        ]);
 
         return ['actions' => $actions, 'ended_with' => $bot->moves_current > 0 ? 'ok' : 'no_moves'];
     }
 
     /**
-     * Per-tick scouting direction. Once the bot commits to a direction
-     * for fallback walking, it stays on that heading for the rest of
-     * the tick so it scouts a straight line instead of zigzagging.
+     * In-memory mirror of the persistent bot_scout_direction /
+     * bot_scout_ticks_held columns. Loaded at tick start from the
+     * player row, mutated during the tick, written back on the way
+     * out. Kept as instance state so the helper methods (randomWalk,
+     * clearScoutHeading) don't have to thread a Player reference
+     * through every signature.
      */
     private ?string $scoutDirection = null;
+    private int $scoutTicksHeld = 0;
+
+    /**
+     * Called whenever the bot successfully pathfinds toward or acts
+     * on a real target (oil field, post, raid). Zeroes the scout
+     * heading so the next scouting walk picks a fresh direction
+     * instead of continuing on an irrelevant vector.
+     */
+    private function clearScoutHeading(): void
+    {
+        $this->scoutDirection = null;
+        $this->scoutTicksHeld = 0;
+    }
 
     /**
      * @param  array<string,mixed>  $tierCfg
@@ -194,6 +218,9 @@ class BotDecisionService
                 $dir = $this->directionToward($tile, $target);
                 if ($dir !== null) {
                     $this->travel->travel($bot->id, $dir);
+                    // Found a real target — drop the scout heading so
+                    // the next tick resumes fresh if we lose the trail.
+                    $this->clearScoutHeading();
                     return ['kind' => 'travel', 'detail' => "toward_oil_field({$dir})"];
                 }
             }
@@ -205,6 +232,7 @@ class BotDecisionService
         // Already on oil field — pick first un-drilled 5×5 grid cell.
         [$gx, $gy] = $this->pickDrillCell($tile, $bot);
         $this->drillSvc->drill($bot->id, $gx, $gy);
+        $this->clearScoutHeading();
         return ['kind' => 'drill', 'detail' => "{$gx},{$gy}"];
     }
 
@@ -220,6 +248,7 @@ class BotDecisionService
                 $dir = $this->directionToward($tile, $target);
                 if ($dir !== null) {
                     $this->travel->travel($bot->id, $dir);
+                    $this->clearScoutHeading();
                     return ['kind' => 'travel', 'detail' => "toward_post({$dir})"];
                 }
             }
@@ -265,6 +294,7 @@ class BotDecisionService
 
             try {
                 $this->shop->purchase($bot->id, $item->key);
+                $this->clearScoutHeading();
                 return ['kind' => 'shop', 'detail' => $item->key];
             } catch (Throwable) {
                 // Already owned / downgrade / etc — try next item.
@@ -296,10 +326,12 @@ class BotDecisionService
                 return $this->doDrill($bot);
             }
             $this->travel->travel($bot->id, $dir);
+            $this->clearScoutHeading();
             return ['kind' => 'travel', 'detail' => "toward_spy_target({$dir})"];
         }
 
         $this->spySvc->spy($bot->id);
+        $this->clearScoutHeading();
         return ['kind' => 'spy', 'detail' => (string) $target->id];
     }
 
@@ -331,10 +363,12 @@ class BotDecisionService
                 return $this->doDrill($bot);
             }
             $this->travel->travel($bot->id, $dir);
+            $this->clearScoutHeading();
             return ['kind' => 'travel', 'detail' => "toward_raid_target({$dir})"];
         }
 
         $this->attackSvc->attack($bot->id);
+        $this->clearScoutHeading();
         return ['kind' => 'attack', 'detail' => (string) $target->target_player_id];
     }
 
@@ -524,11 +558,14 @@ class BotDecisionService
     {
         $dirs = ['n', 's', 'e', 'w'];
 
-        // Once a scout direction is committed for this tick, keep walking
-        // that way so the bot covers a straight line and discovers new
-        // tiles efficiently. A new direction is only picked on the first
-        // fallback walk of the tick, or if the previous direction hit the
-        // world edge (caught below).
+        // The scout direction is sticky across ticks now (persisted on
+        // the player row in bot_scout_direction). A fresh direction is
+        // only rolled when:
+        //   - the bot has never committed to one (brand new tick, null)
+        //   - the previous heading hit the world edge (caught in the
+        //     catch below)
+        //   - the held counter reached bots.scout_max_ticks_per_direction
+        //     and was reset at the top of tick()
         if ($this->scoutDirection === null) {
             $idx = $this->rng->rollInt(
                 'bot.walk',
@@ -537,24 +574,30 @@ class BotDecisionService
                 3,
             );
             $this->scoutDirection = $dirs[$idx];
+            $this->scoutTicksHeld = 0;
         }
 
         try {
             $this->travel->travel($bot->id, $this->scoutDirection);
+            $this->scoutTicksHeld++;
         } catch (Throwable) {
             // Hit the world edge — pick a perpendicular direction and
-            // try again. If that also fails, give up this step.
+            // try again. Counter resets because we're effectively
+            // scouting on a fresh vector.
             $perpendicular = match ($this->scoutDirection) {
                 'n', 's' => $this->rng->rollInt('bot.perp', 'bot.'.$bot->id.'.'.microtime(true), 0, 1) === 0 ? 'e' : 'w',
                 default  => $this->rng->rollInt('bot.perp', 'bot.'.$bot->id.'.'.microtime(true), 0, 1) === 0 ? 'n' : 's',
             };
             $this->scoutDirection = $perpendicular;
+            $this->scoutTicksHeld = 0;
 
             try {
                 $this->travel->travel($bot->id, $this->scoutDirection);
+                $this->scoutTicksHeld++;
             } catch (Throwable) {
-                // Completely stuck — reset for next tick.
+                // Completely stuck — reset so next tick starts over.
                 $this->scoutDirection = null;
+                $this->scoutTicksHeld = 0;
             }
         }
     }

@@ -404,6 +404,13 @@ return [
     'bots' => [
         'tick_interval_minutes' => 5,
         'actions_per_tick_max' => 3,
+        // How many consecutive ticks a scouting bot will hold the same
+        // cardinal direction before rerolling. With the 5-min tick
+        // cadence, 20 ≈ 100 minutes of sustained walking before the
+        // bot considers a new heading. Targets found mid-walk (oil
+        // fields, posts, raidable bases) reset the counter naturally
+        // via BotDecisionService::clearScoutHeading.
+        'scout_max_ticks_per_direction' => 20,
         'email_domain' => 'bots.cashclash.local',
         // Word pool used by bots:spawn when auto-generating names.
         'name_pool' => [
