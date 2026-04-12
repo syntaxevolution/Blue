@@ -92,6 +92,11 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'trip_wire',          'post_type' => 'fort', 'name' => 'Trip Wire',               'description' => 'Announces any visitor whether they wanted to be announced.',         'price_barrels' => 5,    'effects' => ['stat_add' => ['security' => 1]],      'sort_order' => 50],
             ['key' => 'camera_net',         'post_type' => 'fort', 'name' => 'Camera Net',              'description' => 'Three cheap optics wired to a scrap monitor.',                       'price_barrels' => 15,   'effects' => ['stat_add' => ['security' => 2]],      'sort_order' => 60],
             ['key' => 'counter_intel',      'post_type' => 'fort', 'name' => 'Counter-Intel Module',    'description' => 'Feeds false data to anyone spying on you. Expensive. Worth it.',    'price_barrels' => 35,   'effects' => ['stat_add' => ['security' => 3]],      'sort_order' => 70],
+            // Counter-Intel Dossier — unlocks /attack-log, the chronological
+            // feed of every raid + sabotage hit the player has suffered,
+            // revealing attacker/planter usernames. Gated single-purchase
+            // via the unlocks effect key (AttackLogService checks ownership).
+            ['key' => 'attack_log_dossier', 'post_type' => 'fort', 'name' => 'Counter-Intel Dossier',   'description' => 'A locked archive and a paid informant network. Every raid on your base — and every sabotage trigger — is logged with the attacker\'s name. Unlocks the Attack Log from the nav.', 'price_barrels' => 400, 'effects' => ['unlocks' => ['attack_log']],          'sort_order' => 75],
             // Batch 1 additions (5 — mix of fort + security)
             ['key' => 'sandbag_wall',       'post_type' => 'fort', 'name' => 'Sandbag Wall',            'description' => 'Pre-filled. Mostly with sand.',                                      'price_barrels' => 140,  'effects' => ['stat_add' => ['fortification' => 5]], 'sort_order' => 80],
             ['key' => 'concrete_moat',      'post_type' => 'fort', 'name' => 'Concrete Moat',           'description' => 'Water optional.',                                                    'price_barrels' => 250,  'effects' => ['stat_add' => ['fortification' => 6]], 'sort_order' => 90],
