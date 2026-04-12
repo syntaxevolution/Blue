@@ -432,15 +432,38 @@ class MapStateBuilder
         return match ($postType) {
             'strength' => ['Strength', 1],
             'stealth' => ['Stealth', 1],
-            'fort' => isset($effects['stat_add']['security'])
-                ? ['Security', 2]
-                : ['Fortification', 1],
+            'fort' => $this->fortPostCategory($effects),
             'tech' => isset($effects['set_drill_tier'])
                 ? ['Drill Equipment', 1]
                 : ['Drill Upgrades', 2],
             'general' => $this->generalStoreCategory($effects),
             default => ['Items', 1],
         };
+    }
+
+    /**
+     * Fort Post sub-categories. Fortification stat items first, then
+     * Security stat items, then feature unlocks like the Counter-Intel
+     * Dossier. Unlocks land in their own "Intel Services" bucket so
+     * they don't get visually lumped in with the +fort / +security
+     * stat gear — they're information purchases, not defensive buffs.
+     *
+     * @param  array<string,mixed>  $effects
+     * @return array{0:string,1:int}
+     */
+    private function fortPostCategory(array $effects): array
+    {
+        // Unlocks (e.g. attack_log_dossier) take priority over the
+        // stat_add check so an item with both an unlock AND a stat
+        // bonus would still land in Intel Services. Nothing today
+        // has both; this is defensive ordering.
+        if (isset($effects['unlocks'])) {
+            return ['Intel Services', 3];
+        }
+        if (isset($effects['stat_add']['security'])) {
+            return ['Security', 2];
+        }
+        return ['Fortification', 1];
     }
 
     /**
