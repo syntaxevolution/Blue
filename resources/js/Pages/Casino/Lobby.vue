@@ -59,7 +59,7 @@ const games = [
     {
         key: 'roulette',
         name: 'Roulette',
-        description: 'European single-zero. Place your bets.',
+        description: 'American double-zero. Place your bets.',
         route: 'casino.roulette.index',
         available: true,
         players: 'Group',

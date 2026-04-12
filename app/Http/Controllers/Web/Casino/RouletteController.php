@@ -97,6 +97,8 @@ class RouletteController extends Controller
                 $user->name,
                 $request->validated('bet_type'),
                 (float) $request->validated('amount'),
+                (array) $request->validated('numbers'),
+                (string) ($result['bet_id'] ?? ''),
             );
 
             $table = CasinoTable::find($tableId);

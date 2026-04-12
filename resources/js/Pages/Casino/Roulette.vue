@@ -8,16 +8,29 @@ import { Head, router, usePage } from '@inertiajs/vue3';
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useCasinoTableStore } from '@/stores/casinoTable';
 
+interface TableBet {
+    id: string;
+    bet_type: string;
+    numbers: number[];
+    amount: number;
+}
+
+interface TableChip extends TableBet {
+    mine: boolean;
+}
+
 interface TableState {
     id: number;
     currency: string;
+    variant: 'american' | 'european';
     min_bet: number;
     max_bet: number;
     phase: string;
     round_number: number;
     expires_at: string | null;
     total_bets: number;
-    my_bets: Array<{ id: string; bet_type: string; numbers: number[]; amount: number }>;
+    my_bets: TableBet[];
+    all_bets: TableChip[];
 }
 
 const props = defineProps<{
@@ -39,11 +52,16 @@ const phase = computed(() => store.phase !== 'idle' ? store.phase : props.table.
 const isBetting = computed(() => phase.value === 'betting');
 const lastResult = computed(() => store.lastResult);
 
+const DOUBLE_ZERO = 37;
 const RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
 
 function resultColorClass(n: number): string {
-    if (n === 0) return 'text-green-400';
+    if (n === 0 || n === DOUBLE_ZERO) return 'text-green-400';
     return RED_NUMBERS.includes(n) ? 'text-red-400' : 'text-zinc-100';
+}
+
+function resultLabel(n: number): string {
+    return n === DOUBLE_ZERO ? '00' : String(n);
 }
 
 function startCountdown(expiresAt: string) {
@@ -96,11 +114,66 @@ function formatAmount(v: number): string {
         : `${v.toLocaleString()} bbl`;
 }
 
+// Render a list of internal pocket numbers as the player would see them
+// on the wheel — 37 becomes "00". Used by the "Your Bets" list below.
+function renderNumbers(nums: number[]): string {
+    return nums.map((n) => (n === DOUBLE_ZERO ? '00' : String(n))).join(', ');
+}
+
 const balance = computed(() =>
     props.table.currency === 'akzar_cash'
         ? Number(props.state.player.akzar_cash)
         : props.state.player.oil_barrels,
 );
+
+/**
+ * Chips currently on the board. Sourced from two places and merged by
+ * bet_id so there's no double-render:
+ *
+ *   1. props.table.all_bets — server-authoritative snapshot at page load
+ *      time. Includes everybody's bets from the current round. Marked
+ *      with `mine` so we can render own vs. others in different colours.
+ *
+ *   2. store.recentBets — live Reverb broadcasts that arrived AFTER the
+ *      initial page render. These are identified as "mine" by matching
+ *      the username against the authenticated user.
+ *
+ * On RouletteResult (round resolves), the chips stay on the board until
+ * the NEXT BettingWindowOpened clears them — same as a real table where
+ * the croupier pays winners before sweeping. recentBets is cleared in
+ * the store on BettingWindowOpened, and all_bets comes from fresh page
+ * props via Inertia's partial reload.
+ */
+const authUsername = computed<string>(
+    () => (page.props.auth as any)?.user?.name ?? '',
+);
+
+const chips = computed(() => {
+    const merged = new Map<string, TableChip>();
+
+    // Start with server-provided all_bets (authoritative at page load).
+    for (const b of props.table.all_bets ?? []) {
+        merged.set(b.id, { ...b });
+    }
+
+    // Overlay live broadcast bets. bet_id is the merge key; missing
+    // bet_ids fall back to a synthetic key so an old Reverb payload
+    // that lacks bet_id doesn't collapse into a single chip.
+    for (let i = 0; i < store.recentBets.length; i++) {
+        const rb = store.recentBets[i];
+        const id = rb.bet_id ?? `live-${i}-${rb.username}-${rb.bet_type}`;
+        if (merged.has(id)) continue;
+        merged.set(id, {
+            id,
+            bet_type: rb.bet_type,
+            numbers: rb.numbers ?? [],
+            amount: rb.amount,
+            mine: rb.username === authUsername.value,
+        });
+    }
+
+    return Array.from(merged.values());
+});
 </script>
 
 <template>
@@ -112,7 +185,10 @@ const balance = computed(() =>
 
             <div class="mt-6 text-center">
                 <h1 class="text-xl font-bold text-amber-400">Roulette</h1>
-                <p class="text-xs text-zinc-500">European single-zero &middot; {{ formatAmount(Number(table.min_bet)) }} &ndash; {{ formatAmount(Number(table.max_bet)) }}</p>
+                <p class="text-xs text-zinc-500">
+                    {{ table.variant === 'american' ? 'American double-zero' : 'European single-zero' }}
+                    &middot; {{ formatAmount(Number(table.min_bet)) }} &ndash; {{ formatAmount(Number(table.max_bet)) }}
+                </p>
             </div>
 
             <!-- Status bar -->
@@ -125,7 +201,7 @@ const balance = computed(() =>
                         Spinning...
                     </span>
                     <span v-else-if="phase === 'resolved' && lastResult" :class="resultColorClass(lastResult.number)">
-                        Result: {{ lastResult.number }} ({{ lastResult.color }})
+                        Result: {{ resultLabel(lastResult.number) }} ({{ lastResult.color }})
                     </span>
                     <span v-else class="text-zinc-500">
                         Waiting for bets...
@@ -162,7 +238,14 @@ const balance = computed(() =>
                     />
                 </div>
 
-                <RouletteBoard @bet="placeBet" />
+                <RouletteBoard
+                    :variant="table.variant"
+                    :chips="chips"
+                    :min-bet="Number(table.min_bet)"
+                    :max-bet="Number(table.max_bet)"
+                    :format-amount="formatAmount"
+                    @bet="placeBet"
+                />
 
                 <!-- My bets this round -->
                 <div v-if="table.my_bets.length > 0" class="mt-4 border-t border-zinc-700 pt-3">
@@ -171,7 +254,7 @@ const balance = computed(() =>
                         <div v-for="b in table.my_bets" :key="b.id" class="flex justify-between text-xs">
                             <span class="text-zinc-300">
                                 {{ b.bet_type }}
-                                <span v-if="b.numbers.length > 0" class="text-zinc-500">({{ b.numbers.join(', ') }})</span>
+                                <span v-if="b.numbers.length > 0" class="text-zinc-500">({{ renderNumbers(b.numbers) }})</span>
                             </span>
                             <span class="text-amber-400">{{ formatAmount(b.amount) }}</span>
                         </div>

@@ -553,6 +553,15 @@ return [
 
         'roulette' => [
             'enabled' => true,
+            // Variant controls the wheel layout AND the internal number
+            // range the RNG rolls against:
+            //   'american'  — 0, 00, 1..36 (38 pockets; 00 is int 37 internally)
+            //   'european'  — 0, 1..36    (37 pockets; no 00)
+            // American is the default because it's what the player expects
+            // from a saloon-themed casino, and the house edge is slightly
+            // higher (5.26%) which is fine for a virtual economy. Flip to
+            // european to run a single-zero table without a code change.
+            'variant' => 'american',
             'betting_window_seconds' => 60,
             'spin_pause_seconds' => 5,
             'min_bet_cash' => 0.10,
@@ -566,6 +575,12 @@ return [
                 'street' => 11,
                 'corner' => 8,
                 'line' => 5,
+                // Top line (aka 'basket'): the five-number bet on
+                // 0, 00, 1, 2, 3. American-only. House edge 7.89% at 6:1,
+                // which is why it's famously the worst bet on the table —
+                // we keep it at the historical rate so the payout math is
+                // honest even though players "shouldn't" pick it.
+                'top_line' => 6,
                 'column' => 2,
                 'dozen' => 2,
                 'even_money' => 1,

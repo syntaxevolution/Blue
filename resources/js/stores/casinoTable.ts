@@ -20,6 +20,8 @@ interface BetPlacedEvent {
     username: string;
     bet_type: string;
     amount: number;
+    numbers: number[];
+    bet_id: string | null;
 }
 
 interface BlackjackDealtEvent {

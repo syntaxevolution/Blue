@@ -15,10 +15,23 @@ use Illuminate\Support\Facades\DB;
 
 class RouletteService
 {
+    /**
+     * Internal representation:
+     *   0  — single zero  (green, both variants)
+     *   37 — double zero  (green, american only)
+     *   1..36 — standard pockets
+     *
+     * Storing 00 as int 37 (rather than adding a column or a nullable
+     * is_double_zero bool) keeps the schema unchanged: casino_rounds
+     * already holds result_summary.number as an int. The Vue layer is
+     * responsible for rendering 37 as "00" on the board.
+     */
+    public const DOUBLE_ZERO = 37;
+
     private const RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
 
     private const VALID_BET_TYPES = [
-        'straight', 'split', 'street', 'corner', 'line',
+        'straight', 'split', 'street', 'corner', 'line', 'top_line',
         'column_1', 'column_2', 'column_3',
         'dozen_1', 'dozen_2', 'dozen_3',
         'red', 'black', 'odd', 'even', 'low', 'high',
@@ -158,11 +171,16 @@ class RouletteService
             $table->state_json = $state;
             $table->save();
 
+            // Range is variant-dependent: american rolls 0..37 where 37
+            // is the 00 pocket; european rolls 0..36 with no 00.
+            $variant = (string) $this->config->get('casino.roulette.variant', 'american');
+            $maxPocket = $variant === 'american' ? self::DOUBLE_ZERO : 36;
+
             $number = $this->rng->rollInt(
                 'casino.roulette.spin',
                 "{$tableId}:{$table->round_number}",
                 0,
-                36,
+                $maxPocket,
             );
 
             $color = $this->numberColor($number);
@@ -233,7 +251,7 @@ class RouletteService
     }
 
     /**
-     * @return array{id: int, currency: string, min_bet: float, max_bet: float, phase: string, round_number: int, expires_at: string|null, bets: list<array{bet_type: string, numbers: list<int>, amount: float}>}
+     * @return array{id: int, currency: string, variant: string, min_bet: float, max_bet: float, phase: string, round_number: int, expires_at: string|null}
      */
     public function tableState(int $tableId, int $playerId): array
     {
@@ -245,9 +263,25 @@ class RouletteService
             fn ($b) => $b['player_id'] === $playerId,
         ));
 
+        // all_bets drives the chip overlay for players who arrive at
+        // the table mid-round — without it, a refresh or a late-join
+        // would clear everybody else's chips until the next BetPlaced
+        // broadcast came in. Usernames are not joined here (private
+        // to the server event path) — the Vue layer renders foreign
+        // chips anonymously until the BetPlaced broadcast arrives with
+        // the username for freshly-placed bets.
+        $allBets = array_map(fn ($b) => [
+            'id' => $b['id'],
+            'bet_type' => $b['bet_type'],
+            'numbers' => $b['numbers'],
+            'amount' => (float) $b['amount'],
+            'mine' => (int) $b['player_id'] === $playerId,
+        ], $state['bets']);
+
         return [
             'id' => $table->id,
             'currency' => $table->currency,
+            'variant' => (string) $this->config->get('casino.roulette.variant', 'american'),
             'min_bet' => (float) $table->min_bet,
             'max_bet' => (float) $table->max_bet,
             'phase' => $state['phase'],
@@ -258,8 +292,9 @@ class RouletteService
                 'id' => $b['id'],
                 'bet_type' => $b['bet_type'],
                 'numbers' => $b['numbers'],
-                'amount' => $b['amount'],
+                'amount' => (float) $b['amount'],
             ], $myBets),
+            'all_bets' => $allBets,
         ];
     }
 
@@ -267,6 +302,18 @@ class RouletteService
     {
         if (! in_array($betType, self::VALID_BET_TYPES, true)) {
             throw CasinoException::invalidBetType($betType);
+        }
+
+        // top_line is a fixed 5-number American-only bet on 0/00/1/2/3
+        // regardless of what the client sends in `numbers` — we ignore
+        // the client payload and reject if the variant isn't american.
+        if ($betType === 'top_line') {
+            $variant = (string) $this->config->get('casino.roulette.variant', 'american');
+            if ($variant !== 'american') {
+                throw CasinoException::invalidBetType('top_line is only available on an american table');
+            }
+
+            return;
         }
 
         $expectedCount = match ($betType) {
@@ -282,9 +329,12 @@ class RouletteService
             throw CasinoException::invalidBetType("{$betType} requires {$expectedCount} numbers");
         }
 
+        $variant = (string) $this->config->get('casino.roulette.variant', 'american');
+        $maxNumber = $variant === 'american' ? self::DOUBLE_ZERO : 36;
+
         foreach ($numbers as $n) {
-            if (! is_int($n) || $n < 0 || $n > 36) {
-                throw CasinoException::invalidBetType("Number {$n} is out of range [0, 36]");
+            if (! is_int($n) || $n < 0 || $n > $maxNumber) {
+                throw CasinoException::invalidBetType("Number {$n} is out of range [0, {$maxNumber}]");
             }
         }
     }
@@ -297,12 +347,22 @@ class RouletteService
     }
 
     /**
+     * Which real numbers a bet covers. Note: 0 and 00 are explicitly
+     * EXCLUDED from every outside bet (red/black/odd/even/low/high/
+     * column/dozen) — this matches every physical American table and
+     * is the single biggest reason 00 tilts the house edge to 5.26%.
+     *
+     * The straight/split/street/corner/line bets echo whatever integer
+     * list the client validated against — they can legally include 0
+     * and 00 (straight on 00 is a common Hail Mary bet).
+     *
      * @return list<int>
      */
     private function betCoveredNumbers(string $betType, array $numbers): array
     {
         return match ($betType) {
             'straight', 'split', 'street', 'corner', 'line' => $numbers,
+            'top_line' => [0, self::DOUBLE_ZERO, 1, 2, 3],
             'column_1' => [1,4,7,10,13,16,19,22,25,28,31,34],
             'column_2' => [2,5,8,11,14,17,20,23,26,29,32,35],
             'column_3' => [3,6,9,12,15,18,21,24,27,30,33,36],
@@ -311,8 +371,8 @@ class RouletteService
             'dozen_3' => range(25, 36),
             'red' => self::RED_NUMBERS,
             'black' => array_values(array_diff(range(1, 36), self::RED_NUMBERS)),
-            'odd' => array_filter(range(1, 36), fn ($n) => $n % 2 === 1),
-            'even' => array_filter(range(1, 36), fn ($n) => $n % 2 === 0),
+            'odd' => array_values(array_filter(range(1, 36), fn ($n) => $n % 2 === 1)),
+            'even' => array_values(array_filter(range(1, 36), fn ($n) => $n % 2 === 0)),
             'low' => range(1, 18),
             'high' => range(19, 36),
             default => [],
@@ -329,6 +389,7 @@ class RouletteService
             'street' => (float) ($payouts['street'] ?? 11),
             'corner' => (float) ($payouts['corner'] ?? 8),
             'line' => (float) ($payouts['line'] ?? 5),
+            'top_line' => (float) ($payouts['top_line'] ?? 6),
             'column_1', 'column_2', 'column_3' => (float) ($payouts['column'] ?? 2),
             'dozen_1', 'dozen_2', 'dozen_3' => (float) ($payouts['dozen'] ?? 2),
             'red', 'black', 'odd', 'even', 'low', 'high' => (float) ($payouts['even_money'] ?? 1),
@@ -338,7 +399,7 @@ class RouletteService
 
     private function numberColor(int $number): string
     {
-        if ($number === 0) {
+        if ($number === 0 || $number === self::DOUBLE_ZERO) {
             return 'green';
         }
 

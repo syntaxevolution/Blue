@@ -32,7 +32,7 @@ function formatBet(amount: number, currency: string): string {
 
             <div class="mt-6 text-center">
                 <h1 class="text-xl font-bold text-amber-400">Roulette Tables</h1>
-                <p class="mt-1 text-xs text-zinc-500">European single-zero &mdash; 2.7% house edge</p>
+                <p class="mt-1 text-xs text-zinc-500">American double-zero &mdash; 5.26% house edge</p>
             </div>
 
             <div class="mt-6 grid gap-4 sm:grid-cols-2">
