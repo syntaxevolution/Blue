@@ -12,6 +12,9 @@ use App\Http\Controllers\Web\MdnController;
 use App\Http\Controllers\Web\MdnJournalController;
 use App\Http\Controllers\Web\TeleportController;
 use App\Http\Controllers\Web\TransportController;
+use App\Http\Controllers\Web\Casino\CasinoController;
+use App\Http\Controllers\Web\Casino\RouletteController;
+use App\Http\Controllers\Web\Casino\SlotsController;
 use App\Http\Controllers\Web\UsernameController;
 use App\Http\Controllers\Web\WorldController;
 use Illuminate\Foundation\Application;
@@ -103,6 +106,24 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
 
             Route::post('/{mdn}/journal', [MdnJournalController::class, 'store'])->name('journal.store');
             Route::post('/{mdn}/journal/{entry}/vote', [MdnJournalController::class, 'vote'])->name('journal.vote');
+        });
+
+        // Casino — Roughneck's Saloon
+        Route::prefix('casino')->name('casino.')->group(function () {
+            Route::get('/', [CasinoController::class, 'show'])->name('show');
+            Route::post('/enter', [CasinoController::class, 'enter'])->name('enter');
+            Route::post('/leave', [CasinoController::class, 'leave'])->name('leave');
+
+            Route::prefix('slots')->name('slots.')->group(function () {
+                Route::get('/', [SlotsController::class, 'show'])->name('show');
+                Route::post('/spin', [SlotsController::class, 'spin'])->name('spin');
+            });
+
+            Route::prefix('roulette')->name('roulette.')->group(function () {
+                Route::get('/', [RouletteController::class, 'index'])->name('index');
+                Route::get('/{tableId}', [RouletteController::class, 'show'])->name('show');
+                Route::post('/{tableId}/bet', [RouletteController::class, 'placeBet'])->name('bet');
+            });
         });
     });
 });

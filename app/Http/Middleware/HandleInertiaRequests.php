@@ -112,6 +112,9 @@ class HandleInertiaRequests extends Middleware
                 'item_repair_result' => fn () => $request->session()->get('item_repair_result'),
                 'item_abandon_result' => fn () => $request->session()->get('item_abandon_result'),
                 'username_claimed' => fn () => $request->session()->get('username_claimed'),
+                'casino_entered' => fn () => $request->session()->get('casino_entered'),
+                'spin_result' => fn () => $request->session()->get('spin_result'),
+                'roulette_bet' => fn () => $request->session()->get('roulette_bet'),
             ],
             // Broadcast connection details for the Echo JS client.
             'reverb' => [
@@ -125,6 +128,8 @@ class HandleInertiaRequests extends Middleware
             'game' => [
                 'teleport_cost_barrels' => (int) app(GameConfigResolver::class)->get('teleport.cost_barrels'),
                 'teleport_purchase_cost_barrels' => (int) app(GameConfigResolver::class)->get('teleport.purchase_cost_barrels'),
+                'casino_enabled' => (bool) app(GameConfigResolver::class)->get('casino.enabled'),
+                'casino_entry_fee_barrels' => (int) app(GameConfigResolver::class)->get('casino.entry_fee_barrels'),
             ],
         ];
     }

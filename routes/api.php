@@ -10,6 +10,9 @@ use App\Http\Controllers\Api\V1\MdnController;
 use App\Http\Controllers\Api\V1\MdnJournalController;
 use App\Http\Controllers\Api\V1\TeleportController;
 use App\Http\Controllers\Api\V1\TransportController;
+use App\Http\Controllers\Api\V1\Casino\CasinoController as ApiCasinoController;
+use App\Http\Controllers\Api\V1\Casino\RouletteController as ApiRouletteController;
+use App\Http\Controllers\Api\V1\Casino\SlotsController as ApiSlotsController;
 use App\Http\Controllers\Api\V1\UsernameController;
 use App\Http\Controllers\Api\V1\WorldController;
 use Illuminate\Support\Facades\Route;
@@ -90,6 +93,20 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
                     Route::post('/{mdn}/journal', [MdnJournalController::class, 'store'])->name('journal.store');
                     Route::post('/{mdn}/journal/{entry}/vote', [MdnJournalController::class, 'vote'])->name('journal.vote');
+                });
+
+                // Casino
+                Route::prefix('casino')->name('casino.')->group(function () {
+                    Route::get('/status', [ApiCasinoController::class, 'status'])->name('status');
+                    Route::post('/enter', [ApiCasinoController::class, 'enter'])->name('enter');
+
+                    Route::post('/slots/spin', [ApiSlotsController::class, 'spin'])->name('slots.spin');
+
+                    Route::prefix('roulette')->name('roulette.')->group(function () {
+                        Route::get('/tables', [ApiRouletteController::class, 'tables'])->name('tables');
+                        Route::get('/{tableId}', [ApiRouletteController::class, 'show'])->name('show');
+                        Route::post('/{tableId}/bet', [ApiRouletteController::class, 'placeBet'])->name('bet');
+                    });
                 });
             });
         });
