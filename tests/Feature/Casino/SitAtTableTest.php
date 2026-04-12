@@ -125,3 +125,77 @@ it('still reports my_seat for holdem between hands after a player has been throu
     $state = $svc->tableState($table->id, $p1->id);
     expect($state['my_seat'])->toBe(0);
 });
+
+it('allows a blackjack player to rejoin a table after leaving', function () {
+    // Regression: the casino_table_players unique indexes on
+    // (casino_table_id, seat_number) AND (casino_table_id, player_id)
+    // are not status-aware. A previous leaveTable() that only flipped
+    // status to 'left' would collide with the next joinTable() insert
+    // and 500 with a 1062 duplicate entry error. This test locks in
+    // the fix: sit → leave → sit should succeed cleanly.
+    app(CasinoTableManager::class)->ensureBlackjackTablesExist();
+
+    $table = CasinoTable::query()
+        ->where('game_type', 'blackjack')
+        ->firstOrFail();
+
+    $player = casinoSeatedPlayer();
+    $svc = app(BlackjackService::class);
+
+    $svc->joinTable($player->id, $table->id);
+    $svc->leaveTable($player->id, $table->id);
+
+    // Rejoining must not throw a UniqueConstraintViolationException.
+    $result = $svc->joinTable($player->id, $table->id);
+    expect($result['seat'])->toBe(0);
+
+    $state = $svc->tableState($table->id, $player->id);
+    expect($state['my_seat'])->toBe(0);
+});
+
+it('allows a holdem player to rejoin a table after leaving', function () {
+    app(CasinoTableManager::class)->ensureHoldemTablesExist();
+
+    $table = CasinoTable::query()
+        ->where('game_type', 'holdem')
+        ->where('currency', 'akzar_cash')
+        ->firstOrFail();
+
+    $player = casinoSeatedPlayer();
+    $player->update(['akzar_cash' => 100.00]);
+    $player->refresh();
+
+    $svc = app(HoldemService::class);
+    $svc->joinTable($player->id, $table->id, 2.00);
+    $svc->leaveTable($player->id, $table->id);
+
+    // Rejoin must succeed.
+    $result = $svc->joinTable($player->id, $table->id, 2.00);
+    expect($result['seat'])->toBe(0);
+
+    $state = $svc->tableState($table->id, $player->id);
+    expect($state['my_seat'])->toBe(0);
+});
+
+it('frees a blackjack seat for a different player after the first leaves', function () {
+    // Second regression: a different player taking over a seat that
+    // someone else left. Before the fix, the stale row at (table, seat)
+    // with status='left' blocked the new sitter.
+    app(CasinoTableManager::class)->ensureBlackjackTablesExist();
+
+    $table = CasinoTable::query()
+        ->where('game_type', 'blackjack')
+        ->firstOrFail();
+
+    $p1 = casinoSeatedPlayer();
+    $p2 = casinoSeatedPlayer();
+
+    $svc = app(BlackjackService::class);
+
+    $svc->joinTable($p1->id, $table->id);
+    $svc->leaveTable($p1->id, $table->id);
+
+    // p2 takes over seat 0.
+    $result = $svc->joinTable($p2->id, $table->id);
+    expect($result['seat'])->toBe(0);
+});

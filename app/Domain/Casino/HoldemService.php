@@ -58,6 +58,17 @@ class HoldemService
                 throw CasinoException::alreadySeated();
             }
 
+            // Stale-row cleanup — same reasoning as BlackjackService.
+            // The unique indexes on (casino_table_id, seat_number) and
+            // (casino_table_id, player_id) are not status-aware, so a
+            // previous 'left' tombstone row collides with the insert.
+            // Delete them before we compute free seats.
+            CasinoTablePlayer::query()
+                ->where('casino_table_id', $tableId)
+                ->where('player_id', $playerId)
+                ->where('status', '!=', 'active')
+                ->delete();
+
             $maxSeats = (int) $this->config->get('casino.holdem.max_seats', 6);
             $activeCount = CasinoTablePlayer::query()
                 ->where('casino_table_id', $tableId)
@@ -86,6 +97,13 @@ class HoldemService
                     break;
                 }
             }
+
+            // Free any lingering non-active row on the chosen seat.
+            CasinoTablePlayer::query()
+                ->where('casino_table_id', $tableId)
+                ->where('seat_number', $seatNumber)
+                ->where('status', '!=', 'active')
+                ->delete();
 
             CasinoTablePlayer::create([
                 'casino_table_id' => $tableId,
@@ -118,16 +136,27 @@ class HoldemService
             }
 
             $cashOut = (float) $seat->stack;
-            $seat->update(['status' => 'left', 'stack' => 0]);
+
+            // Fold the player in the in-round state FIRST so the hand
+            // logic sees them as gone, THEN delete the seat row. Fold
+            // mutates state_json (in-round representation) which is
+            // separate from casino_table_players (seating).
+            if (in_array($state['phase'], ['pre_flop', 'flop', 'turn', 'river'], true)) {
+                $this->foldPlayer($table, $state, $playerId);
+            }
+
+            // Delete the seat row rather than flipping status to 'left'.
+            // The unique indexes on (casino_table_id, seat_number) and
+            // (casino_table_id, player_id) are not status-aware, so a
+            // tombstone row would block the player (or the next person
+            // claiming that seat) from joining again. Nothing reads from
+            // non-active rows — verified via grep.
+            $seat->delete();
 
             if ($cashOut > 0) {
                 /** @var Player $player */
                 $player = Player::query()->lockForUpdate()->findOrFail($playerId);
                 $this->creditCurrency($player, $table->currency, $cashOut);
-            }
-
-            if (in_array($state['phase'], ['pre_flop', 'flop', 'turn', 'river'], true)) {
-                $this->foldPlayer($table, $state, $playerId);
             }
 
             return ['cash_out' => $cashOut];

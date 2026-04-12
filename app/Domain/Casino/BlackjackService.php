@@ -42,6 +42,23 @@ class BlackjackService
                 return ['seat' => $existing->seat_number, 'already_seated' => true];
             }
 
+            // Stale-row cleanup. The casino_table_players table has two
+            // non-status-aware unique indexes:
+            //   (casino_table_id, seat_number)
+            //   (casino_table_id, player_id)
+            // A previous leaveTable() that only flipped status to 'left'
+            // would leave a tombstone row that now collides with the
+            // insert below (1062 duplicate entry). Delete any stale
+            // non-active rows for THIS player at this table, and any
+            // non-active rows sitting on a seat we might choose. Nothing
+            // else reads from non-active rows (verified via grep), so
+            // deletion is safe.
+            CasinoTablePlayer::query()
+                ->where('casino_table_id', $tableId)
+                ->where('player_id', $playerId)
+                ->where('status', '!=', 'active')
+                ->delete();
+
             $activeCount = CasinoTablePlayer::query()
                 ->where('casino_table_id', $tableId)
                 ->where('status', 'active')
@@ -65,6 +82,14 @@ class BlackjackService
                 }
             }
 
+            // Free any lingering non-active row on the chosen seat
+            // (could be a different player who left it vacant).
+            CasinoTablePlayer::query()
+                ->where('casino_table_id', $tableId)
+                ->where('seat_number', $seatNumber)
+                ->where('status', '!=', 'active')
+                ->delete();
+
             CasinoTablePlayer::create([
                 'casino_table_id' => $tableId,
                 'player_id' => $playerId,
@@ -79,11 +104,14 @@ class BlackjackService
 
     public function leaveTable(int $playerId, int $tableId): void
     {
+        // Delete outright rather than marking 'left'. The unique indexes
+        // on (casino_table_id, seat_number) and (casino_table_id, player_id)
+        // are not status-aware, so a tombstone row blocks every future
+        // rejoin. Nothing in the codebase reads from left-status rows.
         CasinoTablePlayer::query()
             ->where('casino_table_id', $tableId)
             ->where('player_id', $playerId)
-            ->where('status', 'active')
-            ->update(['status' => 'left']);
+            ->delete();
     }
 
     /**
