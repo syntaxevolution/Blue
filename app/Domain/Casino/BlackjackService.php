@@ -593,20 +593,46 @@ class BlackjackService
             'current_seat' => $state['current_seat'] ?? null,
             'hands' => $hands,
             'dealer' => $dealer,
-            'my_seat' => $this->findPlayerSeat($state, $playerId),
+            'my_seat' => $this->findPlayerSeat($state, $playerId, $table->id),
             'is_my_turn' => $this->isPlayerTurn($state, $playerId),
         ];
     }
 
-    private function findPlayerSeat(array $state, int $playerId): ?int
+    /**
+     * Locate the viewer's "seat" for UI gating purposes.
+     *
+     * Priority:
+     *   1. The index of the viewer's hand in the current round, if a
+     *      hand is in progress. This keeps the Vue's hand highlighting
+     *      consistent with existing indexing (my_seat === current_seat
+     *      when it's your turn, etc.).
+     *   2. Otherwise, fall back to the player's stable CasinoTablePlayer
+     *      seat_number. This is the critical fix for the "clicked Sit
+     *      Down and nothing happened" bug: between rounds (and before
+     *      the very first round) `state['hands']` is empty, so the old
+     *      implementation returned null and the Vue kept rendering the
+     *      Sit Down button indefinitely.
+     *   3. Null only if the player has no active seat row at all.
+     */
+    private function findPlayerSeat(array $state, int $playerId, ?int $tableId = null): ?int
     {
         foreach ($state['hands'] ?? [] as $i => $hand) {
-            if ($hand['player_id'] === $playerId) {
+            if (($hand['player_id'] ?? null) === $playerId) {
                 return $i;
             }
         }
 
-        return null;
+        if ($tableId === null) {
+            return null;
+        }
+
+        $seatRow = CasinoTablePlayer::query()
+            ->where('casino_table_id', $tableId)
+            ->where('player_id', $playerId)
+            ->where('status', 'active')
+            ->first();
+
+        return $seatRow !== null ? (int) $seatRow->seat_number : null;
     }
 
     private function isPlayerTurn(array $state, int $playerId): bool

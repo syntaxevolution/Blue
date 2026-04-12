@@ -42,7 +42,13 @@ function formatTime(ts: string): string {
 </script>
 
 <template>
-    <div class="fixed bottom-4 right-4 z-40">
+    <!-- Anchored above the global ToolboxDock (also bottom-right, mounted
+         in AuthenticatedLayout) so the two don't overlap on casino pages.
+         The toolbox trigger is ~56px tall at bottom-4; we sit at bottom-24
+         (96px) which leaves a small visible gap regardless of toolbox
+         expansion state. z-index matches so either can overlay the other
+         cleanly when opened. -->
+    <div class="fixed bottom-24 right-4 z-40">
         <!-- Toggle button -->
         <button
             v-if="!isOpen"

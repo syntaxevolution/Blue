@@ -933,6 +933,35 @@ class HoldemService
             ];
         }
 
+        // When no hand is in progress (waiting phase, or between hands),
+        // state['players'] is empty — but there may be seated players in
+        // casino_table_players waiting for the next deal. Synthesize a
+        // minimal entry for each so the Vue seat grid still renders the
+        // lobby and a freshly-seated player sees themselves on the
+        // table immediately after clicking Sit Down. Without this, the
+        // user thinks "nothing happened" because the seat grid stays
+        // empty even though the backend wrote the seat row.
+        if ($players === []) {
+            $seated = CasinoTablePlayer::query()
+                ->where('casino_table_id', $table->id)
+                ->where('status', 'active')
+                ->orderBy('seat_number')
+                ->get();
+
+            foreach ($seated as $seatRow) {
+                $players[] = [
+                    'seat' => (int) $seatRow->seat_number,
+                    'player_id' => (int) $seatRow->player_id,
+                    'stack' => (float) $seatRow->stack,
+                    'bet_this_round' => 0.0,
+                    'total_bet' => 0.0,
+                    'folded' => false,
+                    'all_in' => false,
+                    'hole_cards' => null,
+                ];
+            }
+        }
+
         return [
             'table_id' => $table->id,
             'currency' => $table->currency,
@@ -946,7 +975,7 @@ class HoldemService
             'dealer_seat' => $state['dealer_seat'] ?? null,
             'blind_level' => $state['blind_level'] ?? null,
             'is_my_turn' => $this->isPlayerTurn($state, $playerId),
-            'my_seat' => $this->findPlayerSeat($state, $playerId),
+            'my_seat' => $this->findPlayerSeat($state, $playerId, $table->id),
         ];
     }
 
@@ -960,15 +989,40 @@ class HoldemService
         return $on !== null && isset($state['players'][$on]) && $state['players'][$on]['player_id'] === $playerId;
     }
 
-    private function findPlayerSeat(array $state, int $playerId): ?int
+    /**
+     * Locate the viewer's stable seat_number. Two sources, in priority:
+     *
+     *   1. state['players'][i]['seat'] — the seat_number stored on the
+     *      in-round player entry. Returns the SEAT NUMBER (not the
+     *      array index) so it matches the Vue's `player.seat === my_seat`
+     *      comparison. Returning the array index here was a latent bug
+     *      that only worked when seats were contiguous from 0.
+     *
+     *   2. casino_table_players — authoritative when no hand is in
+     *      progress. This is the fix for the "clicked Sit Down and
+     *      nothing happened" bug: before the first hand, state['players']
+     *      is empty, so the old code returned null and the Vue kept
+     *      rendering the Sit Down form forever.
+     */
+    private function findPlayerSeat(array $state, int $playerId, ?int $tableId = null): ?int
     {
-        foreach ($state['players'] ?? [] as $i => $p) {
-            if ($p['player_id'] === $playerId) {
-                return $i;
+        foreach ($state['players'] ?? [] as $p) {
+            if (($p['player_id'] ?? null) === $playerId) {
+                return (int) $p['seat'];
             }
         }
 
-        return null;
+        if ($tableId === null) {
+            return null;
+        }
+
+        $seatRow = CasinoTablePlayer::query()
+            ->where('casino_table_id', $tableId)
+            ->where('player_id', $playerId)
+            ->where('status', 'active')
+            ->first();
+
+        return $seatRow !== null ? (int) $seatRow->seat_number : null;
     }
 
     private function freshState(string $currency = 'akzar_cash'): array

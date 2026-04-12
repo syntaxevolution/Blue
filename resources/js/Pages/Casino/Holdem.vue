@@ -160,8 +160,12 @@ function leaveTable() {
 
             <!-- Controls -->
             <div class="mt-6 rounded-xl border border-zinc-700 bg-zinc-800/60 p-4">
-                <!-- Not seated -->
-                <div v-if="!isSeated && isWaiting" class="text-center space-y-3">
+                <!-- Not seated — allow sit during ANY phase. Real poker lets
+                     a new player sit while a hand is in progress; they just
+                     get dealt in on the next hand. The previous `isWaiting`
+                     gate silently hid the Sit Down button mid-hand, trapping
+                     joiners forever once the first hand started. -->
+                <div v-if="!isSeated" class="text-center space-y-3">
                     <div class="flex items-center justify-center gap-2">
                         <label class="text-xs text-zinc-500">Buy-in:</label>
                         <input v-model.number="buyIn" type="number" :min="0.01"
@@ -171,6 +175,9 @@ function leaveTable() {
                         class="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
                         Sit Down
                     </button>
+                    <p v-if="!isWaiting" class="text-[11px] text-zinc-500 italic">
+                        A hand is in progress. You'll be dealt in on the next one.
+                    </p>
                 </div>
 
                 <!-- My turn actions -->
@@ -195,8 +202,8 @@ function leaveTable() {
                     </div>
                 </div>
 
-                <!-- Waiting -->
-                <div v-else-if="isSeated" class="text-center">
+                <!-- Seated but not currently acting -->
+                <div v-else class="text-center">
                     <p class="text-sm text-zinc-500">
                         {{ isWaiting ? 'Waiting for more players...' : 'Waiting for your turn...' }}
                     </p>
@@ -204,10 +211,6 @@ function leaveTable() {
                         class="mt-2 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200">
                         Leave &amp; Cash Out
                     </button>
-                </div>
-
-                <div v-else class="text-center text-sm text-zinc-500">
-                    Hand in progress — wait for it to finish to join.
                 </div>
             </div>
         </div>
