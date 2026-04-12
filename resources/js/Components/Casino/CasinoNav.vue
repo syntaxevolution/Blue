@@ -35,12 +35,24 @@ defineProps<{
         >
             Roulette
         </Link>
-        <span class="rounded px-2.5 py-1 text-sm text-zinc-600 cursor-not-allowed">
+        <Link
+            :href="route('casino.blackjack.index')"
+            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            :class="currentPage === 'blackjack'
+                ? 'bg-amber-600/20 text-amber-400'
+                : 'text-zinc-400 hover:text-zinc-200'"
+        >
             Blackjack
-        </span>
-        <span class="rounded px-2.5 py-1 text-sm text-zinc-600 cursor-not-allowed">
+        </Link>
+        <Link
+            :href="route('casino.holdem.index')"
+            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            :class="currentPage === 'holdem'
+                ? 'bg-amber-600/20 text-amber-400'
+                : 'text-zinc-400 hover:text-zinc-200'"
+        >
             Hold'em
-        </span>
+        </Link>
 
         <div class="ml-auto">
             <Link

@@ -115,6 +115,8 @@ class HandleInertiaRequests extends Middleware
                 'casino_entered' => fn () => $request->session()->get('casino_entered'),
                 'spin_result' => fn () => $request->session()->get('spin_result'),
                 'roulette_bet' => fn () => $request->session()->get('roulette_bet'),
+                'blackjack_result' => fn () => $request->session()->get('blackjack_result'),
+                'holdem_result' => fn () => $request->session()->get('holdem_result'),
             ],
             // Broadcast connection details for the Echo JS client.
             'reverb' => [

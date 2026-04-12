@@ -12,7 +12,10 @@ use App\Http\Controllers\Web\MdnController;
 use App\Http\Controllers\Web\MdnJournalController;
 use App\Http\Controllers\Web\TeleportController;
 use App\Http\Controllers\Web\TransportController;
+use App\Http\Controllers\Web\Casino\BlackjackController;
 use App\Http\Controllers\Web\Casino\CasinoController;
+use App\Http\Controllers\Web\Casino\ChatController as CasinoChatController;
+use App\Http\Controllers\Web\Casino\HoldemController;
 use App\Http\Controllers\Web\Casino\RouletteController;
 use App\Http\Controllers\Web\Casino\SlotsController;
 use App\Http\Controllers\Web\UsernameController;
@@ -124,6 +127,25 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
                 Route::get('/{tableId}', [RouletteController::class, 'show'])->name('show');
                 Route::post('/{tableId}/bet', [RouletteController::class, 'placeBet'])->name('bet');
             });
+
+            Route::prefix('blackjack')->name('blackjack.')->group(function () {
+                Route::get('/', [BlackjackController::class, 'index'])->name('index');
+                Route::get('/{tableId}', [BlackjackController::class, 'show'])->name('show');
+                Route::post('/{tableId}/join', [BlackjackController::class, 'join'])->name('join');
+                Route::post('/{tableId}/bet', [BlackjackController::class, 'bet'])->name('bet');
+                Route::post('/{tableId}/action', [BlackjackController::class, 'action'])->name('action');
+                Route::post('/{tableId}/leave', [BlackjackController::class, 'leave'])->name('leave');
+            });
+
+            Route::prefix('holdem')->name('holdem.')->group(function () {
+                Route::get('/', [HoldemController::class, 'index'])->name('index');
+                Route::get('/{tableId}', [HoldemController::class, 'show'])->name('show');
+                Route::post('/{tableId}/join', [HoldemController::class, 'join'])->name('join');
+                Route::post('/{tableId}/action', [HoldemController::class, 'action'])->name('action');
+                Route::post('/{tableId}/leave', [HoldemController::class, 'leave'])->name('leave');
+            });
+
+            Route::post('/table/{tableId}/chat', [CasinoChatController::class, 'send'])->name('chat.send');
         });
     });
 });

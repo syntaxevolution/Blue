@@ -16,6 +16,14 @@ use App\Domain\Economy\TeleportService;
 use App\Domain\Economy\TransportService;
 use App\Domain\Bot\BotDecisionService;
 use App\Domain\Bot\BotSpawnService;
+use App\Domain\Casino\BlackjackService;
+use App\Domain\Casino\CasinoChatService;
+use App\Domain\Casino\CasinoService;
+use App\Domain\Casino\CasinoTableManager;
+use App\Domain\Casino\HandEvaluator;
+use App\Domain\Casino\HoldemService;
+use App\Domain\Casino\RouletteService;
+use App\Domain\Casino\SlotMachineService;
 use App\Domain\Items\ItemBreakService;
 use App\Domain\Mdn\MdnAllianceService;
 use App\Domain\Mdn\MdnJournalService;
@@ -84,6 +92,16 @@ class AppServiceProvider extends ServiceProvider
         // Bot players (Improvements II — autonomous AI opponents)
         $this->app->singleton(BotSpawnService::class);
         $this->app->singleton(BotDecisionService::class);
+
+        // Casino — Roughneck's Saloon (Phase C)
+        $this->app->singleton(CasinoService::class);
+        $this->app->singleton(CasinoTableManager::class);
+        $this->app->singleton(SlotMachineService::class);
+        $this->app->singleton(RouletteService::class);
+        $this->app->singleton(BlackjackService::class);
+        $this->app->singleton(HoldemService::class);
+        $this->app->singleton(HandEvaluator::class);
+        $this->app->singleton(CasinoChatService::class);
     }
 
     /**

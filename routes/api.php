@@ -10,7 +10,10 @@ use App\Http\Controllers\Api\V1\MdnController;
 use App\Http\Controllers\Api\V1\MdnJournalController;
 use App\Http\Controllers\Api\V1\TeleportController;
 use App\Http\Controllers\Api\V1\TransportController;
+use App\Http\Controllers\Api\V1\Casino\BlackjackController as ApiBlackjackController;
 use App\Http\Controllers\Api\V1\Casino\CasinoController as ApiCasinoController;
+use App\Http\Controllers\Api\V1\Casino\ChatController as ApiCasinoChatController;
+use App\Http\Controllers\Api\V1\Casino\HoldemController as ApiHoldemController;
 use App\Http\Controllers\Api\V1\Casino\RouletteController as ApiRouletteController;
 use App\Http\Controllers\Api\V1\Casino\SlotsController as ApiSlotsController;
 use App\Http\Controllers\Api\V1\UsernameController;
@@ -107,6 +110,26 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                         Route::get('/{tableId}', [ApiRouletteController::class, 'show'])->name('show');
                         Route::post('/{tableId}/bet', [ApiRouletteController::class, 'placeBet'])->name('bet');
                     });
+
+                    Route::prefix('blackjack')->name('blackjack.')->group(function () {
+                        Route::get('/tables', [ApiBlackjackController::class, 'tables'])->name('tables');
+                        Route::get('/{tableId}', [ApiBlackjackController::class, 'show'])->name('show');
+                        Route::post('/{tableId}/join', [ApiBlackjackController::class, 'join'])->name('join');
+                        Route::post('/{tableId}/bet', [ApiBlackjackController::class, 'bet'])->name('bet');
+                        Route::post('/{tableId}/action', [ApiBlackjackController::class, 'action'])->name('action');
+                        Route::post('/{tableId}/leave', [ApiBlackjackController::class, 'leave'])->name('leave');
+                    });
+
+                    Route::prefix('holdem')->name('holdem.')->group(function () {
+                        Route::get('/tables', [ApiHoldemController::class, 'tables'])->name('tables');
+                        Route::get('/{tableId}', [ApiHoldemController::class, 'show'])->name('show');
+                        Route::post('/{tableId}/join', [ApiHoldemController::class, 'join'])->name('join');
+                        Route::post('/{tableId}/action', [ApiHoldemController::class, 'action'])->name('action');
+                        Route::post('/{tableId}/leave', [ApiHoldemController::class, 'leave'])->name('leave');
+                    });
+
+                    Route::get('/table/{tableId}/chat', [ApiCasinoChatController::class, 'history'])->name('chat.history');
+                    Route::post('/table/{tableId}/chat', [ApiCasinoChatController::class, 'send'])->name('chat.send');
                 });
             });
         });

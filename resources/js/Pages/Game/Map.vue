@@ -616,6 +616,23 @@ const canAttackNow = computed(() => {
                                     </div>
                                 </div>
 
+                                <!-- Casino -->
+                                <div v-else-if="state.tile_detail?.kind === 'casino'" class="rounded border border-amber-900/60 bg-amber-950/20 p-3 sm:p-4 text-center">
+                                    <div class="text-amber-400 text-xs uppercase tracking-widest mb-2">Casino</div>
+                                    <div class="text-xl sm:text-2xl font-bold text-amber-300 mb-2">
+                                        {{ (state.tile_detail as { name: string }).name }}
+                                    </div>
+                                    <div class="text-zinc-500 text-xs mb-3">
+                                        Entry fee: <span class="text-amber-400 font-semibold">{{ (state.tile_detail as { entry_fee_barrels: number }).entry_fee_barrels }} barrels</span>
+                                    </div>
+                                    <a
+                                        :href="route('casino.show')"
+                                        class="inline-block bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition"
+                                    >
+                                        Enter Saloon
+                                    </a>
+                                </div>
+
                                 <!-- Own base -->
                                 <div v-else-if="state.tile_detail?.kind === 'own_base'" class="rounded border border-zinc-800 bg-zinc-900 p-3 sm:p-4">
                                     <div class="text-zinc-500 text-xs uppercase mb-3 tracking-widest">Your base vault</div>

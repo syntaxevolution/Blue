@@ -408,6 +408,8 @@ Same endpoints for future mobile client.
 
 ## 11. Build Sequence
 
+**Implementation Status:** Phases C1–C6 complete. Ready for VPS deploy + migration run.
+
 ### Phase C1: Foundation
 1. Migration: add `casino` to tiles enum
 2. Migration: create `casinos` table
