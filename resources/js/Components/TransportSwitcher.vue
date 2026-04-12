@@ -20,7 +20,7 @@ const hasNonDefault = computed(() => props.owned.some((k) => k !== 'walking'));
 
 function switchTo(key: string) {
     if (!props.owned.includes(key)) return;
-    router.post(route('map.transport'), { transport: key }, { preserveScroll: true, preserveState: false });
+    router.post(route('map.transport'), { transport: key }, { preserveScroll: true, preserveState: true });
 }
 
 function label(key: string): string {

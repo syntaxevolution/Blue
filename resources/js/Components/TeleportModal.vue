@@ -43,7 +43,7 @@ function go() {
         { x: Number(x.value), y: Number(y.value) },
         {
             preserveScroll: true,
-            preserveState: false,
+            preserveState: true,
             onSuccess: () => emit('close'),
         },
     );

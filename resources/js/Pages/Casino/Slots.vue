@@ -81,7 +81,7 @@ function spin() {
     router.post(
         route('casino.slots.spin'),
         { currency: currency.value, bet: bet.value },
-        { preserveScroll: true, preserveState: false },
+        { preserveScroll: true, preserveState: true },
     );
 }
 

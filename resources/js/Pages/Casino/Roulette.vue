@@ -86,7 +86,7 @@ function placeBet(betType: string, numbers: number[]) {
     router.post(
         route('casino.roulette.bet', props.table.id),
         { bet_type: betType, numbers, amount: bet.value },
-        { preserveScroll: true, preserveState: false },
+        { preserveScroll: true, preserveState: true },
     );
 }
 

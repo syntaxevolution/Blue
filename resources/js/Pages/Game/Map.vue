@@ -214,26 +214,26 @@ const activeTransportInfo = computed(() => {
 });
 
 function travel(direction: 'n' | 's' | 'e' | 'w') {
-    router.post(route('map.move'), { direction }, { preserveScroll: true, preserveState: false });
+    router.post(route('map.move'), { direction }, { preserveScroll: true, preserveState: true });
 }
 
 function drill(cell: DrillCell) {
     if (cell.drilled) return;
     if (dailyDrillLimitReached.value) return;
-    router.post(route('map.drill'), { grid_x: cell.grid_x, grid_y: cell.grid_y }, { preserveScroll: true, preserveState: false });
+    router.post(route('map.drill'), { grid_x: cell.grid_x, grid_y: cell.grid_y }, { preserveScroll: true, preserveState: true });
 }
 
 function buy(item: ShopItem) {
     if (!item.can_purchase) return;
-    router.post(route('map.purchase'), { item_key: item.key }, { preserveScroll: true, preserveState: false });
+    router.post(route('map.purchase'), { item_key: item.key }, { preserveScroll: true, preserveState: true });
 }
 
 function spy() {
-    router.post(route('map.spy'), {}, { preserveScroll: true, preserveState: false });
+    router.post(route('map.spy'), {}, { preserveScroll: true, preserveState: true });
 }
 
 function attack() {
-    router.post(route('map.attack'), {}, { preserveScroll: true, preserveState: false });
+    router.post(route('map.attack'), {}, { preserveScroll: true, preserveState: true });
 }
 
 function tileLabel(tile: TileInfo): string {

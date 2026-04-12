@@ -93,15 +93,15 @@ function formatAmount(v: number): string {
 }
 
 function joinTable() {
-    router.post(route('casino.blackjack.join', props.table.table_id), {}, { preserveScroll: true, preserveState: false });
+    router.post(route('casino.blackjack.join', props.table.table_id), {}, { preserveScroll: true, preserveState: true });
 }
 
 function placeBet() {
-    router.post(route('casino.blackjack.bet', props.table.table_id), { amount: bet.value }, { preserveScroll: true, preserveState: false });
+    router.post(route('casino.blackjack.bet', props.table.table_id), { amount: bet.value }, { preserveScroll: true, preserveState: true });
 }
 
 function doAction(action: string) {
-    router.post(route('casino.blackjack.action', props.table.table_id), { action }, { preserveScroll: true, preserveState: false });
+    router.post(route('casino.blackjack.action', props.table.table_id), { action }, { preserveScroll: true, preserveState: true });
 }
 </script>
 

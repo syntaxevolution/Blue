@@ -44,7 +44,7 @@ const entryFee = computed(() => (props.state.tile_detail as TileDetail)?.entry_f
 const canAfford = computed(() => props.state.player.oil_barrels >= entryFee.value);
 
 function enterCasino() {
-    router.post(route('casino.enter'), {}, { preserveScroll: true, preserveState: false });
+    router.post(route('casino.enter'), {}, { preserveScroll: true, preserveState: true });
 }
 
 const games = [

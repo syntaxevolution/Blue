@@ -84,17 +84,17 @@ function formatAmount(v: number): string {
 
 function joinTable() {
     router.post(route('casino.holdem.join', props.table.table_id),
-        { buy_in: buyIn.value }, { preserveScroll: true, preserveState: false });
+        { buy_in: buyIn.value }, { preserveScroll: true, preserveState: true });
 }
 
 function doAction(action: string, amount: number = 0) {
     router.post(route('casino.holdem.action', props.table.table_id),
-        { action, amount }, { preserveScroll: true, preserveState: false });
+        { action, amount }, { preserveScroll: true, preserveState: true });
 }
 
 function leaveTable() {
     router.post(route('casino.holdem.leave', props.table.table_id),
-        {}, { preserveScroll: true, preserveState: false });
+        {}, { preserveScroll: true, preserveState: true });
 }
 </script>
 
