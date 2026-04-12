@@ -192,35 +192,39 @@ function formatAmount(v: number): string {
                 <div class="grid grid-cols-2 gap-1 text-xs">
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">🛢️ 🛢️ 🛢️ AKZAR</span>
-                        <span class="font-semibold text-amber-400">200x</span>
+                        <span class="font-semibold text-amber-400">500x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">💎 💎 💎 Diamond</span>
-                        <span class="font-semibold text-amber-400">100x</span>
+                        <span class="font-semibold text-amber-400">250x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">7 7 7 Triple Seven</span>
-                        <span class="font-semibold text-amber-400">75x</span>
+                        <span class="font-semibold text-amber-400">150x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">3x 3x 3x Triple BAR</span>
-                        <span class="font-semibold text-amber-400">40x</span>
+                        <span class="font-semibold text-amber-400">100x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">2x 2x 2x Double BAR</span>
-                        <span class="font-semibold text-amber-400">20x</span>
+                        <span class="font-semibold text-amber-400">60x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">BAR BAR BAR</span>
-                        <span class="font-semibold text-amber-400">10x</span>
+                        <span class="font-semibold text-amber-400">25x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
                         <span class="text-zinc-400">🍒 🍒 🍒 Cherry</span>
-                        <span class="font-semibold text-amber-400">5x</span>
+                        <span class="font-semibold text-amber-400">10x</span>
                     </div>
                     <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
-                        <span class="text-zinc-400">🍒 🍒 Any Cherry</span>
+                        <span class="text-zinc-400">Any 3 BARs (mixed)</span>
                         <span class="font-semibold text-amber-400">2x</span>
+                    </div>
+                    <div class="flex justify-between rounded bg-zinc-800/40 px-2 py-1">
+                        <span class="text-zinc-400">🍒 🍒 Two Cherry</span>
+                        <span class="font-semibold text-amber-400">1x</span>
                     </div>
                 </div>
             </div>

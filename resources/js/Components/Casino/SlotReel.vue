@@ -18,9 +18,10 @@ const symbolDisplayMap: Record<string, string> = {
     seven: '7',
     diamond: '💎',
     akzar: '🛢️',
+    blank: '—',
 };
 
-const dummySymbols = ['🍒', 'BAR', '7', '💎', '2x', '3x', '🛢️'];
+const dummySymbols = ['🍒', 'BAR', '7', '💎', '2x', '3x', '🛢️', '—'];
 
 let animInterval: ReturnType<typeof setInterval> | null = null;
 
