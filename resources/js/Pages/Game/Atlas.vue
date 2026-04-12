@@ -2,7 +2,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import TileIcon from '@/Components/TileIcon.vue';
 import { Head, Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 interface AtlasTile {
     id: number;
@@ -79,6 +79,150 @@ function isCurrent(t: AtlasTile | undefined): boolean {
 function isBase(t: AtlasTile | undefined): boolean {
     return t !== undefined && t.id === props.base_tile_id;
 }
+
+// ---- Click-and-drag panning --------------------------------------------
+//
+// Native horizontal scrollbars are hard to find on a trackpad, and the
+// grid is tall enough on tablet that users had to blind-guess where they
+// were on the map. This turns the scroll container into a standard
+// "grab and pan" surface: hold mouse button, drag, scroll. Also wires
+// up touch events so mobile players can swipe the map around.
+//
+// The container still scrolls via the wheel and via the native scrollbar
+// — the drag handlers are additive and don't preventDefault on anything
+// that would break those code paths.
+
+const scrollContainer = ref<HTMLElement | null>(null);
+const isDragging = ref(false);
+
+// Captured at drag-start so we can compute the scroll delta in mousemove
+// without worrying about pointer-capture or getBoundingClientRect jitter.
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartScrollLeft = 0;
+let dragStartScrollTop = 0;
+
+function onPointerDown(e: MouseEvent) {
+    // Ignore anything other than the primary mouse button so right-click
+    // menus and middle-click scroll still work.
+    if (e.button !== 0) return;
+    const el = scrollContainer.value;
+    if (!el) return;
+
+    isDragging.value = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartScrollLeft = el.scrollLeft;
+    dragStartScrollTop = el.scrollTop;
+}
+
+function onPointerMove(e: MouseEvent) {
+    if (!isDragging.value) return;
+    const el = scrollContainer.value;
+    if (!el) return;
+
+    // preventDefault here stops the browser from starting a native text
+    // selection while the user drags across empty grid cells.
+    e.preventDefault();
+
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    el.scrollLeft = dragStartScrollLeft - dx;
+    el.scrollTop = dragStartScrollTop - dy;
+}
+
+function onPointerUp() {
+    isDragging.value = false;
+}
+
+// Touch variants. We track only the first touch point (single-finger
+// pan); pinch-zoom is out of scope for this pass.
+function onTouchStart(e: TouchEvent) {
+    if (e.touches.length !== 1) return;
+    const el = scrollContainer.value;
+    if (!el) return;
+
+    const t = e.touches[0];
+    isDragging.value = true;
+    dragStartX = t.clientX;
+    dragStartY = t.clientY;
+    dragStartScrollLeft = el.scrollLeft;
+    dragStartScrollTop = el.scrollTop;
+}
+
+function onTouchMove(e: TouchEvent) {
+    if (!isDragging.value) return;
+    const el = scrollContainer.value;
+    if (!el || e.touches.length !== 1) return;
+
+    const t = e.touches[0];
+    const dx = t.clientX - dragStartX;
+    const dy = t.clientY - dragStartY;
+    el.scrollLeft = dragStartScrollLeft - dx;
+    el.scrollTop = dragStartScrollTop - dy;
+}
+
+function onTouchEnd() {
+    isDragging.value = false;
+}
+
+// Window-level mouseup listener so releasing outside the scroll box
+// (e.g. dragging off the top of the page) still ends the drag. Without
+// this the cursor stays stuck in the grabbing state.
+function onWindowMouseUp() {
+    isDragging.value = false;
+}
+
+// ---- Auto-center on current tile ---------------------------------------
+//
+// The primary complaint wasn't just "there's no drag" but "it's difficult
+// to find the scroll bar" — i.e. the user couldn't tell where they were
+// on the map. On mount, scroll so the player's current tile is roughly
+// centered in the viewport. Cheap, and solves the discoverability issue
+// without adding a "find me" button.
+//
+// Coordinates: tiles render at 28px (mobile) or 36px (>=sm) square plus
+// a 2px gap. We compute the midpoint in unit cells and multiply by the
+// actual computed cell width so viewport scaling works on any device.
+
+function centerOnCurrentTile() {
+    const el = scrollContainer.value;
+    if (!el || !props.bounds) return;
+
+    const current = props.tiles.find((t) => t.id === props.current_tile_id);
+    if (!current) return;
+
+    // Find the first rendered tile child to measure the real cell width,
+    // rather than hardcoding a size that drifts with the Tailwind classes.
+    const firstCell = el.querySelector<HTMLElement>('[data-atlas-cell]');
+    if (!firstCell) return;
+
+    const cellRect = firstCell.getBoundingClientRect();
+    const cellW = cellRect.width + 2; // +gap (0.5 rem ≈ 2px inside flex gap-0.5)
+    const cellH = cellRect.height + 2;
+
+    // Cell position inside the grid (in rendered pixels). The grid is
+    // 0-indexed from the west/north corner of its own bounds.
+    const col = current.x - props.bounds.min_x;
+    const row = props.bounds.max_y - current.y; // rows are top-to-bottom (flipped y)
+
+    const targetX = col * cellW + cellW / 2 - el.clientWidth / 2;
+    const targetY = row * cellH + cellH / 2 - el.clientHeight / 2;
+
+    el.scrollLeft = Math.max(0, targetX);
+    el.scrollTop = Math.max(0, targetY);
+}
+
+onMounted(async () => {
+    // Wait one tick so the grid is in the DOM before we measure it.
+    await nextTick();
+    centerOnCurrentTile();
+    window.addEventListener('mouseup', onWindowMouseUp);
+});
+
+onBeforeUnmount(() => {
+    window.removeEventListener('mouseup', onWindowMouseUp);
+});
 </script>
 
 <template>
@@ -167,10 +311,22 @@ function isBase(t: AtlasTile | undefined): boolean {
                         Nothing to show yet. Walk the dust and come back.
                     </div>
 
-                    <!-- Atlas grid -->
+                    <!-- Atlas grid — click/touch-drag to pan, auto-centers
+                         on your current tile on first render. Native
+                         scrollbars and mouse wheel still work as before. -->
                     <div
                         v-else
-                        class="bg-zinc-900 border border-zinc-800 rounded-lg p-2 sm:p-4 overflow-auto"
+                        ref="scrollContainer"
+                        class="atlas-scroll bg-zinc-900 border border-zinc-800 rounded-lg p-2 sm:p-4 overflow-auto select-none"
+                        :class="isDragging ? 'cursor-grabbing' : 'cursor-grab'"
+                        @mousedown="onPointerDown"
+                        @mousemove="onPointerMove"
+                        @mouseup="onPointerUp"
+                        @mouseleave="onPointerUp"
+                        @touchstart.passive="onTouchStart"
+                        @touchmove.passive="onTouchMove"
+                        @touchend="onTouchEnd"
+                        @touchcancel="onTouchEnd"
                     >
                         <div class="inline-block">
                             <div
@@ -181,6 +337,7 @@ function isBase(t: AtlasTile | undefined): boolean {
                                 <div
                                     v-for="x in cols"
                                     :key="`${x}:${y}`"
+                                    data-atlas-cell
                                     class="w-7 h-7 sm:w-9 sm:h-9 rounded border flex items-center justify-center relative shrink-0"
                                     :class="[
                                         tileByCoord[`${x}:${y}`]
@@ -198,15 +355,15 @@ function isBase(t: AtlasTile | undefined): boolean {
                                     <TileIcon
                                         v-if="tileByCoord[`${x}:${y}`]"
                                         :type="isBase(tileByCoord[`${x}:${y}`]) ? 'base' : tileByCoord[`${x}:${y}`].type"
-                                        class="w-4 h-4 sm:w-6 sm:h-6"
+                                        class="w-4 h-4 sm:w-6 sm:h-6 pointer-events-none"
                                         :class="tileColor(isBase(tileByCoord[`${x}:${y}`]) ? 'base' : tileByCoord[`${x}:${y}`].type)"
                                     />
                                 </div>
                             </div>
                         </div>
-                        <div class="text-zinc-500 text-xs font-mono mt-3">
-                            North is up. Hover a tile for coordinates.
-                        </div>
+                    </div>
+                    <div class="text-zinc-500 text-xs font-mono">
+                        North is up. Hover a tile for coordinates &mdash; click and drag to pan.
                     </div>
                 </template>
             </div>
