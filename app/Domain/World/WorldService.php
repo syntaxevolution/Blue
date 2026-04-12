@@ -5,6 +5,7 @@ namespace App\Domain\World;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Notifications\ActivityLogService;
+use App\Models\Casino;
 use App\Models\DrillPoint;
 use App\Models\OilField;
 use App\Models\Player;
@@ -76,6 +77,14 @@ class WorldService
         ],
     ];
 
+    private const CASINO_NAMES = [
+        "Roughneck's Saloon",
+        'The Lucky Derrick',
+        "Gusher's Den",
+        'The Pipeline Lounge',
+        'Barrel & Bone Casino',
+    ];
+
     public function __construct(
         private readonly GameConfigResolver $config,
         private readonly RngService $rng,
@@ -102,6 +111,7 @@ class WorldService
                 'oil_fields_per_tile' => (float) $this->config->get('world.density.oil_fields_per_tile'),
                 'posts_per_tile' => (float) $this->config->get('world.density.posts_per_tile'),
                 'landmarks_per_tile' => (float) $this->config->get('world.density.landmarks_per_tile'),
+                'casinos_per_tile' => (float) $this->config->get('world.density.casinos_per_tile'),
             ],
             'growth' => [
                 'trigger_players_per_tile' => (float) $this->config->get('world.growth.trigger_players_per_tile'),
@@ -209,10 +219,12 @@ class WorldService
         $densityPosts = (float) $this->config->get('world.density.posts_per_tile');
         $densityOilFields = (float) $this->config->get('world.density.oil_fields_per_tile');
         $densityLandmarks = (float) $this->config->get('world.density.landmarks_per_tile');
+        $densityCasinos = (float) $this->config->get('world.density.casinos_per_tile');
 
         $postCutoff = $densityPosts;
         $oilFieldCutoff = $postCutoff + $densityOilFields;
         $landmarkCutoff = $oilFieldCutoff + $densityLandmarks;
+        $casinoCutoff = $landmarkCutoff + $densityCasinos;
 
         $postWeights = [
             'strength' => 1,
@@ -256,6 +268,16 @@ class WorldService
             ];
         }
 
+        if ($roll < $casinoCutoff) {
+            return [
+                'x' => $x,
+                'y' => $y,
+                'type' => 'casino',
+                'subtype' => null,
+                'seed' => $tileSeed,
+            ];
+        }
+
         return [
             'x' => $x,
             'y' => $y,
@@ -280,7 +302,7 @@ class WorldService
      * Chunks inserts at 500 rows to stay well under MySQL's
      * max_allowed_packet for a typical radius-25 world (~2000 tiles).
      *
-     * @return array{tiles:int, oil_fields:int, drill_points:int, posts:int}
+     * @return array{tiles:int, oil_fields:int, drill_points:int, posts:int, casinos:int}
      */
     public function generateInitialWorld(int $seed = 0): array
     {
@@ -301,12 +323,12 @@ class WorldService
      * existing disc).
      *
      * @param  list<array{x:int,y:int,type:string,subtype:string|null,seed:int}>  $plan
-     * @return array{tiles:int, oil_fields:int, drill_points:int, posts:int}
+     * @return array{tiles:int, oil_fields:int, drill_points:int, posts:int, casinos:int}
      */
     private function persistTilePlan(array $plan, int $seed): array
     {
         $qualityWeights = (array) $this->config->get('drilling.quality_weights');
-        $stats = ['tiles' => 0, 'oil_fields' => 0, 'drill_points' => 0, 'posts' => 0];
+        $stats = ['tiles' => 0, 'oil_fields' => 0, 'drill_points' => 0, 'posts' => 0, 'casinos' => 0];
 
         if ($plan === []) {
             return $stats;
@@ -423,6 +445,26 @@ class WorldService
                 Post::insert($chunk);
             }
             $stats['posts'] = count($postRows);
+
+            // 7. Bulk-insert casinos for every planned casino tile.
+            $casinoRows = [];
+            foreach ($plan as $spec) {
+                if ($spec['type'] !== 'casino') {
+                    continue;
+                }
+
+                $casinoRows[] = [
+                    'tile_id' => $tileIdByXy["{$spec['x']}:{$spec['y']}"],
+                    'name' => $this->pickCasinoName($spec['x'], $spec['y'], $seed),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            foreach (array_chunk($casinoRows, 500) as $chunk) {
+                Casino::insert($chunk);
+            }
+            $stats['casinos'] = count($casinoRows);
         });
 
         return $stats;
@@ -639,6 +681,7 @@ class WorldService
                 'tiles_added' => $stats['tiles'],
                 'oil_fields_added' => $stats['oil_fields'],
                 'posts_added' => $stats['posts'],
+                'casinos_added' => $stats['casinos'],
                 'density_before' => $density,
                 'trigger' => $trigger,
             ]);
@@ -730,6 +773,24 @@ class WorldService
 
         $index = $this->rng->rollInt(
             'world.post_name',
+            "{$seed}:{$x}:{$y}",
+            0,
+            count($names) - 1,
+        );
+
+        return $names[$index];
+    }
+
+    private function pickCasinoName(int $x, int $y, int $seed): string
+    {
+        $names = (array) $this->config->get('casino.names', self::CASINO_NAMES);
+
+        if ($names === []) {
+            return "Roughneck's Saloon";
+        }
+
+        $index = $this->rng->rollInt(
+            'world.casino_name',
             "{$seed}:{$x}:{$y}",
             0,
             count($names) - 1,

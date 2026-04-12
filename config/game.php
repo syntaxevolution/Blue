@@ -187,6 +187,7 @@ return [
             'oil_fields_per_tile' => 0.125,
             'posts_per_tile' => 0.025,
             'landmarks_per_tile' => 0.005,
+            'casinos_per_tile' => 0.004,
         ],
         'growth' => [
             // Kill-switch for WorldService::expandWorld (and the nightly
@@ -432,6 +433,131 @@ return [
         'source' => 'xoshiro256',
         'record_mode' => false,
         'replay_mode' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Casino — Roughneck's Saloon (interlinked gambling tiles)
+    |--------------------------------------------------------------------------
+    | Every casino tile is an entry point to a shared global game space.
+    | Players at different casino tiles see the same tables and can play
+    | together. Entry fee charged per visit. Each game has Cash and Oil
+    | table variants. All odds are realistic defaults, tunable from admin.
+    */
+    'casino' => [
+        'enabled' => true,
+        'entry_fee_barrels' => 50,
+        'session_duration_minutes' => 120,
+        'names' => [
+            "Roughneck's Saloon",
+            'The Lucky Derrick',
+            "Gusher's Den",
+            'The Pipeline Lounge',
+            'Barrel & Bone Casino',
+        ],
+
+        'slots' => [
+            'enabled' => true,
+            'house_edge_pct' => 0.05,
+            'min_bet_cash' => 0.10,
+            'max_bet_cash' => 500.00,
+            'min_bet_barrels' => 10,
+            'max_bet_barrels' => 50000,
+            'reel_count' => 3,
+            'symbols' => [
+                'cherry'     => ['weight' => 30, 'display' => 'Cherry'],
+                'bar'        => ['weight' => 25, 'display' => 'BAR'],
+                'double_bar' => ['weight' => 15, 'display' => '2xBAR'],
+                'triple_bar' => ['weight' => 10, 'display' => '3xBAR'],
+                'seven'      => ['weight' => 8,  'display' => '7'],
+                'diamond'    => ['weight' => 5,  'display' => 'Diamond'],
+                'akzar'      => ['weight' => 2,  'display' => 'AKZAR'],
+            ],
+            'pay_table' => [
+                ['akzar', 3, 200],
+                ['diamond', 3, 100],
+                ['seven', 3, 75],
+                ['triple_bar', 3, 40],
+                ['double_bar', 3, 20],
+                ['bar', 3, 10],
+                ['cherry', 3, 5],
+                ['cherry', 2, 2],
+                ['any_bar', 3, 5],
+            ],
+        ],
+
+        'roulette' => [
+            'enabled' => true,
+            'betting_window_seconds' => 60,
+            'spin_pause_seconds' => 5,
+            'min_bet_cash' => 0.10,
+            'max_bet_cash' => 500.00,
+            'min_bet_barrels' => 10,
+            'max_bet_barrels' => 50000,
+            'max_bets_per_round' => 20,
+            'payouts' => [
+                'straight' => 35,
+                'split' => 17,
+                'street' => 11,
+                'corner' => 8,
+                'line' => 5,
+                'column' => 2,
+                'dozen' => 2,
+                'even_money' => 1,
+            ],
+            'tables_per_currency' => 1,
+        ],
+
+        'blackjack' => [
+            'enabled' => true,
+            'min_bet_cash' => 0.10,
+            'max_bet_cash' => 500.00,
+            'min_bet_barrels' => 10,
+            'max_bet_barrels' => 50000,
+            'max_seats' => 5,
+            'deck_count' => 6,
+            'reshuffle_penetration_pct' => 0.75,
+            'dealer_hits_soft_17' => false,
+            'blackjack_payout_ratio' => 1.5,
+            'insurance_enabled' => true,
+            'surrender_enabled' => true,
+            'double_after_split' => true,
+            'max_splits' => 3,
+            'turn_timer_seconds' => 30,
+            'tables_per_currency' => 1,
+        ],
+
+        'holdem' => [
+            'enabled' => true,
+            'min_players' => 2,
+            'max_seats' => 6,
+            'turn_timer_seconds' => 30,
+            'min_buy_in_multiplier' => 20,
+            'max_buy_in_multiplier' => 100,
+            'rake_pct' => 0.05,
+            'rake_cap_cash' => 5.00,
+            'rake_cap_barrels' => 500,
+            'blinds' => [
+                'cash' => [
+                    ['small' => 0.05, 'big' => 0.10],
+                    ['small' => 0.25, 'big' => 0.50],
+                    ['small' => 1.00, 'big' => 2.00],
+                ],
+                'barrels' => [
+                    ['small' => 5, 'big' => 10],
+                    ['small' => 25, 'big' => 50],
+                    ['small' => 100, 'big' => 200],
+                ],
+            ],
+            'tables_per_blind_level' => 1,
+        ],
+
+        'chat' => [
+            'enabled' => true,
+            'max_message_length' => 200,
+            'rate_limit_per_minute' => 10,
+            'history_load_count' => 50,
+        ],
     ],
 
 ];

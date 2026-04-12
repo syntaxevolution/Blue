@@ -42,4 +42,9 @@ class Tile extends Model
     {
         return $this->hasOne(Post::class);
     }
+
+    public function casino(): HasOne
+    {
+        return $this->hasOne(Casino::class);
+    }
 }

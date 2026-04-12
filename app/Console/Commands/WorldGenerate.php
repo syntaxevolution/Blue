@@ -56,6 +56,7 @@ class WorldGenerate extends Command
                 ['oil_fields', $stats['oil_fields']],
                 ['drill_points', $stats['drill_points']],
                 ['posts', $stats['posts']],
+                ['casinos', $stats['casinos']],
             ],
         );
 

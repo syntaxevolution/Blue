@@ -8,6 +8,7 @@ use App\Domain\Economy\TransportService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
 use App\Domain\World\FogOfWarService;
+use App\Models\Casino;
 use App\Models\DrillPoint;
 use App\Models\Item;
 use App\Models\OilField;
@@ -241,6 +242,7 @@ class MapStateBuilder
         return match ($tile->type) {
             'oil_field' => $this->oilFieldDetail($tile, $player),
             'post' => $this->postDetail($tile, $player),
+            'casino' => $this->casinoDetail($tile, $player),
             'base' => $tile->id === $player->base_tile_id
                 ? $this->ownBaseDetail($player)
                 : $this->enemyBaseDetail($tile, $player),
@@ -540,6 +542,21 @@ class MapStateBuilder
             ->where('status', 'active')
             ->where('quantity', '>', 0)
             ->exists();
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function casinoDetail(Tile $tile, Player $player): array
+    {
+        $casino = Casino::query()->where('tile_id', $tile->id)->first();
+
+        return [
+            'kind' => 'casino',
+            'name' => $casino?->name ?? "Roughneck's Saloon",
+            'entry_fee_barrels' => (int) $this->config->get('casino.entry_fee_barrels'),
+            'casino_enabled' => (bool) $this->config->get('casino.enabled'),
+        ];
     }
 
     /**
