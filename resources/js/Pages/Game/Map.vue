@@ -4,7 +4,7 @@ import TileIcon from '@/Components/TileIcon.vue';
 import TransportSwitcher from '@/Components/TransportSwitcher.vue';
 import TeleportModal from '@/Components/TeleportModal.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useToolbox } from '@/Composables/useToolbox';
 
 interface PlayerState {
@@ -202,22 +202,44 @@ const drillResultText = computed<string | null>(() => {
     const r = drillResult.value;
     if (!r) return null;
     // Sabotage outcomes take priority over the ordinary drill message —
-    // they describe what actually happened to the player.
+    // they describe what actually happened to the player. Where the
+    // normal random break roll ALSO fired on top of a sabotage outcome
+    // that didn't itself break the rig (fizzle/siphoned_tier_one), we
+    // still need to tell the player to go to a Tech post, so append
+    // the break instruction below.
     if (r.sabotage_outcome) {
+        let msg: string;
         switch (r.sabotage_outcome) {
             case 'drill_broken_and_siphoned':
-                return `A planted device triggered: your rig was wrecked and ${r.siphoned_barrels} barrels were siphoned straight out of your stash.`;
+                msg = `A planted device triggered: your rig was wrecked and ${r.siphoned_barrels} barrels were siphoned straight out of your stash. Head to a Tech post to replace your rig.`;
+                break;
             case 'drill_broken':
-                return 'A planted device triggered: your rig was wrecked. Head to a Tech post to replace it.';
+                msg = 'A planted device triggered: your rig was wrecked. Head to a Tech post to replace it.';
+                break;
             case 'siphoned_tier_one':
-                return `A siphon charge triggered: your starter rig held together, but ${r.siphoned_barrels} barrels vanished down the pipe.`;
+                msg = `A siphon charge triggered: your starter rig held together, but ${r.siphoned_barrels} barrels vanished down the pipe.`;
+                break;
             case 'fizzled_tier_one':
-                return 'A booby-trap triggered on your drill, but the starter rig shrugged it off. You still lost the move.';
+                msg = 'A booby-trap triggered on your drill, but the starter rig shrugged it off. You still lost the move.';
+                break;
             case 'fizzled_immune':
-                return 'A planted device triggered on you — but you got lucky this time. New-player immunity held.';
+                msg = 'A planted device triggered on you — but you got lucky this time. New-player immunity held.';
+                break;
             case 'detected':
-                return 'A Tripwire Ward saved your rig from a planted device. One ward consumed.';
+                msg = 'A Tripwire Ward saved your rig from a planted device. One ward consumed.';
+                break;
+            default:
+                msg = 'A planted device triggered on your drill.';
+                break;
         }
+        // Catch the case where the normal random break roll also
+        // wrecked the rig AFTER a non-breaking sabotage outcome.
+        // (drill_broken* already cover break instructions.)
+        const sabotageBroke = r.sabotage_outcome === 'drill_broken' || r.sabotage_outcome === 'drill_broken_and_siphoned';
+        if (r.drill_broke && !sabotageBroke) {
+            msg += ' Your drill also broke from wear — head to a Tech post to repair or replace it.';
+        }
+        return msg;
     }
     const core = `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
     if (r.drill_broke) {
@@ -228,6 +250,7 @@ const drillResultText = computed<string | null>(() => {
 
 interface PlaceResult {
     device_key: string;
+    device_name: string;
     grid_x: number;
     grid_y: number;
     remaining_quantity: number;
@@ -238,7 +261,8 @@ const placeResult = computed<PlaceResult | null>(
 const placeResultText = computed<string | null>(() => {
     const r = placeResult.value;
     if (!r) return null;
-    return `Planted ${r.device_key} at (${r.grid_x}, ${r.grid_y}). ${r.remaining_quantity} remaining in your toolbox.`;
+    const name = r.device_name || r.device_key;
+    return `Planted ${name} at (${r.grid_x}, ${r.grid_y}). ${r.remaining_quantity} remaining in your toolbox.`;
 });
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
@@ -314,6 +338,21 @@ function handleKeydown(e: KeyboardEvent): void {
 }
 onMounted(() => window.addEventListener('keydown', handleKeydown));
 onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
+
+// Auto-cancel placement mode whenever the player leaves the current
+// oil field — travel, teleport, page navigation, anything that moves
+// the current_tile away. Without this, the amber placement banner
+// would stay stuck on-screen even though the drill grid has
+// disappeared, and the composable's singleton state would outlive
+// the oil-field context that made the toolbox "Place" button clickable.
+watch(
+    () => props.state.current_tile.type,
+    (newType) => {
+        if (newType !== 'oil_field' && toolbox.state.placementActive) {
+            toolbox.exit();
+        }
+    },
+);
 
 function buy(item: ShopItem) {
     if (!item.can_purchase) return;
@@ -674,8 +713,9 @@ const canAttackNow = computed(() => {
                                                 class="relative w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
                                                 :disabled="
-                                                    drillGridMap[`${x}:${y}`]?.drilled
-                                                    || drillGridMap[`${x}:${y}`]?.sabotage !== null
+                                                    !drillGridMap[`${x}:${y}`]
+                                                    || drillGridMap[`${x}:${y}`]?.drilled
+                                                    || !!drillGridMap[`${x}:${y}`]?.sabotage
                                                     || (!toolbox.state.placementActive && dailyDrillLimitReached)
                                                 "
                                                 @click="drill(drillGridMap[`${x}:${y}`])"

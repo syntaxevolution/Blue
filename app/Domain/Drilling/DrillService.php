@@ -95,6 +95,18 @@ class DrillService
             $this->moveRegen->reconcile($player);
             $player->refresh();
 
+            // Domain-layer guard: the HTTP middleware BlockOnBrokenItem
+            // only catches web/API requests. Bots drive the same service
+            // directly from BotDecisionService::tick() with no HTTP stack
+            // in between — without this check a sabotage trap that sets
+            // broken_item_key would leave bots stuck drilling with a
+            // broken rig. Symmetric domain-layer enforcement fixes that
+            // and also hardens any future non-HTTP caller (queue jobs,
+            // Filament actions, test harnesses) against the same bypass.
+            if ($player->broken_item_key !== null) {
+                throw CannotDrillException::drillIsBroken((string) $player->broken_item_key);
+            }
+
             if ($player->moves_current < $cost) {
                 throw InsufficientMovesException::forAction('drill', $player->moves_current, $cost);
             }

@@ -217,6 +217,25 @@ Surveillance, decoy bases, counter-intel modules
 - **Bribe Pass** — bypass a single post gate
 - **Seismic Reading** — reveals one drill point's quality before committing
 
+### 9.7.1 Sabotage Devices & Counter Measures (v1.1)
+Deployable trap items planted on individual drill points (one per cell) and their counters. Placed via the Toolbox HUD while standing on an oil field. All values live in `config/game.php` under `items.*` and `sabotage.*` — fully tunable from the Filament admin panel.
+
+- **Gremlin Coil** — 500 barrels, stackable. Plant on a drill point; the next non-owner driller to hit it has their rig wrecked. Tier-1 starter drills are immune to the break. Does not steal oil.
+- **Siphon Charge** — 5000 barrels, stackable. Like the Gremlin Coil, but ALSO siphons 50% of the victim's oil straight to the planter (uncapped). The siphon still fires against tier-1 drillers (rig safe, oil still stolen).
+- **Tripwire Ward** — 100 barrels, stackable, passive consumable counter. Having ≥1 in your toolbox auto-consumes one on contact with any armed trap: the trap is marked detected, your rig survives, you lose the move and get zero barrels.
+- **Deep Scanner** — 10000 barrels, **single-purchase permanent passive**. While standing on an oil field, rigged cells are revealed on the 5×5 grid with a hazard marker and can't be selected for drilling. Server defensively rejects the drill attempt too.
+
+**Locked rules:**
+- One active trap per drill point (hard cap, config-driven)
+- Planters see their own traps on the grid and can't drill into them
+- Own traps never trigger on the planter (short-circuit to normal yield)
+- Placement costs 1 move
+- 48h new-player immunity causes a fizzle with **no oil loss** and a "lucky this time" notification
+- Tier-1 starter drill is always preserved (can't be broken by a trap)
+- Rigs destroyed by sabotage are NOT repairable — must be re-bought at a Tech post
+- Traps persist until triggered (no time-based decay at v1; `sabotage.trap_ttl_hours` config hook reserved)
+- Sabotage events surface in the Attack Log for players who own the Counter-Intel Dossier, alongside raids
+
 ### 9.8 Endgame Auction Items
 - **Moving Company** — relocate base
 - **Satellite Locator** — advanced scouting
@@ -327,6 +346,12 @@ Surveillance, decoy bases, counter-intel modules
 | Fog of war | Tile-at-a-time, no overview unless mapped |
 | Shared journal | Purchased upgrade, ratings-sorted |
 | PvE content | Deferred post-launch |
+
+---
+
+## 15.1 Toolbox HUD (v1.1)
+
+A persistent, collapsible dock anchored bottom-right of every authed page. Owned consumables and passive counters are grouped by role (Sabotage / Counter Measures / Utility). On oil field tiles, deployable items get a **Place** action that flips the drill grid into placement mode — click a cell to plant, press Esc or the dock's Cancel button to bail out. Placement mode auto-cancels the moment the player leaves the current oil field. The dock is the intended home for all future consumables (Paper Maps, Fuel Cans, Seismic Readings, etc.) — the current sabotage items are the first citizens.
 
 ---
 

@@ -72,6 +72,8 @@ function sabotageOutcomeLabel(outcome: string): string {
             return 'Rig wrecked + siphoned';
         case 'drill_broken':
             return 'Rig wrecked';
+        case 'siphoned_only':
+            return 'Siphoned';
         case 'detected':
             return 'Tripwire caught';
         case 'fizzled':
@@ -85,9 +87,16 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
     if (entry.rig_broken) {
         return 'bg-rose-950 text-rose-300 border border-rose-800';
     }
+    if (entry.siphoned_barrels > 0) {
+        // Siphoned-only: rig safe but oil lost. Rose-tinted because
+        // it's still a real loss, just not a broken-rig one.
+        return 'bg-rose-950/60 text-rose-300 border border-rose-900';
+    }
     if (entry.outcome === 'detected') {
         return 'bg-emerald-950 text-emerald-300 border border-emerald-800';
     }
+    // Fizzle variants (fizzled, fizzled_immune, fizzled_tier_one) are
+    // near-misses — amber instead of rose.
     return 'bg-amber-950 text-amber-300 border border-amber-800';
 }
 </script>

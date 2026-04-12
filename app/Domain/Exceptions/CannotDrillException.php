@@ -31,4 +31,9 @@ class CannotDrillException extends RuntimeException
     {
         return new self("Daily drill limit reached for this oil field ({$limit}/day). Find another field, or come back after midnight.");
     }
+
+    public static function drillIsBroken(string $itemKey): self
+    {
+        return new self("Your '{$itemKey}' drill rig is broken — repair or abandon it before drilling again.");
+    }
 }

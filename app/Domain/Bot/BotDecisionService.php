@@ -8,6 +8,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
+use App\Domain\Items\ItemBreakService;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Player\MoveRegenService;
 use App\Domain\Player\TravelService;
@@ -54,6 +55,7 @@ class BotDecisionService
         private readonly AttackService $attackSvc,
         private readonly FogOfWarService $fogOfWar,
         private readonly PassiveBonusService $passiveBonus,
+        private readonly ItemBreakService $itemBreak,
     ) {}
 
     /**
@@ -70,6 +72,24 @@ class BotDecisionService
         // Reconcile regen so we're making decisions with the current pool.
         $this->moveRegen->reconcile($bot);
         $bot->refresh();
+
+        // Self-heal: if a sabotage trap or a random break roll left the
+        // bot with a broken drill rig, abandon it before picking actions.
+        // Humans get a modal prompting repair-or-abandon; bots have no UI
+        // so they auto-abandon, which drops drill_tier to the next-owned
+        // tier (or 1). Without this, the domain-layer broken_item_key
+        // guard in DrillService would block every future drill forever
+        // because the HTTP middleware that catches this for humans
+        // doesn't run for bot ticks.
+        if ($bot->broken_item_key !== null) {
+            try {
+                $this->itemBreak->abandon($bot);
+                $bot->refresh();
+                $actions[] = ['kind' => 'auto_abandon', 'detail' => 'broken_rig_cleared'];
+            } catch (Throwable $e) {
+                $actions[] = ['kind' => 'auto_abandon', 'error' => $e->getMessage()];
+            }
+        }
 
         $tier = (string) ($bot->bot_difficulty ?? 'normal');
         $tierCfg = $this->config->get('bots.difficulty.'.$tier, null);

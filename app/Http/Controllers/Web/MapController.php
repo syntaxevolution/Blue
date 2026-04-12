@@ -22,6 +22,7 @@ use App\Http\Requests\DrillRequest;
 use App\Http\Requests\PlaceDeviceRequest;
 use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
+use App\Models\Item;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -144,8 +145,16 @@ class MapController extends Controller
             ]);
         }
 
+        // Resolve a display name so the flash toast says "Gremlin Coil"
+        // not "gremlin_coil" — every other shop flash follows this
+        // pattern (see purchase() above which echoes $result['item']->name).
+        $displayName = Item::query()
+            ->where('key', $result['device_key'])
+            ->value('name') ?? (string) $result['device_key'];
+
         return redirect()->route('map.show')->with('place_result', [
             'device_key' => (string) $result['device_key'],
+            'device_name' => (string) $displayName,
             'grid_x' => (int) $request->validated('grid_x'),
             'grid_y' => (int) $request->validated('grid_y'),
             'remaining_quantity' => (int) $result['remaining_quantity'],

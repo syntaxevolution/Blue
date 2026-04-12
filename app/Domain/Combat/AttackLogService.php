@@ -78,16 +78,20 @@ class AttackLogService
             ->all();
 
         // Sabotages where THIS player was the one who triggered the
-        // trap (i.e. they drilled into someone else's device). We
-        // filter 'fizzled' with outcome='fizzled' OUT by default so
-        // the feed focuses on actual harm, but render the tier-1 /
-        // immunity fizzles so the player sees near-misses too — they
-        // still count as "someone tried to hurt me".
+        // trap (i.e. they drilled into someone else's device). Renders
+        // every outcome — broken-rig, siphoned-only, detected, and the
+        // fizzle variants — so the player sees both real harm and the
+        // near-misses where someone tried to hurt them.
+        //
+        // `users` is a LEFT JOIN so a sabotage row whose planter's user
+        // account was hard-deleted still appears in the feed (with an
+        // anonymous "[deleted]" label) instead of being silently
+        // dropped by an inner join.
         $sabotages = DB::table('drill_point_sabotages')
             ->where('drill_point_sabotages.triggered_by_player_id', $player->id)
             ->whereNotNull('drill_point_sabotages.triggered_at')
             ->join('players as planter', 'planter.id', '=', 'drill_point_sabotages.placed_by_player_id')
-            ->join('users', 'users.id', '=', 'planter.user_id')
+            ->leftJoin('users', 'users.id', '=', 'planter.user_id')
             ->orderByDesc('drill_point_sabotages.triggered_at')
             ->limit($limit)
             ->get([
@@ -106,12 +110,14 @@ class AttackLogService
                 'outcome' => (string) $row->outcome,
                 'cash_stolen' => 0.0,
                 'created_at' => $row->created_at,
-                'attacker_username' => (string) $row->attacker_username,
+                'attacker_username' => (string) ($row->attacker_username ?? '[deleted]'),
                 'attacker_player_id' => (int) $row->attacker_player_id,
                 'device_key' => (string) $row->device_key,
                 'siphoned_barrels' => (int) $row->siphoned_barrels,
-                // Broken-rig outcomes from the DB enum set — 'detected'
-                // and 'fizzled' are rig-safe near-misses.
+                // rig_broken derives from the DB enum: only the
+                // drill_broken* variants count. 'siphoned_only' means
+                // tier-1 protected the rig while oil still flowed out —
+                // must not render as a wrecked-rig entry.
                 'rig_broken' => in_array((string) $row->outcome, ['drill_broken', 'drill_broken_and_siphoned'], true),
             ])
             ->all();

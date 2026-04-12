@@ -372,12 +372,15 @@ class SabotageService
             default => 'fizzled_tier_one',
         };
 
-        // Rows use the shorter DB enum values; the service API returns
-        // the finer-grained narrative ones above for notification copy.
+        // DB enum values. Tier-1 siphons MUST map to 'siphoned_only'
+        // (not 'drill_broken_and_siphoned') because AttackLogService
+        // derives rig_broken from the stored outcome. Collapsing them
+        // would mislabel tier-1 victims as having a wrecked rig in
+        // their feed.
         $storedOutcome = match ($outcome) {
             'drill_broken' => 'drill_broken',
             'drill_broken_and_siphoned' => 'drill_broken_and_siphoned',
-            'siphoned_tier_one' => 'drill_broken_and_siphoned',
+            'siphoned_tier_one' => 'siphoned_only',
             'fizzled_tier_one' => 'fizzled',
             default => 'fizzled',
         };
@@ -498,6 +501,18 @@ class SabotageService
     }
 
     /**
+     * Deferral helper: wrap every activity log write + broadcast dispatch
+     * inside DB::afterCommit so a rollback of the enclosing drill
+     * transaction can't leak a toast ("your rig was wrecked!") for an
+     * event that never actually persisted. Safe to use outside of a
+     * transaction too — Laravel falls through to immediate execution.
+     */
+    private function deferSideEffects(callable $fn): void
+    {
+        DB::afterCommit($fn);
+    }
+
+    /**
      * Broadcast + activity log for a "detected" outcome: the driller
      * had a Tripwire Ward, it fired, rig safe, planter wasted a device.
      */
@@ -507,26 +522,27 @@ class SabotageService
         $drillerUser = (int) $driller->user_id;
         $drillerName = (string) ($driller->user?->name ?? 'someone');
 
+        $deviceKey = (string) $sabotage->device_key;
+        $deviceName = $this->deviceDisplayName($deviceKey);
+        $sabotageId = (int) $sabotage->id;
+
         if ($planterUser !== null) {
             $this->activityLog->record(
                 $planterUser,
                 'sabotage.detected',
-                "Your {$sabotage->device_key} was disarmed",
+                "Your {$deviceName} was disarmed",
                 [
-                    'sabotage_id' => (int) $sabotage->id,
-                    'device_key' => (string) $sabotage->device_key,
+                    'sabotage_id' => $sabotageId,
+                    'device_key' => $deviceKey,
+                    'device_name' => $deviceName,
                     'by' => $drillerName,
                     'outcome' => 'detected',
                 ],
             );
 
-            SabotageTriggered::dispatch(
-                $planterUser,
-                (string) $sabotage->device_key,
-                'detected',
-                0,
-                (int) $sabotage->id,
-            );
+            $this->deferSideEffects(function () use ($planterUser, $deviceKey, $sabotageId) {
+                SabotageTriggered::dispatch($planterUser, $deviceKey, 'detected', 0, $sabotageId);
+            });
         }
 
         $this->activityLog->record(
@@ -534,20 +550,16 @@ class SabotageService
             'sabotage.warded',
             'A Tripwire Ward saved your rig',
             [
-                'sabotage_id' => (int) $sabotage->id,
-                'device_key' => (string) $sabotage->device_key,
+                'sabotage_id' => $sabotageId,
+                'device_key' => $deviceKey,
+                'device_name' => $deviceName,
                 'outcome' => 'detected',
             ],
         );
 
-        RigSabotaged::dispatch(
-            $drillerUser,
-            (string) $sabotage->device_key,
-            'detected',
-            0,
-            false,
-            (int) $sabotage->id,
-        );
+        $this->deferSideEffects(function () use ($drillerUser, $deviceKey, $sabotageId) {
+            RigSabotaged::dispatch($drillerUser, $deviceKey, 'detected', 0, false, $sabotageId);
+        });
     }
 
     /**
@@ -561,26 +573,27 @@ class SabotageService
         $drillerUser = (int) $driller->user_id;
         $drillerName = (string) ($driller->user?->name ?? 'a new settler');
 
+        $deviceKey = (string) $sabotage->device_key;
+        $deviceName = $this->deviceDisplayName($deviceKey);
+        $sabotageId = (int) $sabotage->id;
+
         if ($planterUser !== null) {
             $this->activityLog->record(
                 $planterUser,
                 'sabotage.fizzled',
-                "Your {$sabotage->device_key} fizzled on an immune player",
+                "Your {$deviceName} fizzled on an immune player",
                 [
-                    'sabotage_id' => (int) $sabotage->id,
-                    'device_key' => (string) $sabotage->device_key,
+                    'sabotage_id' => $sabotageId,
+                    'device_key' => $deviceKey,
+                    'device_name' => $deviceName,
                     'by' => $drillerName,
                     'outcome' => 'fizzled_immune',
                 ],
             );
 
-            SabotageTriggered::dispatch(
-                $planterUser,
-                (string) $sabotage->device_key,
-                'fizzled_immune',
-                0,
-                (int) $sabotage->id,
-            );
+            $this->deferSideEffects(function () use ($planterUser, $deviceKey, $sabotageId) {
+                SabotageTriggered::dispatch($planterUser, $deviceKey, 'fizzled_immune', 0, $sabotageId);
+            });
         }
 
         $this->activityLog->record(
@@ -588,20 +601,16 @@ class SabotageService
             'sabotage.near_miss',
             'A drill point was booby-trapped — you got lucky this time',
             [
-                'sabotage_id' => (int) $sabotage->id,
-                'device_key' => (string) $sabotage->device_key,
+                'sabotage_id' => $sabotageId,
+                'device_key' => $deviceKey,
+                'device_name' => $deviceName,
                 'outcome' => 'fizzled_immune',
             ],
         );
 
-        RigSabotaged::dispatch(
-            $drillerUser,
-            (string) $sabotage->device_key,
-            'fizzled_immune',
-            0,
-            false,
-            (int) $sabotage->id,
-        );
+        $this->deferSideEffects(function () use ($drillerUser, $deviceKey, $sabotageId) {
+            RigSabotaged::dispatch($drillerUser, $deviceKey, 'fizzled_immune', 0, false, $sabotageId);
+        });
     }
 
     /**
@@ -620,12 +629,16 @@ class SabotageService
         $drillerUser = (int) $driller->user_id;
         $drillerName = (string) ($driller->user?->name ?? 'someone');
 
+        $deviceKey = (string) $sabotage->device_key;
+        $deviceName = $this->deviceDisplayName($deviceKey);
+        $sabotageId = (int) $sabotage->id;
+
         $planterTitle = match ($outcome) {
-            'drill_broken_and_siphoned' => "Your {$sabotage->device_key} wrecked a rig and siphoned {$siphoned} barrels",
-            'drill_broken' => "Your {$sabotage->device_key} wrecked a rig",
-            'siphoned_tier_one' => "Your {$sabotage->device_key} hit a tier-1 driller (rig safe, siphoned {$siphoned} barrels)",
-            'fizzled_tier_one' => "Your {$sabotage->device_key} triggered on a tier-1 driller and did nothing",
-            default => "Your {$sabotage->device_key} was triggered",
+            'drill_broken_and_siphoned' => "Your {$deviceName} wrecked a rig and siphoned {$siphoned} barrels",
+            'drill_broken' => "Your {$deviceName} wrecked a rig",
+            'siphoned_tier_one' => "Your {$deviceName} hit a tier-1 driller (rig safe, siphoned {$siphoned} barrels)",
+            'fizzled_tier_one' => "Your {$deviceName} triggered on a tier-1 driller and did nothing",
+            default => "Your {$deviceName} was triggered",
         };
 
         if ($planterUser !== null) {
@@ -634,8 +647,9 @@ class SabotageService
                 'sabotage.triggered',
                 $planterTitle,
                 [
-                    'sabotage_id' => (int) $sabotage->id,
-                    'device_key' => (string) $sabotage->device_key,
+                    'sabotage_id' => $sabotageId,
+                    'device_key' => $deviceKey,
+                    'device_name' => $deviceName,
                     'by' => $drillerName,
                     'outcome' => $outcome,
                     'siphoned_barrels' => $siphoned,
@@ -643,13 +657,9 @@ class SabotageService
                 ],
             );
 
-            SabotageTriggered::dispatch(
-                $planterUser,
-                (string) $sabotage->device_key,
-                $outcome,
-                $siphoned,
-                (int) $sabotage->id,
-            );
+            $this->deferSideEffects(function () use ($planterUser, $deviceKey, $outcome, $siphoned, $sabotageId) {
+                SabotageTriggered::dispatch($planterUser, $deviceKey, $outcome, $siphoned, $sabotageId);
+            });
         }
 
         // Victim copy intentionally does NOT reveal the planter's
@@ -669,44 +679,64 @@ class SabotageService
             'sabotage.hit',
             $drillerTitle,
             [
-                'sabotage_id' => (int) $sabotage->id,
-                'device_key' => (string) $sabotage->device_key,
+                'sabotage_id' => $sabotageId,
+                'device_key' => $deviceKey,
+                'device_name' => $deviceName,
                 'outcome' => $outcome,
                 'siphoned_barrels' => $siphoned,
                 'rig_broken' => $rigBroken,
             ],
         );
 
-        RigSabotaged::dispatch(
-            $drillerUser,
-            (string) $sabotage->device_key,
-            $outcome,
-            $siphoned,
-            $rigBroken,
-            (int) $sabotage->id,
-        );
+        $this->deferSideEffects(function () use ($drillerUser, $deviceKey, $outcome, $siphoned, $rigBroken, $sabotageId) {
+            RigSabotaged::dispatch($drillerUser, $deviceKey, $outcome, $siphoned, $rigBroken, $sabotageId);
+        });
     }
 
     /**
      * Cheap lookup: player_id → user_id for broadcast/channel targeting.
-     * Cached per-request via a tiny static map because a single drill
-     * can call this twice (once for planter, once for driller) and a
-     * bulk drill path could repeat it for the same player.
-     *
-     * @var array<int,?int>
+     * Intentionally *not* cached. SabotageService is wired as a
+     * constructor dependency of DrillService, which is registered as a
+     * singleton in AppServiceProvider — a per-instance cache on this
+     * service would effectively become process-lifetime state and leak
+     * stale rows across requests on a long-lived Horizon worker.
+     * At 100-user scale the extra single-column SELECT per trap is a
+     * non-event, and going direct to the DB guarantees freshness.
      */
-    private array $userIdCache = [];
-
     private function userIdForPlayer(int $playerId): ?int
     {
-        if (array_key_exists($playerId, $this->userIdCache)) {
-            return $this->userIdCache[$playerId];
+        $row = DB::table('players')->where('id', $playerId)->value('user_id');
+
+        return $row !== null ? (int) $row : null;
+    }
+
+    /**
+     * Human-friendly display name for a device_key, resolved from the
+     * items catalog. Falls back to a title-cased version of the key
+     * if the item row has been deleted (shouldn't happen but cheap
+     * insurance). The result is safe to interpolate into flash
+     * messages, activity-log titles, and notification copy.
+     *
+     * Local per-method memoisation only — no instance-level cache,
+     * same reasoning as userIdForPlayer above.
+     */
+    private function deviceDisplayName(string $deviceKey): string
+    {
+        static $localCache = [];
+        if (isset($localCache[$deviceKey])) {
+            return $localCache[$deviceKey];
         }
 
-        $row = DB::table('players')->where('id', $playerId)->value('user_id');
-        $val = $row !== null ? (int) $row : null;
-        $this->userIdCache[$playerId] = $val;
+        $name = DB::table('items_catalog')
+            ->where('key', $deviceKey)
+            ->value('name');
 
-        return $val;
+        if (! is_string($name) || $name === '') {
+            $name = ucwords(str_replace('_', ' ', $deviceKey));
+        }
+
+        $localCache[$deviceKey] = $name;
+
+        return $name;
     }
 }

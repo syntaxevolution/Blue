@@ -45,13 +45,21 @@ return new class extends Migration
             $table->foreignId('triggered_by_player_id')->nullable()->constrained('players')->nullOnDelete();
 
             // Outcome enum mirrors the return type of SabotageService::resolveTrap.
-            //   drill_broken            — rig wrecked, no siphon
-            //   drill_broken_and_siphoned — rig wrecked + oil siphoned to planter
-            //   detected                — caught by a Tripwire Ward counter
-            //   fizzled                 — 48h immunity or tier-1 drill, no effect
+            //   drill_broken              — rig wrecked, no siphon
+            //   drill_broken_and_siphoned — rig wrecked AND oil siphoned to planter
+            //   siphoned_only             — tier-1 drill protected but oil still siphoned
+            //   detected                  — caught by a Tripwire Ward counter
+            //   fizzled                   — 48h immunity or tier-1 rig_wrecker, no effect
+            //
+            // The distinction between siphoned_only and drill_broken_and_siphoned
+            // matters for the attack log: AttackLogService derives `rig_broken`
+            // from the stored outcome, so collapsing tier-1 siphons into the
+            // _and_siphoned bucket would mislabel victims as having a wrecked
+            // rig in their feed.
             $table->enum('outcome', [
                 'drill_broken',
                 'drill_broken_and_siphoned',
+                'siphoned_only',
                 'detected',
                 'fizzled',
             ])->nullable();

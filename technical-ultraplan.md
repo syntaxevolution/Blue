@@ -122,6 +122,8 @@ app/
 │   ├── Drilling/
 │   │   ├── DrillService.php
 │   │   └── OilFieldRegenService.php
+│   ├── Sabotage/
+│   │   └── SabotageService.php   (drill-point traps + counter measures)
 │   ├── Combat/
 │   │   ├── SpyService.php
 │   │   ├── AttackService.php

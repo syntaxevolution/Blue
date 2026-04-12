@@ -276,3 +276,83 @@ it('ignores the planter hitting their own trap and returns a normal drill', func
     expect($result['drill_broke'])->toBeFalse();
     expect($result['barrels'])->toBeGreaterThan(0);
 });
+
+it('stores siphoned_only for tier-1 siphon so attack log reads rig_broken=false', function () {
+    [$planter, $field] = sabotagePlayerOnField();
+    giveToolboxItem($planter, 'siphon_charge', 1);
+    app(SabotageService::class)->place($planter->id, 2, 2, 'siphon_charge');
+
+    [$victim, $_] = sabotagePlayerOnField();
+    $victim->update([
+        'current_tile_id' => $field->tile_id,
+        'oil_barrels' => 1000,
+        'drill_tier' => 1,
+    ]);
+    $victim = $victim->fresh();
+
+    app(DrillService::class)->drill($victim->id, 2, 2);
+
+    $row = DrillPointSabotage::query()
+        ->where('drill_point_id', DrillPoint::where(['oil_field_id' => $field->id, 'grid_x' => 2, 'grid_y' => 2])->value('id'))
+        ->first();
+    expect($row->outcome)->toBe('siphoned_only');
+    expect((int) $row->siphoned_barrels)->toBe(500);
+
+    // And the merged attack log should classify it as rig_broken=false.
+    $log = app(\App\Domain\Combat\AttackLogService::class)->recentAttacks($victim->fresh());
+    $sabotageEntries = array_values(array_filter($log, fn ($r) => $r['kind'] === 'sabotage'));
+    expect($sabotageEntries)->not->toBeEmpty();
+    expect($sabotageEntries[0]['rig_broken'])->toBeFalse();
+    expect($sabotageEntries[0]['siphoned_barrels'])->toBe(500);
+});
+
+it('blocks scanner-owning players from drilling rigged cells with a 422', function () {
+    [$planter, $field] = sabotagePlayerOnField();
+    giveToolboxItem($planter, 'gremlin_coil', 1);
+    app(SabotageService::class)->place($planter->id, 4, 4, 'gremlin_coil');
+
+    [$victim, $_] = sabotagePlayerOnField();
+    $victim->update(['current_tile_id' => $field->tile_id]);
+    // Deep Scanner is delivered via the ItemsCatalog unlocks array
+    giveToolboxItem($victim->fresh(), 'deep_scanner', 1);
+    equipDrillTier($victim->fresh(), 'shovel_rig', 2);
+    $victim = $victim->fresh();
+
+    $thrown = null;
+    try {
+        app(DrillService::class)->drill($victim->id, 4, 4);
+    } catch (\Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->not->toBeNull();
+    expect($thrown->getMessage())->toContain('rigged');
+
+    // Victim's rig should be untouched and the trap still armed.
+    $victim->refresh();
+    expect($victim->broken_item_key)->toBeNull();
+
+    $trap = DrillPointSabotage::query()
+        ->where('drill_point_id', DrillPoint::where(['oil_field_id' => $field->id, 'grid_x' => 4, 'grid_y' => 4])->value('id'))
+        ->first();
+    expect($trap->triggered_at)->toBeNull();
+});
+
+it('rejects drill when the rig is already broken (domain-layer bot guard)', function () {
+    [$player, $field] = sabotagePlayerOnField();
+    equipDrillTier($player->fresh(), 'shovel_rig', 2);
+    $player = $player->fresh();
+
+    // Pretend a prior action left the rig broken.
+    $player->forceFill(['broken_item_key' => 'shovel_rig'])->save();
+
+    $thrown = null;
+    try {
+        app(DrillService::class)->drill($player->id, 0, 0);
+    } catch (\Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->not->toBeNull();
+    expect($thrown->getMessage())->toContain('broken');
+});
