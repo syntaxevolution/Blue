@@ -80,6 +80,53 @@ function isBase(t: AtlasTile | undefined): boolean {
     return t !== undefined && t.id === props.base_tile_id;
 }
 
+// ---- Hover info line ---------------------------------------------------
+//
+// Replaces the native `title` tooltip which became unreliable once the
+// scroll container picked up drag-to-pan listeners + user-select: none.
+// Updated in real time as the mouse crosses grid cells, cleared on
+// mouseleave from the container.
+
+interface HoverInfo {
+    x: number;
+    y: number;
+    label: string;        // "oil field / standard" or "undiscovered"
+    discovered: boolean;
+    is_current: boolean;
+    is_base: boolean;
+}
+
+const hoverInfo = ref<HoverInfo | null>(null);
+
+function setHover(x: number, y: number): void {
+    const tile = tileByCoord.value[`${x}:${y}`];
+    if (tile) {
+        const parts = [tile.type];
+        if (tile.subtype) parts.push(tile.subtype);
+        hoverInfo.value = {
+            x,
+            y,
+            label: parts.join(' / '),
+            discovered: true,
+            is_current: tile.id === props.current_tile_id,
+            is_base: tile.id === props.base_tile_id,
+        };
+    } else {
+        hoverInfo.value = {
+            x,
+            y,
+            label: 'undiscovered',
+            discovered: false,
+            is_current: false,
+            is_base: false,
+        };
+    }
+}
+
+function clearHover(): void {
+    hoverInfo.value = null;
+}
+
 // ---- Click-and-drag panning --------------------------------------------
 //
 // Native horizontal scrollbars are hard to find on a trackpad, and the
@@ -133,6 +180,14 @@ function onPointerMove(e: MouseEvent) {
 
 function onPointerUp() {
     isDragging.value = false;
+}
+
+// Fired when the mouse leaves the scroll container entirely. End any
+// drag in progress AND clear the hover info line so it doesn't get
+// stuck showing stale coordinates after the cursor leaves the map.
+function onPointerLeaveContainer() {
+    isDragging.value = false;
+    clearHover();
 }
 
 // Touch variants. We track only the first touch point (single-finger
@@ -313,16 +368,18 @@ onBeforeUnmount(() => {
 
                     <!-- Atlas grid — click/touch-drag to pan, auto-centers
                          on your current tile on first render. Native
-                         scrollbars and mouse wheel still work as before. -->
+                         scrollbars and mouse wheel still work as before.
+                         Capped at 60vh so vertical dragging stays inside
+                         the map instead of scrolling the whole page. -->
                     <div
                         v-else
                         ref="scrollContainer"
-                        class="atlas-scroll bg-zinc-900 border border-zinc-800 rounded-lg p-2 sm:p-4 overflow-auto select-none"
+                        class="atlas-scroll bg-zinc-900 border border-zinc-800 rounded-lg p-2 sm:p-4 overflow-auto select-none max-h-[60vh]"
                         :class="isDragging ? 'cursor-grabbing' : 'cursor-grab'"
                         @mousedown="onPointerDown"
                         @mousemove="onPointerMove"
                         @mouseup="onPointerUp"
-                        @mouseleave="onPointerUp"
+                        @mouseleave="onPointerLeaveContainer"
                         @touchstart.passive="onTouchStart"
                         @touchmove.passive="onTouchMove"
                         @touchend="onTouchEnd"
@@ -348,9 +405,7 @@ onBeforeUnmount(() => {
                                                     : 'border-zinc-800 bg-zinc-800/40')
                                             : 'border-zinc-900 bg-zinc-950'
                                     ]"
-                                    :title="tileByCoord[`${x}:${y}`]
-                                        ? `(${x}, ${y}) — ${tileByCoord[`${x}:${y}`].type}${tileByCoord[`${x}:${y}`].subtype ? ' / ' + tileByCoord[`${x}:${y}`].subtype : ''}`
-                                        : `(${x}, ${y}) — undiscovered`"
+                                    @mouseenter="setHover(x, y)"
                                 >
                                     <TileIcon
                                         v-if="tileByCoord[`${x}:${y}`]"
@@ -362,8 +417,24 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
                     </div>
-                    <div class="text-zinc-500 text-xs font-mono">
-                        North is up. Hover a tile for coordinates &mdash; click and drag to pan.
+
+                    <!-- Hover info line — fills the gap left by the
+                         missing native tooltip. Always reserves the
+                         same height so the layout doesn't jump when
+                         the mouse enters/leaves the grid. -->
+                    <div class="text-xs font-mono min-h-[1.25rem] flex items-center gap-2">
+                        <template v-if="hoverInfo">
+                            <span class="text-amber-400">({{ hoverInfo.x }}, {{ hoverInfo.y }})</span>
+                            <span class="text-zinc-600">&mdash;</span>
+                            <span :class="hoverInfo.discovered ? 'text-zinc-200' : 'text-zinc-600 italic'">
+                                {{ hoverInfo.label }}
+                            </span>
+                            <span v-if="hoverInfo.is_current" class="text-amber-400 uppercase tracking-widest text-[10px]">· You are here</span>
+                            <span v-else-if="hoverInfo.is_base" class="text-emerald-400 uppercase tracking-widest text-[10px]">· Your base</span>
+                        </template>
+                        <template v-else>
+                            <span class="text-zinc-500">North is up. Click and drag to pan &mdash; hover a tile for details.</span>
+                        </template>
                     </div>
                 </template>
             </div>
