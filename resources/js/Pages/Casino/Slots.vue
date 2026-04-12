@@ -5,7 +5,12 @@ import CurrencyToggle from '@/Components/Casino/CurrencyToggle.vue';
 import ChipSelector from '@/Components/Casino/ChipSelector.vue';
 import SlotReel from '@/Components/Casino/SlotReel.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+
+// Stagger delay of the slowest reel in SlotReel.vue (reel index 2).
+// Must stay in sync with the :delay prop passed to the third SlotReel
+// below, plus a small buffer for the user's eye to settle.
+const REVEAL_DELAY_MS = 700;
 
 interface PlayerState {
     oil_barrels: number;
@@ -39,8 +44,12 @@ const slotError = computed(() => errors.value.slots ?? null);
 const currency = ref<'akzar_cash' | 'oil_barrels'>('oil_barrels');
 const bet = ref(10);
 const spinning = ref(false);
+// Reveal window: reels are decelerating (staggered 200/400/600ms) and
+// we're holding back the result banner until the last reel settles.
+const revealing = ref(false);
 const lastReels = ref<string[]>([]);
 const lastResult = ref<SpinResult | null>(null);
+let revealTimer: ReturnType<typeof setTimeout> | null = null;
 
 const betMin = computed(() =>
     currency.value === 'akzar_cash' ? 0.10 : 10,
@@ -56,15 +65,33 @@ const balance = computed(() =>
 );
 
 const canSpin = computed(() =>
-    !spinning.value && bet.value >= betMin.value && bet.value <= betMax.value && balance.value >= bet.value,
+    !spinning.value
+    && !revealing.value
+    && bet.value >= betMin.value
+    && bet.value <= betMax.value
+    && balance.value >= bet.value,
 );
 
 watch(spinResult, (result) => {
-    if (result) {
-        spinning.value = false;
-        lastReels.value = result.reels;
+    if (!result) return;
+
+    // Push the target symbols into the reels immediately — this doesn't
+    // display them yet (SlotReel only reveals when `spinning` flips to
+    // false + its own stagger delay elapses).
+    lastReels.value = result.reels;
+
+    // Kick off the reel stagger stop.
+    spinning.value = false;
+    revealing.value = true;
+
+    // Hold the result banner (and the disabled SPIN button) until after
+    // the slowest reel has visibly settled.
+    if (revealTimer) clearTimeout(revealTimer);
+    revealTimer = setTimeout(() => {
         lastResult.value = result;
-    }
+        revealing.value = false;
+        revealTimer = null;
+    }, REVEAL_DELAY_MS);
 });
 
 watch(currency, () => {
@@ -75,7 +102,9 @@ watch(currency, () => {
 
 function spin() {
     if (!canSpin.value) return;
+    if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
     spinning.value = true;
+    revealing.value = false;
     lastResult.value = null;
 
     router.post(
@@ -84,6 +113,10 @@ function spin() {
         { preserveScroll: true, preserveState: true },
     );
 }
+
+onBeforeUnmount(() => {
+    if (revealTimer) clearTimeout(revealTimer);
+});
 
 function formatAmount(v: number): string {
     if (currency.value === 'akzar_cash') {
@@ -176,7 +209,7 @@ function formatAmount(v: number): string {
                                 : 'cursor-not-allowed bg-zinc-700 text-zinc-500'"
                             @click="spin"
                         >
-                            {{ spinning ? 'Spinning...' : 'SPIN' }}
+                            {{ spinning || revealing ? 'Spinning...' : 'SPIN' }}
                         </button>
                     </div>
 
