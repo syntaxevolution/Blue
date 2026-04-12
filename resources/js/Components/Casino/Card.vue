@@ -5,7 +5,7 @@ const props = defineProps<{
     faceDown?: boolean;
 }>();
 
-const suitColor = {
+const suitColor: Record<string, string> = {
     hearts: 'text-red-500',
     diamonds: 'text-red-500',
     clubs: 'text-zinc-100',
