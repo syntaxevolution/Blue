@@ -86,7 +86,7 @@ function markAllRead() {
                                         {{ entry.body.outcome === 'success' ? 'breached' : 'repelled' }}
                                     </span>
                                 </div>
-                                <div v-if="entry.body.cash_stolen > 0" class="flex gap-1">
+                                <div v-if="Number(entry.body.cash_stolen) > 0" class="flex gap-1">
                                     <span class="text-zinc-600">stolen:</span>
                                     <span class="text-rose-400">A{{ Number(entry.body.cash_stolen).toFixed(2) }}</span>
                                 </div>
