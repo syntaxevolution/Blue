@@ -199,3 +199,34 @@ it('frees a blackjack seat for a different player after the first leaves', funct
     $result = $svc->joinTable($p2->id, $table->id);
     expect($result['seat'])->toBe(0);
 });
+
+it('resolves a blackjack round without exploding on the dealer reference', function () {
+    // Regression: resolveDealerAndPayout took `$dealer = &$state['dealer']`
+    // then reset $state['dealer'] = null for the next round, then tried
+    // to read $dealer['cards'] for the return payload — null dereference.
+    // This test drives a full solo round through stand/resolve to
+    // guarantee the return payload is built cleanly.
+    app(CasinoTableManager::class)->ensureBlackjackTablesExist();
+
+    $table = CasinoTable::query()
+        ->where('game_type', 'blackjack')
+        ->where('currency', 'oil_barrels')
+        ->firstOrFail();
+
+    $player = casinoSeatedPlayer();
+
+    $svc = app(BlackjackService::class);
+    $svc->joinTable($player->id, $table->id);
+    $svc->placeBet($player->id, $table->id, (float) $table->min_bet);
+
+    // Stand immediately so the dealer resolves. We don't care about the
+    // outcome — we care that the payload comes back with dealer_cards
+    // populated rather than throwing a null-access fatal.
+    $result = $svc->playerAction($player->id, $table->id, 'stand');
+
+    expect($result['action'])->toBe('round_resolved');
+    expect($result['dealer_cards'])->toBeArray();
+    expect($result['dealer_cards'])->not->toBeEmpty();
+    expect($result)->toHaveKey('dealer_total');
+    expect($result)->toHaveKey('results');
+});

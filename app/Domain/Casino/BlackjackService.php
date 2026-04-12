@@ -459,6 +459,17 @@ class BlackjackService
         $dealerBJ = count($dealer['cards']) === 2 && $dealerTotal === 21;
         $bjPayout = (float) $this->config->get('casino.blackjack.blackjack_payout_ratio', 1.5);
 
+        // Snapshot the dealer's final cards into a local BEFORE the round
+        // reset below. $dealer is a reference into $state['dealer'] (line
+        // 425); line ~545 sets $state['dealer'] = null to clear the table
+        // for the next round, which makes the reference point at null. A
+        // later attempt to read $dealer['cards'] for the return payload
+        // then explodes with "Trying to access array offset on null". The
+        // return already shipped the wrong thing to players anyway (the
+        // UI wants an array of cards, not a reference), so copying it out
+        // now fixes both problems.
+        $dealerCardsSnapshot = CardDeck::toDisplayArray($dealer['cards']);
+
         $round = CasinoRound::create([
             'casino_table_id' => $table->id,
             'game_type' => 'blackjack',
@@ -552,7 +563,7 @@ class BlackjackService
             'action' => 'round_resolved',
             'dealer_total' => $dealerTotal,
             'dealer_bust' => $dealerBust,
-            'dealer_cards' => CardDeck::toDisplayArray($dealer['cards']),
+            'dealer_cards' => $dealerCardsSnapshot,
             'results' => $results,
         ];
     }
