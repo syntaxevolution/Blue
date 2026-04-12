@@ -191,8 +191,12 @@ class BotDecisionService
             return $this->doDrill($bot);
         }
 
-        $upgradeThreshold = (float) ($tierCfg['upgrade_threshold_cash'] ?? 25.0);
-        $canAffordUpgrades = (float) $bot->akzar_cash >= $upgradeThreshold;
+        // Compare against oil_barrels — all shop items cost barrels, not
+        // cash. The original code compared against akzar_cash, which bots
+        // almost never accumulate (cash only comes from raids), so the
+        // gate was permanently false and bots never bought upgrades.
+        $upgradeThreshold = (int) ($tierCfg['upgrade_threshold_barrels'] ?? $tierCfg['upgrade_threshold_cash'] ?? 500);
+        $canAffordUpgrades = (int) $bot->oil_barrels >= $upgradeThreshold;
 
         $items = Item::query()
             ->where('post_type', $post->post_type)

@@ -365,7 +365,10 @@ return [
                     'spy'    => 5,
                     'attack' => 5,
                 ],
-                'upgrade_threshold_cash' => 50.0,
+                // Minimum barrels in reserve before the bot will buy stat
+                // items, drill upgrades, or transports. Keeps easy bots
+                // from going broke on upgrades when they should be drilling.
+                'upgrade_threshold_barrels' => 500,
                 'min_target_cash' => 20.0,
                 'risk_tolerance' => 0.3,
                 'travel_range_tiles' => 6,
@@ -378,7 +381,7 @@ return [
                     'spy'    => 15,
                     'attack' => 15,
                 ],
-                'upgrade_threshold_cash' => 25.0,
+                'upgrade_threshold_barrels' => 300,
                 'min_target_cash' => 10.0,
                 'risk_tolerance' => 0.55,
                 'travel_range_tiles' => 12,
@@ -391,7 +394,7 @@ return [
                     'spy'    => 25,
                     'attack' => 25,
                 ],
-                'upgrade_threshold_cash' => 10.0,
+                'upgrade_threshold_barrels' => 100,
                 'min_target_cash' => 5.0,
                 'risk_tolerance' => 0.8,
                 'travel_range_tiles' => 20,
