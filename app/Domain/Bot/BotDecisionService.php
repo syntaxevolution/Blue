@@ -8,6 +8,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
+use App\Domain\Items\PassiveBonusService;
 use App\Domain\Player\MoveRegenService;
 use App\Domain\Player\TravelService;
 use App\Domain\World\FogOfWarService;
@@ -52,6 +53,7 @@ class BotDecisionService
         private readonly SpyService $spySvc,
         private readonly AttackService $attackSvc,
         private readonly FogOfWarService $fogOfWar,
+        private readonly PassiveBonusService $passiveBonus,
     ) {}
 
     /**
@@ -76,6 +78,16 @@ class BotDecisionService
         }
 
         $tickSalt = ($bot->bot_last_tick_at?->timestamp ?? 0).'-'.now()->timestamp;
+
+        // Scouting direction: when the bot has no viable targets (no
+        // known oil fields with drill points, no known posts), it walks
+        // in one consistent direction for the entire tick rather than
+        // zigzagging randomly. This is picked once per tick and reused
+        // across all fallback walks so the bot scouts a straight line,
+        // discovering new tiles efficiently. Null means "not committed
+        // yet" — set on the first random-walk fallback and sticky
+        // after that.
+        $this->scoutDirection = null;
 
         for ($i = 0; $i < $maxActions; $i++) {
             if ($bot->moves_current <= 0) {
@@ -108,6 +120,13 @@ class BotDecisionService
 
         return ['actions' => $actions, 'ended_with' => $bot->moves_current > 0 ? 'ok' : 'no_moves'];
     }
+
+    /**
+     * Per-tick scouting direction. Once the bot commits to a direction
+     * for fallback walking, it stays on that heading for the rest of
+     * the tick so it scouts a straight line instead of zigzagging.
+     */
+    private ?string $scoutDirection = null;
 
     /**
      * @param  array<string,mixed>  $tierCfg
@@ -147,8 +166,10 @@ class BotDecisionService
     {
         $tile = Tile::find($bot->current_tile_id);
         if ($tile?->type !== 'oil_field') {
-            // Walk one step toward the nearest known oil field.
-            $target = $this->nearestDiscoveredOfType($bot, 'oil_field');
+            // Walk one step toward the nearest known oil field that still
+            // has undrilled points. If none are known, scout in a straight
+            // line (randomWalk uses the sticky scout direction).
+            $target = $this->nearestDrillableField($bot);
             if ($target !== null) {
                 $dir = $this->directionToward($tile, $target);
                 if ($dir !== null) {
@@ -156,9 +177,9 @@ class BotDecisionService
                     return ['kind' => 'travel', 'detail' => "toward_oil_field({$dir})"];
                 }
             }
-            // Fallback: random walk.
+            // No drillable field known — scout.
             $this->randomWalk($bot);
-            return ['kind' => 'travel', 'detail' => 'random_walk'];
+            return ['kind' => 'travel', 'detail' => 'scouting'];
         }
 
         // Already on oil field — pick first un-drilled 5×5 grid cell.
@@ -349,6 +370,58 @@ class BotDecisionService
     }
 
     /**
+     * Find the nearest discovered oil field tile that still has at
+     * least one undrilled point AND where the bot hasn't hit its daily
+     * limit. Prevents bots from pathfinding to depleted or
+     * limit-exhausted fields and instead pushes them to scout.
+     */
+    private function nearestDrillableField(Player $bot): ?Tile
+    {
+        $discovered = $this->fogOfWar->getDiscoveredTileIds($bot->id);
+        if ($discovered === []) {
+            return null;
+        }
+
+        $current = Tile::find($bot->current_tile_id);
+        if ($current === null) {
+            return null;
+        }
+
+        $dailyLimit = (int) $this->config->get('drilling.daily_limit_per_field', 5);
+        $dailyLimit += $this->passiveBonus->drillLimitBonus($bot);
+        $today = now()->toDateString();
+
+        $candidates = Tile::query()
+            ->whereIn('id', $discovered)
+            ->where('type', 'oil_field')
+            ->get();
+
+        return $candidates
+            ->filter(function (Tile $t) use ($bot, $dailyLimit, $today) {
+                $field = \App\Models\OilField::query()->where('tile_id', $t->id)->first();
+                if ($field === null) {
+                    return false;
+                }
+                $hasPoints = \App\Models\DrillPoint::query()
+                    ->where('oil_field_id', $field->id)
+                    ->whereNull('drilled_at')
+                    ->exists();
+                if (! $hasPoints) {
+                    return false;
+                }
+                $dailyCount = (int) \Illuminate\Support\Facades\DB::table('player_drill_counts')
+                    ->where('player_id', $bot->id)
+                    ->where('oil_field_id', $field->id)
+                    ->where('drill_date', $today)
+                    ->value('drill_count');
+
+                return $dailyCount < $dailyLimit;
+            })
+            ->sortBy(fn (Tile $t) => abs($t->x - $current->x) + abs($t->y - $current->y))
+            ->first();
+    }
+
+    /**
      * Find the nearest discovered tile of a given type. Bots only see
      * tiles they've walked through, same as a real player.
      */
@@ -424,15 +497,39 @@ class BotDecisionService
     private function randomWalk(Player $bot): void
     {
         $dirs = ['n', 's', 'e', 'w'];
-        // Microtime salt ensures multiple fallback walks in the same tick
-        // get different rolls; otherwise a bot wedged against the world
-        // edge would pick the same direction every attempt.
-        $idx = $this->rng->rollInt(
-            'bot.walk',
-            'bot.'.$bot->id.'.'.microtime(true),
-            0,
-            3,
-        );
-        $this->travel->travel($bot->id, $dirs[$idx]);
+
+        // Once a scout direction is committed for this tick, keep walking
+        // that way so the bot covers a straight line and discovers new
+        // tiles efficiently. A new direction is only picked on the first
+        // fallback walk of the tick, or if the previous direction hit the
+        // world edge (caught below).
+        if ($this->scoutDirection === null) {
+            $idx = $this->rng->rollInt(
+                'bot.walk',
+                'bot.'.$bot->id.'.'.microtime(true),
+                0,
+                3,
+            );
+            $this->scoutDirection = $dirs[$idx];
+        }
+
+        try {
+            $this->travel->travel($bot->id, $this->scoutDirection);
+        } catch (Throwable) {
+            // Hit the world edge — pick a perpendicular direction and
+            // try again. If that also fails, give up this step.
+            $perpendicular = match ($this->scoutDirection) {
+                'n', 's' => $this->rng->rollInt('bot.perp', 'bot.'.$bot->id.'.'.microtime(true), 0, 1) === 0 ? 'e' : 'w',
+                default  => $this->rng->rollInt('bot.perp', 'bot.'.$bot->id.'.'.microtime(true), 0, 1) === 0 ? 'n' : 's',
+            };
+            $this->scoutDirection = $perpendicular;
+
+            try {
+                $this->travel->travel($bot->id, $this->scoutDirection);
+            } catch (Throwable) {
+                // Completely stuck — reset for next tick.
+                $this->scoutDirection = null;
+            }
+        }
     }
 }
