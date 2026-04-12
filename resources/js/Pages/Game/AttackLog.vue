@@ -102,12 +102,12 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
 </script>
 
 <template>
-    <Head title="Attack Log — Clash Wars" />
+    <Head title="Hostility Log — Clash Wars" />
 
     <AuthenticatedLayout>
         <template #header>
             <h2 class="font-mono text-xl font-bold uppercase tracking-wider text-amber-400">
-                Attack Log
+                Hostility Log
             </h2>
         </template>
 
@@ -125,13 +125,13 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
                             <path d="M16 24 L32 24 M16 30 L32 30 M16 36 L26 36" />
                         </svg>
                     </div>
-                    <h3 class="text-2xl font-bold text-zinc-100 mb-3">Attack log locked</h3>
+                    <h3 class="text-2xl font-bold text-zinc-100 mb-3">Hostility log locked</h3>
                     <p class="text-zinc-400 max-w-xl mx-auto mb-6">
                         Buy the <span class="text-amber-400">Counter-Intel Dossier</span> at any
-                        <span class="text-emerald-400">Fortification Post</span>. It's the most
-                        expensive item there — 400 oil barrels for a locked archive and a paid
-                        informant network. Once installed, every raid on your base shows up here:
-                        who hit you, when, and how much they took.
+                        <span class="text-emerald-400">Fortification Post</span> — 400 oil barrels
+                        for a locked archive and a paid informant network. Once installed, every
+                        hostile action against your base shows up here: raids, sabotage triggers,
+                        and the names behind them.
                     </p>
                     <Link
                         :href="route('map.show')"

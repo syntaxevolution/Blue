@@ -7,6 +7,7 @@ use App\Domain\Config\RngService;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Mdn\MdnService;
+use App\Domain\Notifications\ActivityLogService;
 use App\Domain\Player\MoveRegenService;
 use App\Events\SpyDetected;
 use App\Models\Player;
@@ -36,6 +37,7 @@ class SpyService
         private readonly RngService $rng,
         private readonly MoveRegenService $moveRegen,
         private readonly MdnService $mdn,
+        private readonly ActivityLogService $activityLog,
     ) {}
 
     /**
@@ -135,6 +137,34 @@ class SpyService
             $spy->update($updates);
 
             $spyUsername = (string) ($spy->user?->name ?? 'Unknown');
+            $targetUsername = (string) ($target->user?->name ?? 'Unknown');
+
+            // Actor-side activity log. The target side already gets an
+            // entry via the SpyDetected event → RecordActivityLog
+            // listener, but only when detection fires. The spy
+            // themselves gets a persistent record here regardless of
+            // outcome so their /activity feed reflects every action
+            // they took. Inside the tx for atomicity with the
+            // spy_attempts row.
+            $spyTitle = match (true) {
+                $success && $detected => "You spied on {$targetUsername} — +{$intelGained} intel, but you were detected",
+                $success => "You spied on {$targetUsername} — +{$intelGained} intel",
+                $detected => "Your spy on {$targetUsername} failed — and you were detected",
+                default => "Your spy on {$targetUsername} failed",
+            };
+
+            $this->activityLog->record(
+                (int) $spy->user_id,
+                'spy.committed',
+                $spyTitle,
+                [
+                    'outcome' => $success ? 'success' : 'failure',
+                    'intel_gained' => $intelGained,
+                    'detected' => $detected,
+                    'spy_id' => $spyRow->id,
+                    'target_username' => $targetUsername,
+                ],
+            );
 
             return [
                 'outcome' => $success ? 'success' : 'failure',

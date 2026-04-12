@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
                                 :href="route('attack_log.show')"
                                 :active="route().current('attack_log.show')"
                             >
-                                Log
+                                Hostility Log
                             </NavLink>
                             <NavLink
                                 :href="route('mdn.index')"
@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
                         :href="route('attack_log.show')"
                         :active="route().current('attack_log.show')"
                     >
-                        Attack Log
+                        Hostility Log
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
                         :href="route('mdn.index')"

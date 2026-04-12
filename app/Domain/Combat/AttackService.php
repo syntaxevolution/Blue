@@ -6,6 +6,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Mdn\MdnService;
+use App\Domain\Notifications\ActivityLogService;
 use App\Domain\Player\MoveRegenService;
 use App\Events\BaseUnderAttack;
 use App\Models\Attack;
@@ -48,6 +49,7 @@ class AttackService
         private readonly MoveRegenService $moveRegen,
         private readonly CombatFormula $combat,
         private readonly MdnService $mdn,
+        private readonly ActivityLogService $activityLog,
     ) {}
 
     /**
@@ -170,6 +172,30 @@ class AttackService
             // Eager-load attacker's user name BEFORE leaving the transaction
             // so we don't hold the row lock any longer than needed.
             $attackerUsername = (string) ($attacker->user?->name ?? 'Unknown');
+            $defenderUsername = (string) ($defender->user?->name ?? 'Unknown');
+
+            // Record an activity-log row on the attacker's side so the
+            // /activity feed captures actions they committed (not just
+            // actions committed against them). Lives inside the tx so
+            // a rollback removes the row too — same atomicity as the
+            // attacks table itself.
+            $attackerTitle = match (true) {
+                $result['outcome'] === 'success' && $cashStolen > 0 => "You raided {$defenderUsername} — A".number_format($cashStolen, 2).' looted',
+                $result['outcome'] === 'success' => "You raided {$defenderUsername} — no cash to take",
+                default => "Your raid on {$defenderUsername} was repelled",
+            };
+
+            $this->activityLog->record(
+                (int) $attacker->user_id,
+                'raid.committed',
+                $attackerTitle,
+                [
+                    'outcome' => $result['outcome'],
+                    'cash_stolen' => $cashStolen,
+                    'attack_id' => $attackRow->id,
+                    'defender_username' => $defenderUsername,
+                ],
+            );
 
             return [
                 'outcome' => $result['outcome'],
