@@ -7,10 +7,12 @@ use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\TransportService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Notifications\ActivityLogService;
+use App\Domain\Sabotage\SabotageService;
 use App\Domain\World\FogOfWarService;
 use App\Models\Casino;
 use App\Models\CasinoSession;
 use App\Models\DrillPoint;
+use App\Models\DrillPointSabotage;
 use App\Models\Item;
 use App\Models\OilField;
 use App\Models\Player;
@@ -135,6 +137,7 @@ class MapStateBuilder
                 'base_coords' => ['x' => (int) $baseTile->x, 'y' => (int) $baseTile->y],
                 'owns_atlas' => in_array('atlas', $unlocks, true),
                 'owns_attack_log' => in_array('attack_log', $unlocks, true),
+                'owns_sabotage_scanner' => in_array(SabotageService::SCANNER_UNLOCK_KEY, $unlocks, true),
             ],
             'transport_catalog' => $transportCatalog,
             'immunity_hours' => (int) $this->config->get('new_player.immunity_hours'),
@@ -252,7 +255,7 @@ class MapStateBuilder
     }
 
     /**
-     * @return array{kind:string, grid: list<array{grid_x:int, grid_y:int, quality:string, drilled:bool}>, daily_count:int, daily_limit:int, refill_at:?string, fully_depleted:bool}
+     * @return array{kind:string, grid: list<array<string,mixed>>, daily_count:int, daily_limit:int, refill_at:?string, fully_depleted:bool}
      */
     private function oilFieldDetail(Tile $tile, Player $player): array
     {
@@ -278,15 +281,51 @@ class MapStateBuilder
                 ->where('oil_field_id', $field->id)
                 ->orderBy('grid_y')
                 ->orderBy('grid_x')
-                ->get(['grid_x', 'grid_y', 'quality', 'drilled_at']);
+                ->get(['id', 'grid_x', 'grid_y', 'quality', 'drilled_at']);
+
+            // Sabotage overlay: for each active trap on this field, decide
+            // whether the viewer should see it.
+            //   - Own traps: always visible to the planter (spec #4)
+            //   - Scanner owned: all traps visible
+            //   - Otherwise: invisible
+            // Without a Deep Scanner, non-planter traps render as plain
+            // drill points — the driller walks into them blind.
+            $ownsScanner = in_array(SabotageService::SCANNER_UNLOCK_KEY, $this->playerUnlocks($player), true);
+
+            $activeSabotages = DrillPointSabotage::query()
+                ->where('oil_field_id', $field->id)
+                ->whereNull('triggered_at')
+                ->get(['drill_point_id', 'device_key', 'placed_by_player_id']);
+
+            // Key by drill_point_id for O(1) lookup while walking the grid.
+            $sabotageByPoint = [];
+            foreach ($activeSabotages as $s) {
+                $ownedByViewer = (int) $s->placed_by_player_id === (int) $player->id;
+                $sabotageByPoint[(int) $s->drill_point_id] = [
+                    'device_key' => (string) $s->device_key,
+                    'own' => $ownedByViewer,
+                    'visible' => $ownedByViewer || $ownsScanner,
+                ];
+            }
 
             foreach ($points as $p) {
-                $grid[] = [
+                $cell = [
                     'grid_x' => (int) $p->grid_x,
                     'grid_y' => (int) $p->grid_y,
                     'quality' => $p->drilled_at === null ? (string) $p->quality : 'depleted',
                     'drilled' => $p->drilled_at !== null,
+                    'sabotage' => null,
                 ];
+
+                $meta = $sabotageByPoint[(int) $p->id] ?? null;
+                if ($meta !== null && $meta['visible']) {
+                    $cell['sabotage'] = [
+                        'device_key' => $meta['device_key'],
+                        'own' => $meta['own'],
+                    ];
+                }
+
+                $grid[] = $cell;
             }
 
             $countRow = DB::table('player_drill_counts')
@@ -421,6 +460,18 @@ class MapStateBuilder
      */
     private function generalStoreCategory(array $effects): array
     {
+        if (isset($effects['deployable_sabotage'])) {
+            return ['Sabotage', 7];
+        }
+        if (isset($effects['counter_measure'])) {
+            return ['Counter Measures', 8];
+        }
+        // Deep Scanner lives under Counter Measures too — it unlocks the
+        // sabotage_scanner feature but its shopping home is with the
+        // Tripwire Ward, not the generic Utility bucket.
+        if (isset($effects['unlocks']) && is_array($effects['unlocks']) && in_array(SabotageService::SCANNER_UNLOCK_KEY, $effects['unlocks'], true)) {
+            return ['Counter Measures', 8];
+        }
         if (isset($effects['unlocks'])) {
             return ['Utility', 1];
         }

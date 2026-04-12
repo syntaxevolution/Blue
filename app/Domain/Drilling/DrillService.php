@@ -5,10 +5,12 @@ namespace App\Domain\Drilling;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Exceptions\CannotDrillException;
+use App\Domain\Exceptions\CannotSabotageException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Items\ItemBreakService;
 use App\Domain\Items\PassiveBonusService;
 use App\Domain\Player\MoveRegenService;
+use App\Domain\Sabotage\SabotageService;
 use App\Models\DrillPoint;
 use App\Models\Item;
 use App\Models\OilField;
@@ -53,6 +55,7 @@ class DrillService
         private readonly ItemBreakService $itemBreak,
         private readonly PassiveBonusService $passiveBonus,
         private readonly OilFieldRegenService $fieldRegen,
+        private readonly SabotageService $sabotage,
     ) {}
 
     /**
@@ -65,6 +68,9 @@ class DrillService
      *     daily_limit: int,
      *     drill_broke: bool,
      *     broken_item_key: string|null,
+     *     sabotage_outcome: string|null,
+     *     sabotage_device_key: string|null,
+     *     siphoned_barrels: int,
      * }
      */
     public function drill(int $playerId, int $gridX, int $gridY): array
@@ -143,11 +149,68 @@ class DrillService
                 throw CannotDrillException::pointDepleted($gridX, $gridY);
             }
 
-            $yieldEventKey = 'drill-yield-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.now()->timestamp;
-            $rawBarrels = $this->computeYield($point->quality, $player->drill_tier, $yieldEventKey);
-            // Apply passive yield bonuses (e.g., lucky_charm +5%).
-            $bonusPct = $this->passiveBonus->yieldBonusPct($player);
-            $barrels = (int) floor($rawBarrels * (1.0 + $bonusPct));
+            // --- Sabotage interception ------------------------------
+            // Look up any armed trap on this cell before rolling yield.
+            // The trap row is locked so concurrent drills on the same
+            // rigged cell serialize and only one resolves the trap —
+            // the loser sees the drill point marked drilled_at and
+            // bails out on the next iteration via pointDepleted.
+            $sabotageRow = $this->sabotage->findActiveTrapLocked($point->id);
+
+            // Defensive scanner guard. If the client lied and tried to
+            // drill a rigged cell despite owning a Deep Scanner, reject
+            // outright — the scanner semantics are "you cannot select
+            // a rigged square," not "you can, but the trap fires".
+            if ($sabotageRow !== null
+                && (int) $sabotageRow->placed_by_player_id !== (int) $player->id
+                && $this->sabotage->playerOwnsScanner($player->id)
+            ) {
+                throw CannotSabotageException::cellIsRigged($gridX, $gridY);
+            }
+
+            $activeDrillKey = $this->activeDrillItemKey($player);
+
+            $sabotageOutcome = null;
+            $sabotageDeviceKey = null;
+            $siphonedBarrels = 0;
+            $brokeFromSabotage = false;
+
+            if ($sabotageRow !== null) {
+                $triggerResult = $this->sabotage->trigger($sabotageRow, $player, $activeDrillKey);
+                $sabotageOutcome = (string) $triggerResult['outcome'];
+                $sabotageDeviceKey = (string) $triggerResult['device_key'];
+                $siphonedBarrels = (int) $triggerResult['siphoned_barrels'];
+                $brokeFromSabotage = in_array(
+                    $sabotageOutcome,
+                    ['drill_broken', 'drill_broken_and_siphoned'],
+                    true,
+                );
+
+                // Driller may have just lost barrels (siphon) — refresh
+                // so downstream reads see the new balance rather than
+                // the pre-siphon snapshot.
+                if ($siphonedBarrels > 0) {
+                    $player->refresh();
+                }
+            }
+
+            // A triggered trap (any outcome other than 'normal') zeros
+            // the yield from the cell: the move was spent, the point
+            // becomes depleted, the drill got whatever it got, but no
+            // barrels come out. 'normal' means the planter hit their
+            // own trap and it was ignored — fall through to normal
+            // yield computation.
+            $trapFiredForThisDriller = $sabotageOutcome !== null && $sabotageOutcome !== 'normal';
+
+            if ($trapFiredForThisDriller) {
+                $barrels = 0;
+            } else {
+                $yieldEventKey = 'drill-yield-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.now()->timestamp;
+                $rawBarrels = $this->computeYield($point->quality, $player->drill_tier, $yieldEventKey);
+                // Apply passive yield bonuses (e.g., lucky_charm +5%).
+                $bonusPct = $this->passiveBonus->yieldBonusPct($player);
+                $barrels = (int) floor($rawBarrels * (1.0 + $bonusPct));
+            }
 
             $point->update(['drilled_at' => now()]);
 
@@ -157,6 +220,12 @@ class DrillService
             // the next read after the window passes will clear it.
             $this->fieldRegen->markIfDepleted($field);
 
+            // The siphon path already mutated oil_barrels inside
+            // SabotageService::applySiphon via a direct update() call.
+            // Re-read the in-memory value so we don't overwrite the
+            // post-siphon balance with a stale pre-siphon snapshot,
+            // then add whatever barrels the drill itself produced (0
+            // when a trap fired).
             $player->update([
                 'moves_current' => $player->moves_current - $cost,
                 'oil_barrels' => $player->oil_barrels + $barrels,
@@ -186,12 +255,13 @@ class DrillService
 
             // Break roll for the active drill item (tier 2+ only —
             // the starter "Dentist Drill" (tier 1) is never in
-            // player_items so it's automatically exempt).
-            $brokeNow = false;
-            $brokenKey = null;
-            $activeDrillKey = $this->activeDrillItemKey($player);
+            // player_items so it's automatically exempt). Skipped
+            // entirely when a sabotage trigger already broke the rig
+            // this call — no double-break.
+            $brokeNow = $brokeFromSabotage;
+            $brokenKey = $brokeFromSabotage ? $activeDrillKey : null;
 
-            if ($activeDrillKey !== null) {
+            if (! $brokeFromSabotage && $activeDrillKey !== null) {
                 $eventKey = 'drill-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.$now->timestamp;
                 $breakEvent = $this->itemBreak->rollBreak($player, $eventKey);
 
@@ -204,7 +274,7 @@ class DrillService
 
             // update() already mutated oil_barrels and moves_current in-memory.
             return [
-                'quality' => $point->quality,
+                'quality' => $trapFiredForThisDriller ? 'sabotaged' : $point->quality,
                 'barrels' => $barrels,
                 'new_balance' => (int) $player->oil_barrels,
                 'moves_remaining' => (int) $player->moves_current,
@@ -212,6 +282,9 @@ class DrillService
                 'daily_limit' => $dailyLimit,
                 'drill_broke' => $brokeNow,
                 'broken_item_key' => $brokenKey,
+                'sabotage_outcome' => $sabotageOutcome,
+                'sabotage_device_key' => $sabotageDeviceKey,
+                'siphoned_barrels' => $siphonedBarrels,
             ];
         });
     }

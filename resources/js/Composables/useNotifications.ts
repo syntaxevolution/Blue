@@ -91,6 +91,12 @@ export function subscribeToUserNotifications(userId: number | null | undefined):
     channel.listen('.SpyDetected', handle);
     channel.listen('.RaidCompleted', handle);
     channel.listen('.MdnEvent', handle);
+    // Sabotage — pair of events. SabotageTriggered goes to the planter
+    // when their device fires; RigSabotaged goes to the victim when a
+    // trap fires on them. Both render as plain toasts using the same
+    // envelope shape as the raid events.
+    channel.listen('.SabotageTriggered', handle);
+    channel.listen('.RigSabotaged', handle);
 
     return () => {
         if (currentSubscribedUserId !== userId) return;

@@ -9,14 +9,17 @@ use App\Domain\Economy\ShopService;
 use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\CannotPurchaseException;
+use App\Domain\Exceptions\CannotSabotageException;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
+use App\Domain\Sabotage\SabotageService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DrillRequest;
+use App\Http\Requests\PlaceDeviceRequest;
 use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use Illuminate\Http\RedirectResponse;
@@ -43,6 +46,7 @@ class MapController extends Controller
         private readonly SpyService $spySvc,
         private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
+        private readonly SabotageService $sabotage,
     ) {}
 
     public function show(Request $request): Response
@@ -114,6 +118,37 @@ class MapController extends Controller
             'grid_y' => (int) $request->validated('grid_y'),
             'drill_broke' => (bool) ($result['drill_broke'] ?? false),
             'broken_item_key' => $result['broken_item_key'] ?? null,
+            'sabotage_outcome' => $result['sabotage_outcome'] ?? null,
+            'sabotage_device_key' => $result['sabotage_device_key'] ?? null,
+            'siphoned_barrels' => (int) ($result['siphoned_barrels'] ?? 0),
+        ]);
+    }
+
+    public function placeDevice(PlaceDeviceRequest $request): RedirectResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $result = $this->sabotage->place(
+                $player->id,
+                (int) $request->validated('grid_x'),
+                (int) $request->validated('grid_y'),
+                (string) $request->validated('item_key'),
+            );
+        } catch (InsufficientMovesException | CannotSabotageException $e) {
+            return redirect()->route('map.show')->withErrors(['place_device' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            return redirect()->route('map.show')->withErrors([
+                'place_device' => 'Place failed: '.$e->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('map.show')->with('place_result', [
+            'device_key' => (string) $result['device_key'],
+            'grid_x' => (int) $request->validated('grid_x'),
+            'grid_y' => (int) $request->validated('grid_y'),
+            'remaining_quantity' => (int) $result['remaining_quantity'],
         ]);
     }
 

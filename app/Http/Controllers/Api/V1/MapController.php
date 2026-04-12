@@ -9,14 +9,17 @@ use App\Domain\Economy\ShopService;
 use App\Domain\Exceptions\CannotAttackException;
 use App\Domain\Exceptions\CannotDrillException;
 use App\Domain\Exceptions\CannotPurchaseException;
+use App\Domain\Exceptions\CannotSabotageException;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
+use App\Domain\Sabotage\SabotageService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DrillRequest;
+use App\Http\Requests\PlaceDeviceRequest;
 use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use App\Http\Resources\MapStateResource;
@@ -45,6 +48,7 @@ class MapController extends Controller
         private readonly SpyService $spySvc,
         private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
+        private readonly SabotageService $sabotage,
     ) {}
 
     public function show(Request $request): MapStateResource
@@ -135,6 +139,27 @@ class MapController extends Controller
             return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
         } catch (CannotAttackException $e) {
             return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
+        }
+
+        return new MapStateResource($this->mapState->build($player->fresh()));
+    }
+
+    public function placeDevice(PlaceDeviceRequest $request): MapStateResource|JsonResponse
+    {
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $this->sabotage->place(
+                $player->id,
+                (int) $request->validated('grid_x'),
+                (int) $request->validated('grid_y'),
+                (string) $request->validated('item_key'),
+            );
+        } catch (InsufficientMovesException $e) {
+            return response()->json(['errors' => ['place_device' => $e->getMessage()]], 422);
+        } catch (CannotSabotageException $e) {
+            return response()->json(['errors' => ['place_device' => $e->getMessage()]], 422);
         }
 
         return new MapStateResource($this->mapState->build($player->fresh()));

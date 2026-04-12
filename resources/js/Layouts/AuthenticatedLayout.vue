@@ -8,6 +8,7 @@ import DropdownLink from '@/Components/DropdownLink.vue';
 import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
+import ToolboxDock from '@/Components/Toolbox/ToolboxDock.vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { subscribeToUserNotifications } from '@/Composables/useNotifications';
 
@@ -289,6 +290,8 @@ onBeforeUnmount(() => {
 
         <!-- Global overlays -->
         <ToastContainer />
+
+        <ToolboxDock v-if="authUser" />
 
         <ClaimUsernameModal v-if="requiresClaim" />
 

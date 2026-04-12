@@ -4,7 +4,8 @@ import TileIcon from '@/Components/TileIcon.vue';
 import TransportSwitcher from '@/Components/TransportSwitcher.vue';
 import TeleportModal from '@/Components/TeleportModal.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useToolbox } from '@/Composables/useToolbox';
 
 interface PlayerState {
     id: number;
@@ -29,6 +30,7 @@ interface PlayerState {
     mdn_id?: number | null;
     mdn_tag?: string | null;
     mdn_name?: string | null;
+    owns_sabotage_scanner?: boolean;
 }
 
 interface TransportCatalogEntry {
@@ -81,11 +83,24 @@ interface ShopItem {
     block_reason: string | null;
 }
 
+interface DrillCellSabotage {
+    device_key: string;
+    // true when the viewing player planted this trap — used to show
+    // a distinct "your own trap" style and to block accidental drill.
+    own: boolean;
+}
+
 interface DrillCell {
     grid_x: number;
     grid_y: number;
     quality: string;
     drilled: boolean;
+    // Present when the server says this cell has an active sabotage
+    // visible to the viewer: either the viewer is the planter (spec #4)
+    // or the viewer owns a Deep Scanner (spec #3). Null otherwise —
+    // an invisible trap still exists on the server, the driller just
+    // can't see it.
+    sabotage: DrillCellSabotage | null;
 }
 
 interface OilFieldDetail {
@@ -167,6 +182,7 @@ const drillError = computed(() => errors.value.drill ?? null);
 const purchaseError = computed(() => errors.value.purchase ?? null);
 const spyError = computed(() => errors.value.spy ?? null);
 const attackError = computed(() => errors.value.attack ?? null);
+const placeError = computed(() => errors.value.place_device ?? null);
 const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
 interface DrillResult {
     barrels: number;
@@ -175,6 +191,9 @@ interface DrillResult {
     grid_y: number;
     drill_broke: boolean;
     broken_item_key: string | null;
+    sabotage_outcome: string | null;
+    sabotage_device_key: string | null;
+    siphoned_barrels: number;
 }
 const drillResult = computed<DrillResult | null>(
     () => (flash.value.drill_result as DrillResult | undefined) ?? null,
@@ -182,11 +201,44 @@ const drillResult = computed<DrillResult | null>(
 const drillResultText = computed<string | null>(() => {
     const r = drillResult.value;
     if (!r) return null;
+    // Sabotage outcomes take priority over the ordinary drill message —
+    // they describe what actually happened to the player.
+    if (r.sabotage_outcome) {
+        switch (r.sabotage_outcome) {
+            case 'drill_broken_and_siphoned':
+                return `A planted device triggered: your rig was wrecked and ${r.siphoned_barrels} barrels were siphoned straight out of your stash.`;
+            case 'drill_broken':
+                return 'A planted device triggered: your rig was wrecked. Head to a Tech post to replace it.';
+            case 'siphoned_tier_one':
+                return `A siphon charge triggered: your starter rig held together, but ${r.siphoned_barrels} barrels vanished down the pipe.`;
+            case 'fizzled_tier_one':
+                return 'A booby-trap triggered on your drill, but the starter rig shrugged it off. You still lost the move.';
+            case 'fizzled_immune':
+                return 'A planted device triggered on you — but you got lucky this time. New-player immunity held.';
+            case 'detected':
+                return 'A Tripwire Ward saved your rig from a planted device. One ward consumed.';
+        }
+    }
     const core = `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
     if (r.drill_broke) {
         return `${core} Your drill broke — head to a Tech post to repair or replace it.`;
     }
     return core;
+});
+
+interface PlaceResult {
+    device_key: string;
+    grid_x: number;
+    grid_y: number;
+    remaining_quantity: number;
+}
+const placeResult = computed<PlaceResult | null>(
+    () => (flash.value.place_result as PlaceResult | undefined) ?? null,
+);
+const placeResultText = computed<string | null>(() => {
+    const r = placeResult.value;
+    if (!r) return null;
+    return `Planted ${r.device_key} at (${r.grid_x}, ${r.grid_y}). ${r.remaining_quantity} remaining in your toolbox.`;
 });
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
@@ -217,11 +269,51 @@ function travel(direction: 'n' | 's' | 'e' | 'w') {
     router.post(route('map.move'), { direction }, { preserveScroll: true, preserveState: true });
 }
 
+const toolbox = useToolbox();
+
 function drill(cell: DrillCell) {
+    // Placement mode hijacks clicks on the drill grid: the same cell
+    // the player would normally drill becomes their plant target.
+    if (toolbox.state.placementActive && toolbox.state.placementDeviceKey) {
+        // Cannot plant on an already-depleted cell or one that already
+        // has a visible trap (own or scanner-revealed).
+        if (cell.drilled) return;
+        if (cell.sabotage !== null) return;
+        router.post(
+            route('map.place_device'),
+            {
+                grid_x: cell.grid_x,
+                grid_y: cell.grid_y,
+                item_key: toolbox.state.placementDeviceKey,
+            },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onSuccess: () => toolbox.exit(),
+            },
+        );
+        return;
+    }
+
     if (cell.drilled) return;
     if (dailyDrillLimitReached.value) return;
+    // Scanner-visible trap planted by someone else → block. Own traps
+    // also block to protect the planter from fat-fingering into their
+    // own mine.
+    if (cell.sabotage !== null) return;
     router.post(route('map.drill'), { grid_x: cell.grid_x, grid_y: cell.grid_y }, { preserveScroll: true, preserveState: true });
 }
+
+// Esc cancels placement mode. Registered globally while Map.vue is
+// mounted so the dock's "cancel" button and the keyboard shortcut
+// both point at the same composable method.
+function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && toolbox.state.placementActive) {
+        toolbox.exit();
+    }
+}
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
 
 function buy(item: ShopItem) {
     if (!item.can_purchase) return;
@@ -302,6 +394,20 @@ function drillCellClass(cell: DrillCell | undefined): string {
     if (cell.drilled) {
         return 'bg-zinc-950 border-zinc-800 text-zinc-700 cursor-not-allowed';
     }
+    // Visible traps take priority in the renderer.
+    if (cell.sabotage !== null) {
+        if (cell.sabotage.own) {
+            // Your own trap — amber outline so you know it's there and
+            // won't drill into it by accident.
+            return 'bg-amber-950/60 border-amber-700/60 text-amber-400 cursor-not-allowed';
+        }
+        // Someone else's trap, revealed by Deep Scanner. Red hazard.
+        return 'bg-rose-950/50 border-rose-800/70 text-rose-400 cursor-not-allowed';
+    }
+    // Placement mode: non-drilled cells glow amber as "plant here" targets.
+    if (toolbox.state.placementActive) {
+        return 'bg-zinc-800 border-amber-500/50 hover:border-amber-400 hover:bg-amber-950/40 text-amber-400 cursor-crosshair';
+    }
     if (dailyDrillLimitReached.value) {
         return 'bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed';
     }
@@ -311,6 +417,10 @@ function drillCellClass(cell: DrillCell | undefined): string {
 function drillCellLabel(cell: DrillCell | undefined): string {
     if (!cell) return '·';
     if (cell.drilled) return '✕';
+    if (cell.sabotage !== null) {
+        return cell.sabotage.own ? '⚑' : '☠';
+    }
+    if (toolbox.state.placementActive) return '+';
     return '?';
 }
 
@@ -456,11 +566,13 @@ const canAttackNow = computed(() => {
 
                 <!-- Flash messages -->
                 <div v-if="drillResultText" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ drillResultText }}</div>
+                <div v-if="placeResultText" class="bg-amber-950/50 border border-amber-700/50 rounded-lg p-3 text-amber-300 text-sm font-mono">{{ placeResultText }}</div>
                 <div v-if="purchaseResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ purchaseResult }}</div>
                 <div v-if="spyResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ spyResult }}</div>
                 <div v-if="attackResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ attackResult }}</div>
                 <div v-if="travelError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ travelError }}</div>
                 <div v-if="drillError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ drillError }}</div>
+                <div v-if="placeError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ placeError }}</div>
                 <div v-if="purchaseError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ purchaseError }}</div>
                 <div v-if="spyError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ spyError }}</div>
                 <div v-if="attackError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ attackError }}</div>
@@ -541,7 +653,9 @@ const canAttackNow = computed(() => {
                             <div class="w-full mt-4">
                                 <!-- Oil field -->
                                 <div v-if="state.tile_detail?.kind === 'oil_field'">
-                                    <div class="text-zinc-500 text-xs uppercase mb-2 tracking-widest">Drill grid — 2 moves per cell</div>
+                                    <div class="text-zinc-500 text-xs uppercase mb-2 tracking-widest">
+                                        {{ toolbox.state.placementActive ? `Placement — click a cell to plant ${toolbox.state.placementDeviceName}` : 'Drill grid — 2 moves per cell' }}
+                                    </div>
                                     <div class="mb-3 text-sm font-mono">
                                         <span :class="dailyDrillLimitReached ? 'text-rose-400' : 'text-amber-400'">
                                             Drilled today: {{ state.tile_detail.daily_count }}/{{ state.tile_detail.daily_limit || 5 }}
@@ -559,9 +673,15 @@ const canAttackNow = computed(() => {
                                                 type="button"
                                                 class="relative w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
-                                                :disabled="drillGridMap[`${x}:${y}`]?.drilled || dailyDrillLimitReached"
+                                                :disabled="
+                                                    drillGridMap[`${x}:${y}`]?.drilled
+                                                    || drillGridMap[`${x}:${y}`]?.sabotage !== null
+                                                    || (!toolbox.state.placementActive && dailyDrillLimitReached)
+                                                "
                                                 @click="drill(drillGridMap[`${x}:${y}`])"
-                                                :title="`(${x}, ${y})`"
+                                                :title="drillGridMap[`${x}:${y}`]?.sabotage
+                                                    ? (drillGridMap[`${x}:${y}`]?.sabotage?.own ? `(${x}, ${y}) — your planted device` : `(${x}, ${y}) — RIGGED (scanner reveal)`)
+                                                    : `(${x}, ${y})`"
                                             >
                                                 {{ drillCellLabel(drillGridMap[`${x}:${y}`]) }}
                                                 <span
@@ -582,7 +702,13 @@ const canAttackNow = computed(() => {
                                             </button>
                                         </div>
                                     </div>
-                                    <div class="text-zinc-500 text-xs mt-3">? = undrilled · ✕ = depleted</div>
+                                    <div class="text-zinc-500 text-xs mt-3">
+                                        ? = undrilled · ✕ = depleted
+                                        <template v-if="state.player.owns_sabotage_scanner || toolbox.state.placementActive">
+                                            · <span class="text-rose-400">☠</span> = rigged · <span class="text-amber-400">⚑</span> = your trap
+                                        </template>
+                                    </div>
+                                    <div v-if="state.player.owns_sabotage_scanner" class="text-[10px] text-amber-400/80 mt-1 uppercase tracking-widest">Deep Scanner active — rigged cells highlighted</div>
                                 </div>
 
                                 <!-- Post -->

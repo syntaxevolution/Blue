@@ -161,17 +161,70 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Items — break/repair/abandon lifecycle
+    | Items — break/repair/abandon lifecycle + sabotage deployables
     |--------------------------------------------------------------------------
     | Currently only drill-tier items break (effect key 'set_drill_tier').
     | To extend: add another effect key to eligible_effect_keys and hook
     | the break roll into the relevant service (e.g., TransportMovementService).
+    |
+    | Sabotage pricing lives under items.* so ItemsCatalogSeeder can read it
+    | the same way transport/teleporter costs are sourced — a single tuning
+    | surface in the Filament admin panel overrides all of them without a
+    | deploy. Sabotage rules (what triggers break, who's immune, steal %)
+    | live under the 'sabotage' block further down.
     */
     'items' => [
         'break' => [
             'enabled' => true,
             'eligible_effect_keys' => ['set_drill_tier'],
             'repair_cost_pct' => 0.10,
+        ],
+        'gremlin_coil' => [
+            'price_barrels' => 500,
+        ],
+        'siphon_charge' => [
+            'price_barrels' => 5000,
+        ],
+        'tripwire_ward' => [
+            'price_barrels' => 100,
+        ],
+        'deep_scanner' => [
+            'price_barrels' => 10000,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sabotage — drill-point traps + counter measures
+    |--------------------------------------------------------------------------
+    | Deployable devices a player plants on a single drill point. The next
+    | driller to pick that cell triggers the trap (unless they have counter
+    | coverage). See app/Domain/Sabotage/SabotageService.
+    |
+    | Rules:
+    | - place_move_cost: moves charged to plant a device
+    | - max_per_drill_point: hard cap on active traps per cell (always 1)
+    | - min_drill_tier_to_break: tier 1 (Dentist Drill / starter) is
+    |   always exempt — a trap fizzles against a tier-1 drill user
+    | - ignore_own_traps: planter never triggers their own traps
+    | - trap_ttl_hours: null = infinite lifetime. Set to a positive int
+    |   to auto-expire armed traps on next read (not yet enforced — wired
+    |   as a config hook for when we want to tune it later)
+    | - immune_players_protected: true means new-player immunity causes
+    |   the trap to fizzle with no break / no siphon, but the detector
+    |   counter is consumed. Spec: "lucky this time"
+    | - siphon.steal_pct: fraction of victim's oil barrels siphoned to
+    |   the planter on a successful Siphon Charge trigger
+    */
+    'sabotage' => [
+        'place_move_cost' => 1,
+        'max_per_drill_point' => 1,
+        'min_drill_tier_to_break' => 2,
+        'ignore_own_traps' => true,
+        'trap_ttl_hours' => null,
+        'immune_players_protected' => true,
+        'siphon' => [
+            'steal_pct' => 0.5,
         ],
     ],
 

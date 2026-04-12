@@ -30,6 +30,17 @@ class ItemsCatalogSeeder extends Seeder
         $extraMovesCost = (int) $config->get('general_store.extra_moves.cost_barrels');
         $extraMovesAmount = (int) $config->get('general_store.extra_moves.amount');
 
+        // Sabotage items live under items.* in config so tuning their cost
+        // doesn't require re-running the seeder or a deploy — the shop
+        // reads price_barrels from items_catalog, and the seeder is the
+        // source of that mirror. Admins who want to re-price live should
+        // update items_catalog directly (Filament) rather than touching
+        // the config keys.
+        $gremlinCoilCost = (int) $config->get('items.gremlin_coil.price_barrels');
+        $siphonChargeCost = (int) $config->get('items.siphon_charge.price_barrels');
+        $tripwireWardCost = (int) $config->get('items.tripwire_ward.price_barrels');
+        $deepScannerCost = (int) $config->get('items.deep_scanner.price_barrels');
+
         $items = [
             /* ------------------------------------------------------------ */
             /* Strength post — melee weapons, +strength                      */
@@ -142,6 +153,31 @@ class ItemsCatalogSeeder extends Seeder
 
             // Teleporter
             ['key' => 'teleporter',        'post_type' => 'general', 'name' => 'Teleporter',          'description' => 'Brass, filigree, vaguely biblical. Pay a small oil tribute each use.',                                             'price_barrels' => $teleporterCost, 'effects' => ['unlocks_teleport' => true], 'sort_order' => 300],
+
+            /* ------------------------------------------------------------ */
+            /* General store — sabotage deployables + counter measures       */
+            /* ------------------------------------------------------------ */
+            // Stackable deployable consumables. Each plant decrements quantity
+            // by 1 via SabotageService::place(); when quantity hits 0 the
+            // player_items row is removed so the Toolbox HUD hides it.
+            // Not in ShopService::SINGLE_PURCHASE_EFFECT_KEYS — buy as many
+            // as you want, stack them in the Toolbox, plant whenever.
+            ['key' => 'gremlin_coil',      'post_type' => 'general', 'name' => 'Gremlin Coil',        'description' => 'Plant it in a drill hole. The next rig that hits it wrecks itself. Does nothing to the player behind the wheel — only the hardware.',                                  'price_barrels' => $gremlinCoilCost,  'effects' => ['deployable_sabotage' => 'rig_wrecker'], 'sort_order' => 400],
+            ['key' => 'siphon_charge',     'post_type' => 'general', 'name' => 'Siphon Charge',       'description' => 'A Gremlin Coil wired to a vacuum pump. Wrecks the rig AND steals half the victim\'s oil, piped straight back to you. Expensive for a reason.',                          'price_barrels' => $siphonChargeCost, 'effects' => ['deployable_sabotage' => 'siphon'],      'sort_order' => 410],
+
+            // Counter: stackable consumable. Having ≥1 in your inventory is
+            // passive coverage — a trap triggered on you consumes one
+            // Tripwire Ward and leaves your rig untouched (you still lose
+            // the move and get no barrels from that cell).
+            ['key' => 'tripwire_ward',     'post_type' => 'general', 'name' => 'Tripwire Ward',       'description' => 'A handheld sensor that screams right before your rig touches something it shouldn\'t. Auto-consumes on contact to save your drill.',                                    'price_barrels' => $tripwireWardCost, 'effects' => ['counter_measure' => 'detector'],        'sort_order' => 420],
+
+            // Counter: single-purchase, permanent, passive. When you stand
+            // on an oil field, any active trap placed by someone else is
+            // revealed on the drill grid and the square is click-blocked
+            // client-side (server defensively rejects too). Flagged as
+            // single-purchase via `unlocks` (it lives in ShopService's
+            // SINGLE_PURCHASE_EFFECT_KEYS list already).
+            ['key' => 'deep_scanner',      'post_type' => 'general', 'name' => 'Deep Scanner',        'description' => 'Seismic imaging rig strapped to your belt. Shows you which drill points on the current field are rigged to blow. Once owned, always on.',                           'price_barrels' => $deepScannerCost,  'effects' => ['unlocks' => ['sabotage_scanner']],      'sort_order' => 430],
         ];
 
         foreach ($items as $data) {
