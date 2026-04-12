@@ -174,24 +174,57 @@ class ItemBreakService
                 return;
             }
 
-            /** @var Item $item */
-            $item = Item::query()->where('key', $key)->firstOrFail();
-
-            PlayerItem::query()
-                ->where('player_id', $player->id)
-                ->where('item_key', $key)
-                ->delete();
-
-            $updates = ['broken_item_key' => null];
-
-            // If this was a drill-tier item, recompute drill_tier.
-            $effects = $item->effects ?? [];
-            if (isset($effects['set_drill_tier'])) {
-                $updates['drill_tier'] = $this->computeHighestOwnedDrillTier($player->id);
-            }
-
-            $player->update($updates);
+            $this->destroyOwnedItem($player, $key, clearBrokenKey: true);
         });
+    }
+
+    /**
+     * Directly destroy a drill rig without routing through the broken
+     * -item modal. Used by SabotageService so a trap trigger bypasses
+     * the Repair/Abandon choice entirely — spec says sabotage destroys
+     * the rig outright and the player must repurchase at a Tech Post.
+     *
+     * Assumes the caller already holds any relevant locks (this method
+     * is invoked from inside DrillService::drill's transaction via
+     * SabotageService::trigger). Nothing is set on broken_item_key
+     * because we skip the modal entirely.
+     */
+    public function forceAbandonDrill(Player $player, string $itemKey): void
+    {
+        $this->destroyOwnedItem($player, $itemKey, clearBrokenKey: false);
+    }
+
+    /**
+     * Shared deletion path for both the voluntary abandon and the
+     * sabotage force-destroy. Deletes the player_item row, recomputes
+     * drill_tier, and (optionally) clears broken_item_key.
+     */
+    private function destroyOwnedItem(Player $player, string $itemKey, bool $clearBrokenKey): void
+    {
+        /** @var Item|null $item */
+        $item = Item::query()->where('key', $itemKey)->first();
+        if ($item === null) {
+            return;
+        }
+
+        PlayerItem::query()
+            ->where('player_id', $player->id)
+            ->where('item_key', $itemKey)
+            ->delete();
+
+        $updates = [];
+        if ($clearBrokenKey) {
+            $updates['broken_item_key'] = null;
+        }
+
+        $effects = $item->effects ?? [];
+        if (isset($effects['set_drill_tier'])) {
+            $updates['drill_tier'] = $this->computeHighestOwnedDrillTier($player->id);
+        }
+
+        if ($updates !== []) {
+            $player->update($updates);
+        }
     }
 
     /**

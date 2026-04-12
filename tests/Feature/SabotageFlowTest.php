@@ -123,14 +123,17 @@ it('deletes the inventory row when quantity would hit zero', function () {
     expect($row)->toBeNull();
 });
 
-it('breaks a tier-2 drill when a gremlin coil triggers on a non-planter', function () {
-    // Planter has a trap. Victim has a tier-2 drill.
+it('destroys a tier-2 drill when a gremlin coil triggers on a non-planter', function () {
+    // Planter has a trap. Victim has a tier-2 drill. After the trap
+    // fires, the drill should be *destroyed* (player_item deleted,
+    // drill_tier dropped to 1) rather than routed through the normal
+    // broken-item repair modal — sabotage skips the repair option per
+    // spec #9 "destroyed, buy new, no repair".
     [$planter, $field] = sabotagePlayerOnField();
     giveToolboxItem($planter, 'gremlin_coil', 1);
     app(SabotageService::class)->place($planter->id, 3, 3, 'gremlin_coil');
 
     [$victim, $victimField] = sabotagePlayerOnField();
-    // Re-point victim at the same field the planter seeded.
     $victim->update(['current_tile_id' => $field->tile_id]);
     equipDrillTier($victim->fresh(), 'shovel_rig', 2);
     $victim = $victim->fresh();
@@ -143,7 +146,17 @@ it('breaks a tier-2 drill when a gremlin coil triggers on a non-planter', functi
     expect($result['barrels'])->toBe(0);
 
     $victim->refresh();
-    expect($victim->broken_item_key)->toBe('shovel_rig');
+    // broken_item_key must be NULL — the player was not routed through
+    // the Repair/Abandon modal. forceAbandonDrill just deletes the row.
+    expect($victim->broken_item_key)->toBeNull();
+    // Drill tier drops to 1 (starter) because shovel_rig was the only
+    // owned drill.
+    expect((int) $victim->drill_tier)->toBe(1);
+    // player_items row for shovel_rig is gone.
+    expect(\App\Models\PlayerItem::query()
+        ->where('player_id', $victim->id)
+        ->where('item_key', 'shovel_rig')
+        ->exists())->toBeFalse();
 
     $trap = DrillPointSabotage::query()->where('drill_point_id', DrillPoint::where([
         'oil_field_id' => $field->id, 'grid_x' => 3, 'grid_y' => 3,

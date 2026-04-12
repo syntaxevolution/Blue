@@ -360,8 +360,22 @@ class SabotageService
 
         // Rig break portion — skipped entirely when the driller is on
         // tier 1 (they always have the starter drill, can't lose it).
+        //
+        // Uses forceAbandonDrill (not markBroken) because the spec
+        // mandates "destroyed, must be repurchased, no option to
+        // repair" for sabotage-destroyed rigs. markBroken would route
+        // the player through the BrokenItemModal and let them pay 10%
+        // to repair — that's the path for random wear-break rolls,
+        // not for deliberate sabotage. forceAbandonDrill deletes the
+        // drill row outright and drops drill_tier to the next-highest
+        // owned tier (or 1), so the player keeps playing with whatever
+        // cheaper drill they still own and can rebuy the destroyed
+        // tier at a Tech Post at its normal price.
         if ($canBreakRig) {
-            $this->itemBreak->markBroken($driller, $activeDrillItemKey);
+            $this->itemBreak->forceAbandonDrill($driller, $activeDrillItemKey);
+            // Reload so downstream reads see the new drill_tier
+            // (drill_tier may have just dropped from e.g. 4 → 1).
+            $driller->refresh();
         }
 
         // Pick the narrative outcome for the audit row.

@@ -31,9 +31,23 @@ interface OwnedItem {
 
 const page = usePage();
 
-const ownedItems = computed<OwnedItem[]>(
-    () => (page.props.owned_items as OwnedItem[] | undefined) ?? [],
-);
+// owned_items is shared globally by HandleInertiaRequests under
+// `auth.owned_items` (as a lazy closure). It's NOT exposed at the top
+// level of page.props — reading from there used to silently return
+// undefined and leave the dock permanently empty even after the player
+// bought items, which made it look like the toolbox was tile-gated.
+// Read from the correct path, and fall back to the per-page `state`
+// copy that MapStateBuilder adds on /map so a partial reload without
+// the auth share still works.
+const ownedItems = computed<OwnedItem[]>(() => {
+    const auth = page.props.auth as { owned_items?: OwnedItem[] } | undefined;
+    if (Array.isArray(auth?.owned_items)) return auth.owned_items;
+
+    const state = page.props.state as { owned_items?: OwnedItem[] } | undefined;
+    if (Array.isArray(state?.owned_items)) return state.owned_items;
+
+    return [];
+});
 
 const currentTileType = computed<string | null>(() => {
     const state = page.props.state as { current_tile?: { type?: string } } | undefined;
