@@ -11,8 +11,11 @@ return new class extends Migration
         Schema::create('casino_sessions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('player_id')->constrained('players')->cascadeOnDelete();
-            $table->timestamp('entered_at');
-            $table->timestamp('expires_at');
+            // datetime (not timestamp) to avoid MariaDB's legacy
+            // "TIMESTAMP NOT NULL → 0000-00-00 default" rejection under
+            // strict sql_mode. We populate both columns in CasinoService.
+            $table->dateTime('entered_at');
+            $table->dateTime('expires_at');
             $table->decimal('fee_amount', 12, 2);
             $table->timestamps();
 

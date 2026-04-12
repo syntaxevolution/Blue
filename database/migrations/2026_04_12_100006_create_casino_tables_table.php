@@ -33,8 +33,9 @@ return new class extends Migration
             $table->tinyInteger('seat_number')->unsigned();
             $table->decimal('stack', 12, 2)->default(0);
             $table->enum('status', ['active', 'folded', 'sitting_out', 'left'])->default('active');
-            $table->timestamp('joined_at');
-            $table->timestamp('last_action_at')->nullable();
+            // datetime avoids MariaDB's legacy TIMESTAMP NOT NULL default.
+            $table->dateTime('joined_at');
+            $table->dateTime('last_action_at')->nullable();
             $table->timestamps();
 
             $table->unique(['casino_table_id', 'seat_number']);

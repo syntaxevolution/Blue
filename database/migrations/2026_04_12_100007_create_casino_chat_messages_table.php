@@ -13,7 +13,8 @@ return new class extends Migration
             $table->foreignId('casino_table_id')->constrained('casino_tables')->cascadeOnDelete();
             $table->foreignId('player_id')->constrained('players')->cascadeOnDelete();
             $table->string('message', 500);
-            $table->timestamp('created_at');
+            // datetime avoids MariaDB's legacy TIMESTAMP NOT NULL default.
+            $table->dateTime('created_at');
 
             $table->index(['casino_table_id', 'created_at']);
         });
