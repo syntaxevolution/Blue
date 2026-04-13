@@ -403,62 +403,102 @@ return [
     */
     'bots' => [
         'tick_interval_minutes' => 5,
+
+        // Max per-tick move spend. Unlike the old system this is a hard
+        // cap on travel/action steps pushing one single goal — not N
+        // independent weighted rolls — so a bot with a 3-tile path to
+        // an oil field will reach it and drill on the same tick.
         'actions_per_tick_max' => 3,
-        // How many consecutive ticks a scouting bot will hold the same
-        // cardinal direction before rerolling. With the 5-min tick
-        // cadence, 20 ≈ 100 minutes of sustained walking before the
-        // bot considers a new heading. Targets found mid-walk (oil
-        // fields, posts, raidable bases) reset the counter naturally
-        // via BotDecisionService::clearScoutHeading.
-        'scout_max_ticks_per_direction' => 20,
+
+        // How long a picked goal stays valid before the tick loop
+        // force-replans. Stops a bot clinging to an unreachable or
+        // stale target (e.g. field depleted by a rush, target player
+        // went immune mid-walk and planner didn't notice).
+        'goal_max_ttl_minutes' => 60,
+
+        // Consecutive step() exceptions before the goal is torn down
+        // and replanned. Small on purpose — if a goal breaks 3 times in
+        // a row it's almost certainly invalid and retrying wastes
+        // moves. Counter resets on any successful step.
+        'goal_fail_clear_threshold' => 3,
+
+        // Explore budget: how many tiles the fallback "walk and reveal"
+        // goal commits to before replanning. At the 5-min cadence and
+        // 3 moves/tick, 15 tiles ≈ 5 ticks ≈ 25 wall-clock minutes of
+        // sustained scouting — long enough to escape a fog pocket,
+        // short enough to abort if the heading is a dead end.
+        'explore_budget_tiles' => 15,
+
+        // Revenge / defensive-mode trigger. If the bot was the defender
+        // in >= N attacks in the last M hours, shop priority flips to
+        // fort/security first and raid targeting prefers recent
+        // attackers over random high-cash targets. Clears automatically
+        // once the incidents age out of the window.
+        'defensive_mode' => [
+            'recent_attack_window_hours' => 24,
+            'recent_attack_threshold' => 2,
+            // How long the bot keeps prioritising a revenge target
+            // after it's been identified. Shorter than the detection
+            // window so the bot eventually moves on if the attacker
+            // went cold.
+            'revenge_target_ttl_hours' => 12,
+        ],
+
+        // Sabotage heuristic: "rival-drilled field" is any oil field
+        // where non-bot, non-self drill_points were worked in the last
+        // N hours. Planner picks the field with the most rival hits.
+        'sabotage' => [
+            'rival_drill_window_hours' => 24,
+            'min_rival_hits' => 2,
+        ],
+
         'email_domain' => 'bots.cashclash.local',
         // Word pool used by bots:spawn when auto-generating names.
         'name_pool' => [
             'adjectives' => ['Rusty', 'Dusty', 'Silent', 'Iron', 'Sandy', 'Shady', 'Greasy', 'Feral', 'Tinny', 'Cobalt', 'Brass', 'Hollow'],
             'nouns'      => ['Jack', 'Whip', 'Prowler', 'Hound', 'Scrap', 'Fang', 'Coil', 'Drifter', 'Ghost', 'Shark', 'Badger', 'Vulture'],
         ],
+
+        // Per-tier gates. The planner ladder is always the same —
+        // raid → spy → sabotage → drill → shop → explore — but these
+        // flags let easy bots skip whole branches (no raiding, no
+        // sabotage) so new players aren't immediately dogpiled.
+        // `upgrade_threshold_barrels` is the minimum barrel reserve
+        // before a bot will spend on stat/drill/unlock upgrades.
+        // `min_target_cash` is the raid-worthiness floor.
+        // `risk_tolerance` drives shop ordering under normal mode:
+        //   > 0.6 → drill_tier, strength first (offense)
+        //   0.4–0.6 → balanced
+        //   < 0.4 → fortification, security first (defense)
+        // Defensive-mode (see above) always flips ordering to
+        // fort/sec-first regardless of risk_tolerance.
         'difficulty' => [
             'easy' => [
                 'label' => 'Easy',
-                'action_weights' => [
-                    'drill'  => 70,
-                    'shop'   => 20,
-                    'spy'    => 5,
-                    'attack' => 5,
-                ],
-                // Minimum barrels in reserve before the bot will buy stat
-                // items, drill upgrades, or transports. Keeps easy bots
-                // from going broke on upgrades when they should be drilling.
                 'upgrade_threshold_barrels' => 500,
                 'min_target_cash' => 20.0,
                 'risk_tolerance' => 0.3,
                 'travel_range_tiles' => 6,
+                'can_raid' => false,
+                'can_sabotage' => false,
             ],
             'normal' => [
                 'label' => 'Normal',
-                'action_weights' => [
-                    'drill'  => 50,
-                    'shop'   => 20,
-                    'spy'    => 15,
-                    'attack' => 15,
-                ],
                 'upgrade_threshold_barrels' => 300,
                 'min_target_cash' => 10.0,
                 'risk_tolerance' => 0.55,
                 'travel_range_tiles' => 12,
+                'can_raid' => true,
+                'can_sabotage' => false,
             ],
             'hard' => [
                 'label' => 'Hard',
-                'action_weights' => [
-                    'drill'  => 35,
-                    'shop'   => 15,
-                    'spy'    => 25,
-                    'attack' => 25,
-                ],
                 'upgrade_threshold_barrels' => 100,
                 'min_target_cash' => 5.0,
                 'risk_tolerance' => 0.8,
                 'travel_range_tiles' => 20,
+                'can_raid' => true,
+                'can_sabotage' => true,
             ],
         ],
     ],

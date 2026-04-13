@@ -51,8 +51,9 @@ class Player extends Model
         'bot_difficulty',
         'bot_last_tick_at',
         'bot_moves_budget',
-        'bot_scout_direction',
-        'bot_scout_ticks_held',
+        'bot_current_goal',
+        'bot_goal_expires_at',
+        'bot_goal_fail_count',
     ];
 
     protected $casts = [
@@ -77,7 +78,9 @@ class Player extends Model
         'last_bankruptcy_at' => 'datetime',
         'bot_last_tick_at' => 'datetime',
         'bot_moves_budget' => 'integer',
-        'bot_scout_ticks_held' => 'integer',
+        'bot_current_goal' => 'array',
+        'bot_goal_expires_at' => 'datetime',
+        'bot_goal_fail_count' => 'integer',
     ];
 
     public function user(): BelongsTo
