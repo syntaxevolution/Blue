@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
+import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import BrokenItemModal from '@/Components/BrokenItemModal.vue';
 import ClaimUsernameModal from '@/Components/ClaimUsernameModal.vue';
@@ -10,7 +10,12 @@ import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
 import ToastContainer from '@/Components/ToastContainer.vue';
 import ToolboxDock from '@/Components/Toolbox/ToolboxDock.vue';
 import { Link, usePage } from '@inertiajs/vue3';
-import { subscribeToUserNotifications } from '@/Composables/useNotifications';
+import {
+    subscribeToUserNotifications,
+    badgeDeltas,
+    resetActivityBadgeDelta,
+    resetHostilityBadgeDelta,
+} from '@/Composables/useNotifications';
 
 const page = usePage();
 const showingNavigationDropdown = ref(false);
@@ -32,8 +37,30 @@ const brokenItem = computed<BrokenItemPayload | null>(
     () => (page.props.auth?.broken_item as BrokenItemPayload | null) ?? null,
 );
 
-const unreadCount = computed<number>(
+// Server-authoritative unread counts, refreshed on every Inertia
+// visit via HandleInertiaRequests::share(). The displayed value adds
+// an in-memory delta that broadcast events bump in real time; when
+// the server count changes (i.e. after a navigation), the watcher
+// zeros out the delta so we don't double-count.
+const serverActivityCount = computed<number>(
     () => Number(page.props.auth?.unread_activity_count ?? 0),
+);
+const serverHostilityCount = computed<number>(
+    () => Number(page.props.auth?.unread_hostility_count ?? 0),
+);
+
+watch(serverActivityCount, () => {
+    resetActivityBadgeDelta();
+});
+watch(serverHostilityCount, () => {
+    resetHostilityBadgeDelta();
+});
+
+const unreadCount = computed<number>(
+    () => serverActivityCount.value + badgeDeltas.activity,
+);
+const unreadHostilityCount = computed<number>(
+    () => serverHostilityCount.value + badgeDeltas.hostility,
 );
 
 let teardown: () => void = () => undefined;
@@ -92,7 +119,15 @@ onBeforeUnmount(() => {
                                 :href="route('attack_log.show')"
                                 :active="route().current('attack_log.show')"
                             >
-                                Hostility Log
+                                <span class="inline-flex items-center gap-1">
+                                    Hostility Log
+                                    <span
+                                        v-if="unreadHostilityCount > 0"
+                                        class="rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-zinc-950"
+                                    >
+                                        {{ unreadHostilityCount }}
+                                    </span>
+                                </span>
                             </NavLink>
                             <NavLink
                                 :href="route('mdn.index')"
@@ -230,7 +265,7 @@ onBeforeUnmount(() => {
                         :href="route('attack_log.show')"
                         :active="route().current('attack_log.show')"
                     >
-                        Hostility Log
+                        Hostility Log <span v-if="unreadHostilityCount > 0">({{ unreadHostilityCount }})</span>
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
                         :href="route('mdn.index')"

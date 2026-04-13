@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Combat\AttackLogService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Notifications\ActivityLogService;
 use App\Models\Item;
@@ -53,6 +54,19 @@ class HandleInertiaRequests extends Middleware
             }
         }
 
+        // Eagerly evaluate both unread counts so the navbar badges
+        // refresh on every Inertia navigation (including the redirect
+        // back from /map/move). Closures in shared props can be
+        // skipped during partial reloads; plain values always ride
+        // along, which is what we want for the always-visible navbar.
+        $unreadActivityCount = $user !== null
+            ? app(ActivityLogService::class)->unreadCount((int) $user->id)
+            : 0;
+
+        $unreadHostilityCount = $player !== null
+            ? app(AttackLogService::class)->unreadCount($player)
+            : 0;
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -62,13 +76,8 @@ class HandleInertiaRequests extends Middleware
                 'broken_item_key' => $player?->broken_item_key,
                 'broken_item' => $brokenItem,
                 'active_transport' => $player?->active_transport ?? 'walking',
-                'unread_activity_count' => function () use ($user) {
-                    if ($user === null) {
-                        return 0;
-                    }
-
-                    return app(ActivityLogService::class)->unreadCount((int) $user->id);
-                },
+                'unread_activity_count' => $unreadActivityCount,
+                'unread_hostility_count' => $unreadHostilityCount,
                 // Lazy-loaded via closure so only pages that actually
                 // render the gear modal pay for the query.
                 'owned_items' => function () use ($user) {

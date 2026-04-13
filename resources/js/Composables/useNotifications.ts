@@ -16,6 +16,30 @@ const state = reactive<NotificationState>({
     toasts: [],
 });
 
+/**
+ * Live-increment deltas for the navbar unread badges.
+ *
+ * The authoritative unread counts are server-rendered into
+ * page.props.auth on every Inertia visit. Between visits, broadcast
+ * events fire and we want the badge to bump immediately (before the
+ * player navigates), so we track an additive delta here. The layout
+ * adds `serverCount + delta` for the displayed value and resets the
+ * delta to 0 whenever the server count changes — at that point the
+ * fresh prop already reflects the events we were counting locally.
+ */
+export const badgeDeltas = reactive<{ activity: number; hostility: number }>({
+    activity: 0,
+    hostility: 0,
+});
+
+export function resetActivityBadgeDelta(): void {
+    badgeDeltas.activity = 0;
+}
+
+export function resetHostilityBadgeDelta(): void {
+    badgeDeltas.hostility = 0;
+}
+
 let toastCounter = 0;
 
 export function pushToast(t: Omit<ToastPayload, 'id'>): void {
@@ -83,24 +107,36 @@ export function subscribeToUserNotifications(userId: number | null | undefined):
     currentSubscribedUserId = userId;
     const channel = window.Echo.private(`App.Models.User.${userId}`);
 
-    const handle = (payload: Omit<ToastPayload, 'id'>) => {
+    // Every broadcast event bumps the activity badge; the subset that
+    // represents harm done to the viewer (`BaseUnderAttack`,
+    // `RigSabotaged`, `TileCombatResolved`) ALSO bumps the hostility
+    // badge so the /attack-log nav link lights up in sync with the
+    // toast. Matches AttackLogService::recentAttacks() — anything
+    // rendered in that feed maps to one of these three event types.
+    const activityOnly = (payload: Omit<ToastPayload, 'id'>) => {
         pushToast(payload);
+        badgeDeltas.activity += 1;
     };
 
-    channel.listen('.BaseUnderAttack', handle);
-    channel.listen('.SpyDetected', handle);
-    channel.listen('.RaidCompleted', handle);
-    channel.listen('.MdnEvent', handle);
+    const activityAndHostility = (payload: Omit<ToastPayload, 'id'>) => {
+        pushToast(payload);
+        badgeDeltas.activity += 1;
+        badgeDeltas.hostility += 1;
+    };
+
+    channel.listen('.BaseUnderAttack', activityAndHostility);
+    channel.listen('.SpyDetected', activityOnly);
+    channel.listen('.RaidCompleted', activityOnly);
+    channel.listen('.MdnEvent', activityOnly);
     // Sabotage — pair of events. SabotageTriggered goes to the planter
-    // when their device fires; RigSabotaged goes to the victim when a
-    // trap fires on them. Both render as plain toasts using the same
-    // envelope shape as the raid events.
-    channel.listen('.SabotageTriggered', handle);
-    channel.listen('.RigSabotaged', handle);
-    // Wasteland tile combat — defender-side toast. Attacker identity
-    // is NOT in the payload (anonymous by design, same as BaseUnderAttack);
-    // the Counter-Intel Dossier unlocks it on /attack-log.
-    channel.listen('.TileCombatResolved', handle);
+    // when their device fires (they caused harm, not suffered it, so
+    // activity-only); RigSabotaged goes to the victim (harm suffered,
+    // so it also bumps hostility).
+    channel.listen('.SabotageTriggered', activityOnly);
+    channel.listen('.RigSabotaged', activityAndHostility);
+    // Wasteland tile combat — defender-side event only. Defender has
+    // suffered harm → bumps hostility alongside activity.
+    channel.listen('.TileCombatResolved', activityAndHostility);
 
     return () => {
         if (currentSubscribedUserId !== userId) return;

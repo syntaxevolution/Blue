@@ -31,6 +31,53 @@ class AttackLogService
     }
 
     /**
+     * Count hostile events the player hasn't seen yet — i.e. events
+     * newer than their `hostility_log_last_viewed_at` bookmark. Merges
+     * the same three sources as `recentAttacks()` (incoming raids,
+     * triggered sabotage traps, tile-combat engagements) so the navbar
+     * badge matches what they'll see on the /attack-log page.
+     *
+     * A NULL bookmark means "never visited /attack-log" — count every
+     * hostile row the player has on file. The migration that adds this
+     * column backfills existing players to now() so a fresh deploy
+     * doesn't suddenly light up old raid history.
+     */
+    public function unreadCount(Player $player): int
+    {
+        $since = $player->hostility_log_last_viewed_at;
+
+        $attacksQuery = DB::table('attacks')
+            ->where('defender_player_id', $player->id);
+        $sabotagesQuery = DB::table('drill_point_sabotages')
+            ->where('triggered_by_player_id', $player->id)
+            ->whereNotNull('triggered_at');
+        $tileCombatsQuery = DB::table('tile_combats')
+            ->where(function ($q) use ($player) {
+                $q->where('attacker_player_id', $player->id)
+                  ->orWhere('defender_player_id', $player->id);
+            });
+
+        if ($since !== null) {
+            $attacksQuery->where('created_at', '>', $since);
+            $sabotagesQuery->where('triggered_at', '>', $since);
+            $tileCombatsQuery->where('created_at', '>', $since);
+        }
+
+        return $attacksQuery->count()
+            + $sabotagesQuery->count()
+            + $tileCombatsQuery->count();
+    }
+
+    /**
+     * Stamp the player's bookmark so all hostile events up to now
+     * are treated as read. Called from AttackLogController::show().
+     */
+    public function markViewed(Player $player): void
+    {
+        $player->forceFill(['hostility_log_last_viewed_at' => now()])->save();
+    }
+
+    /**
      * Chronological feed merging raid attacks, triggered sabotage
      * devices AND tile-combat engagements. All three are rendered by
      * the Vue view as a unified "who did harm to me" list. Entries

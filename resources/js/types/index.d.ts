@@ -21,5 +21,6 @@ export type PageProps<
         broken_item_key?: string | null;
         broken_item?: BrokenItemPayload | null;
         unread_activity_count?: number;
+        unread_hostility_count?: number;
     };
 };

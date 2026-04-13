@@ -31,15 +31,23 @@ class AttackLogController extends Controller
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
 
         if (! $this->attackLog->ownsDossier($player)) {
+            // Non-owners don't see the feed, but we still clear their
+            // badge — otherwise it would stay lit forever for anyone
+            // who hasn't bought the dossier.
+            $this->attackLog->markViewed($player);
+
             return Inertia::render('Game/AttackLog', [
                 'owns_attack_log' => false,
                 'attacks' => [],
             ]);
         }
 
+        $attacks = $this->attackLog->recentAttacks($player);
+        $this->attackLog->markViewed($player);
+
         return Inertia::render('Game/AttackLog', [
             'owns_attack_log' => true,
-            'attacks' => $this->attackLog->recentAttacks($player),
+            'attacks' => $attacks,
         ]);
     }
 }
