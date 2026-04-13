@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Bot\BotGoalPlanner;
 use App\Models\Player;
 use Illuminate\Console\Command;
 
@@ -11,7 +12,7 @@ class BotsList extends Command
 
     protected $description = 'List active bot players.';
 
-    public function handle(): int
+    public function handle(BotGoalPlanner $planner): int
     {
         $difficulty = $this->option('difficulty');
 
@@ -27,27 +28,74 @@ class BotsList extends Command
 
         if ($bots->isEmpty()) {
             $this->warn('No bots.');
+
             return self::SUCCESS;
         }
 
-        $rows = $bots->map(fn (Player $p) => [
-            'id' => $p->id,
-            'name' => $p->user?->name ?? '—',
-            'difficulty' => $p->bot_difficulty ?? '—',
-            'cash' => number_format((float) $p->akzar_cash, 2),
-            'barrels' => $p->oil_barrels,
-            'moves' => $p->moves_current,
-            'pos' => $p->currentTile ? "({$p->currentTile->x},{$p->currentTile->y})" : '—',
-            'goal' => $this->formatGoal($p),
-            'last_tick' => $p->bot_last_tick_at?->diffForHumans() ?? 'never',
-        ])->all();
+        $rows = $bots->map(function (Player $p) use ($planner) {
+            $defensive = $planner->isInDefensiveMode($p);
+
+            return [
+                'id' => $p->id,
+                'name' => $p->user?->name ?? '—',
+                'difficulty' => $p->bot_difficulty ?? '—',
+                'drill_tier' => 'T'.(int) $p->drill_tier,
+                'stats' => $this->formatStats($p),
+                'cash' => number_format((float) $p->akzar_cash, 2),
+                'barrels' => $p->oil_barrels,
+                'intel' => $p->intel,
+                'moves' => $p->moves_current,
+                'pos' => $p->currentTile ? "({$p->currentTile->x},{$p->currentTile->y})" : '—',
+                'mode' => $defensive ? 'DEF' : '—',
+                'goal' => $this->formatGoal($p),
+                'expires' => $this->formatExpires($p),
+                'fails' => (int) $p->bot_goal_fail_count > 0 ? (string) $p->bot_goal_fail_count : '',
+                'last_tick' => $p->bot_last_tick_at?->diffForHumans() ?? 'never',
+            ];
+        })->all();
 
         $this->table(
-            ['#', 'Name', 'Tier', 'Cash', 'Oil', 'Moves', 'Pos', 'Goal', 'Last tick'],
+            ['#', 'Name', 'Tier', 'DrT', 'S/F/St/Sc', 'Cash', 'Oil', 'Intel', 'Moves', 'Pos', 'Mode', 'Goal', 'Expires', 'Fails', 'Last tick'],
             $rows,
         );
         $this->info("Total bots: {$bots->count()}");
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Compact four-stat line: strength/fortification/stealth/security.
+     * Stat cap is 25 per ultraplan, so a single slash-joined cell stays
+     * ≤11 characters wide even at max.
+     */
+    private function formatStats(Player $p): string
+    {
+        return implode('/', [
+            (int) $p->strength,
+            (int) $p->fortification,
+            (int) $p->stealth,
+            (int) $p->security,
+        ]);
+    }
+
+    /**
+     * Short relative expiry for the current goal. Empty string when no
+     * goal / no expiry is set so the column doesn't scream '—' next to
+     * every fresh bot. Past-dated values (shouldn't normally appear —
+     * the tick loop replans on load) are flagged with a † so stale
+     * rows are visible during debugging.
+     */
+    private function formatExpires(Player $p): string
+    {
+        $expires = $p->bot_goal_expires_at;
+        if ($expires === null) {
+            return '';
+        }
+        if ($expires->isPast()) {
+            return '† '.$expires->diffForHumans();
+        }
+
+        return $expires->diffForHumans();
     }
 
     /**
