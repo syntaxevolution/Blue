@@ -63,6 +63,15 @@ return [
         // defense. This is the first real incentive to return home
         // before running out of moves.
         'at_base_defense_bonus_enabled' => true,
+        // Tile Combat — spontaneous PvP on wasteland tiles. Uses the
+        // same RNG band as base raids (combat.rng_band_min/max) and
+        // the same scaled-stat curve, but resolves strength-vs-strength
+        // and loots oil barrels instead of cash. Upset-reward curve:
+        // weaker winner → larger cut, stronger winner → smaller cut.
+        'tile_duel' => [
+            'max_oil_loot_pct' => 0.05,   // 5% ceiling of loser's oil
+            'cooldown_hours' => 24,       // per-participant per-tile lockout
+        ],
         'spy' => [
             'depth_1_grants' => 'attack_auth',
             'depth_2_grants' => 'cash_and_fort',
@@ -92,6 +101,7 @@ return [
         'drill' => ['move_cost' => 2],
         'spy' => ['move_cost' => 3],
         'attack' => ['move_cost' => 5],
+        'tile_combat' => ['move_cost' => 5],
         'shop' => ['move_cost' => 0],
         // Teleport is a transport-like action; costs are in the 'teleport' block below.
         'teleport' => ['move_cost' => 1],
@@ -471,6 +481,30 @@ return [
             'min_rival_hits' => 2,
         ],
 
+        // Opportunistic tile combat. Bots never PLAN to fight on the
+        // wasteland — they fight whoever they happen to bump into.
+        // Resolution happens in BotDecisionService::maybeOpportunistic
+        // TileCombat() BEFORE the goal executor runs, so a bot can
+        // travel toward its real goal and pick up a fight on the way.
+        //
+        //   enabled                        — master switch
+        //   per-tier engagement_prob       — coinflip on each eligible
+        //                                    encounter (0 = never)
+        //   per-tier min_win_chance        — skip fights where the
+        //                                    estimated win probability
+        //                                    is below this threshold.
+        //                                    Also skip near-guaranteed
+        //                                    wins because the upset-
+        //                                    reward loot curve drives
+        //                                    loot → 0 in that case.
+        'tile_combat' => [
+            'enabled' => true,
+            // Upper bound on win-chance estimate. Above this the fight
+            // is a "bully" — loot ratio approaches 0 under the upset
+            // curve, so engaging just wastes moves. Config-tunable.
+            'bully_cap_win_chance' => 0.92,
+        ],
+
         'email_domain' => 'bots.cashclash.local',
         // Word pool used by bots:spawn when auto-generating names.
         'name_pool' => [
@@ -500,6 +534,10 @@ return [
                 'travel_range_tiles' => 6,
                 'can_raid' => false,
                 'can_sabotage' => false,
+                // Easy bots never initiate wasteland duels — new
+                // players bumping into one on the road stay safe.
+                'tile_combat_engagement_prob' => 0.0,
+                'tile_combat_min_win_chance' => 1.0,
             ],
             'normal' => [
                 'label' => 'Normal',
@@ -509,6 +547,8 @@ return [
                 'travel_range_tiles' => 12,
                 'can_raid' => true,
                 'can_sabotage' => false,
+                'tile_combat_engagement_prob' => 0.40,
+                'tile_combat_min_win_chance' => 0.65,
             ],
             'hard' => [
                 'label' => 'Hard',
@@ -518,6 +558,8 @@ return [
                 'travel_range_tiles' => 20,
                 'can_raid' => true,
                 'can_sabotage' => true,
+                'tile_combat_engagement_prob' => 0.70,
+                'tile_combat_min_win_chance' => 0.55,
             ],
         ],
     ],

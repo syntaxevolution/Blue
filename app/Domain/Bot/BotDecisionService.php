@@ -2,10 +2,15 @@
 
 namespace App\Domain\Bot;
 
+use App\Domain\Combat\CombatFormula;
+use App\Domain\Combat\TileCombatEligibilityService;
+use App\Domain\Combat\TileCombatService;
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Config\RngService;
 use App\Domain\Items\ItemBreakService;
 use App\Domain\Player\MoveRegenService;
 use App\Models\Player;
+use App\Models\Tile;
 use Throwable;
 
 /**
@@ -39,6 +44,10 @@ class BotDecisionService
         private readonly ItemBreakService $itemBreak,
         private readonly BotGoalPlanner $planner,
         private readonly BotGoalExecutor $executor,
+        private readonly TileCombatService $tileCombatSvc,
+        private readonly TileCombatEligibilityService $tileCombatEligibility,
+        private readonly CombatFormula $combatFormula,
+        private readonly RngService $rng,
     ) {}
 
     /**
@@ -75,6 +84,18 @@ class BotDecisionService
         $tierCfg = $this->config->get('bots.difficulty.'.$tier, null);
         if (! is_array($tierCfg)) {
             return ['actions' => [], 'ended_with' => 'unknown_difficulty'];
+        }
+
+        // Opportunistic wasteland duel BEFORE the goal executor runs.
+        // Fires at most once per tick and never counts against the
+        // action budget — the bot still gets its full goal-driven
+        // actions afterward. If a fight fires we just log it and
+        // continue; exceptions are swallowed so a race never kills
+        // the whole tick.
+        $tileCombatLog = $this->maybeOpportunisticTileCombat($bot, $tier, $tierCfg);
+        if ($tileCombatLog !== null) {
+            $actions[] = $tileCombatLog;
+            $bot->refresh();
         }
 
         $maxActions = max(1, (int) $this->config->get('bots.actions_per_tick_max', 3));
@@ -235,5 +256,118 @@ class BotDecisionService
             $bot->bot_goal_expires_at = now()->addMinutes($ttlMinutes);
         }
         $bot->save();
+    }
+
+    /**
+     * Opportunistic wasteland duel check. Runs once at the top of a
+     * tick, AFTER moves are reconciled but BEFORE the goal executor
+     * steps, so the fight never competes with the action budget.
+     *
+     * Returns an action-log entry if a fight fired (for the tick
+     * summary) or null if nothing happened.
+     *
+     * Heuristic:
+     *   - Master switch: bots.tile_combat.enabled
+     *   - Per-tier engagement_prob gates the coinflip. Easy bots
+     *     have prob=0 and never engage.
+     *   - Win-chance estimate (from CombatFormula) must be in the
+     *     sweet spot: above min_win_chance (don't lose on purpose)
+     *     AND below bully_cap (don't bully — upset curve gives 0%).
+     *   - Target must pass TileCombatEligibilityService (wasteland,
+     *     not immune, not same-MDN, not in cooldown, etc.)
+     *   - Only fires if the bot has enough moves for the fight AND
+     *     at least one more move for its goal (so we don't strand
+     *     it with zero budget after tile combat).
+     *
+     * @param  array<string,mixed>  $tierCfg
+     * @return array<string,mixed>|null
+     */
+    private function maybeOpportunisticTileCombat(Player $bot, string $tier, array $tierCfg): ?array
+    {
+        if (! (bool) $this->config->get('bots.tile_combat.enabled', true)) {
+            return null;
+        }
+
+        $engagementProb = (float) ($tierCfg['tile_combat_engagement_prob'] ?? 0.0);
+        if ($engagementProb <= 0.0) {
+            return null;
+        }
+
+        $minWinChance = (float) ($tierCfg['tile_combat_min_win_chance'] ?? 0.65);
+        $bullyCap     = (float) $this->config->get('bots.tile_combat.bully_cap_win_chance', 0.92);
+        $moveCost     = (int) $this->config->get('actions.tile_combat.move_cost', 5);
+
+        // Need budget for the fight itself — don't pop into combat
+        // with exactly 5 moves and strand the goal loop on 0.
+        if ((int) $bot->moves_current < $moveCost + 1) {
+            return null;
+        }
+
+        /** @var Tile|null $tile */
+        $tile = Tile::query()->find($bot->current_tile_id);
+        if ($tile === null || $tile->type !== 'wasteland') {
+            return null;
+        }
+
+        $targets = Player::query()
+            ->with(['user:id,name,is_bot'])
+            ->where('current_tile_id', $tile->id)
+            ->where('id', '!=', $bot->id)
+            ->get();
+
+        if ($targets->isEmpty()) {
+            return null;
+        }
+
+        foreach ($targets as $target) {
+            // Strict eligibility gate — same rules as the service
+            // will enforce, but run here so we don't waste moves on
+            // a sure-rejection.
+            $elig = $this->tileCombatEligibility->canFight($bot, $target, $tile);
+            if (! $elig['ok']) {
+                continue;
+            }
+
+            $winChance = $this->combatFormula->estimateTileDuelWinChance($bot, $target);
+
+            // Skip near-guaranteed losses.
+            if ($winChance < $minWinChance) {
+                continue;
+            }
+            // Skip near-guaranteed wins (bully filter — upset-reward
+            // curve makes loot ≈ 0 at this ratio, so the move spend
+            // is wasted).
+            if ($winChance > $bullyCap) {
+                continue;
+            }
+
+            // Weighted coinflip so bots don't engage every viable
+            // encounter. Seeded on bot+target+timestamp so replay-mode
+            // tests can force the roll.
+            $rngKey = 'bot-tc-'.$bot->id.'-'.$target->id.'-'.$tile->id.'-'.now()->timestamp;
+            if (! $this->rng->rollBool('bots.tile_combat', $rngKey, $engagementProb)) {
+                continue;
+            }
+
+            try {
+                $res = $this->tileCombatSvc->engage($bot->id, $target->id);
+
+                return [
+                    'kind' => 'tile_combat',
+                    'detail' => ($res['attacker_won'] ? 'won' : 'lost')
+                        .':'.$res['oil_stolen'].'b'
+                        .':t'.$target->id,
+                ];
+            } catch (Throwable $e) {
+                // Race (target walked away, immunity flipped, etc.) —
+                // log and keep scanning for another eligible target.
+                return [
+                    'kind' => 'tile_combat',
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return null;
     }
 }

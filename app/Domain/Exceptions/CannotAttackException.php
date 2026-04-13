@@ -45,4 +45,36 @@ class CannotAttackException extends RuntimeException
     {
         return new self("Recent MDN change — raids unlocked in {$hoursRemaining}h");
     }
+
+    // ----- Tile combat (wasteland duel) factories --------------------
+
+    public static function tileCombatRequiresWasteland(string $actualType): self
+    {
+        return new self("Tile combat is only allowed on wasteland tiles (this tile is '{$actualType}')");
+    }
+
+    public static function notOnSameTile(): self
+    {
+        return new self('You and your target must be standing on the same tile');
+    }
+
+    public static function cannotFightSelf(): self
+    {
+        return new self("You can't fight yourself");
+    }
+
+    public static function tileCombatSelfCooldown(int $hours): self
+    {
+        return new self("You've already fought on this tile in the last {$hours}h — walk it off somewhere else");
+    }
+
+    public static function tileCombatTargetCooldown(int $hours): self
+    {
+        return new self('Your target is catching their breath on this tile — try again later or pick someone else');
+    }
+
+    public static function targetNotOnTile(): self
+    {
+        return new self('No such target standing on this tile');
+    }
 }

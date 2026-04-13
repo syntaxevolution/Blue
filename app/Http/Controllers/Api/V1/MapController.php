@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Combat\AttackService;
 use App\Domain\Combat\SpyService;
+use App\Domain\Combat\TileCombatService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
 use App\Domain\Exceptions\CannotAttackException;
@@ -49,6 +50,7 @@ class MapController extends Controller
         private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
         private readonly SabotageService $sabotage,
+        private readonly TileCombatService $tileCombatSvc,
     ) {}
 
     public function show(Request $request): MapStateResource
@@ -139,6 +141,26 @@ class MapController extends Controller
             return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
         } catch (CannotAttackException $e) {
             return response()->json(['errors' => ['attack' => $e->getMessage()]], 422);
+        }
+
+        return new MapStateResource($this->mapState->build($player->fresh()));
+    }
+
+    public function tileCombat(Request $request): MapStateResource|JsonResponse
+    {
+        $data = $request->validate([
+            'defender_player_id' => ['required', 'integer'],
+        ]);
+
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $this->tileCombatSvc->engage($player->id, (int) $data['defender_player_id']);
+        } catch (InsufficientMovesException $e) {
+            return response()->json(['errors' => ['tile_combat' => $e->getMessage()]], 422);
+        } catch (CannotAttackException $e) {
+            return response()->json(['errors' => ['tile_combat' => $e->getMessage()]], 422);
         }
 
         return new MapStateResource($this->mapState->build($player->fresh()));

@@ -7,6 +7,7 @@ use App\Events\BaseUnderAttack;
 use App\Events\MdnEvent;
 use App\Events\RaidCompleted;
 use App\Events\SpyDetected;
+use App\Events\TileCombatResolved;
 
 /**
  * Persists every notification broadcast event into the activity_logs
@@ -60,6 +61,17 @@ class RecordActivityLog
         $payload = $event->broadcastWith();
         $this->log->record(
             $event->recipientUserId,
+            $payload['type'],
+            $payload['title'],
+            $payload['body'] ?? [],
+        );
+    }
+
+    public function handleTileCombatResolved(TileCombatResolved $event): void
+    {
+        $payload = $event->broadcastWith();
+        $this->log->record(
+            $event->defenderUserId,
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],

@@ -31,17 +31,22 @@ class AttackLogService
     }
 
     /**
-     * Chronological feed merging raid attacks and triggered sabotage
-     * devices. Both are rendered by the Vue view as a unified "who did
-     * harm to me" list. Entries are discriminated by the `kind` field:
+     * Chronological feed merging raid attacks, triggered sabotage
+     * devices AND tile-combat engagements. All three are rendered by
+     * the Vue view as a unified "who did harm to me" list. Entries
+     * are discriminated by the `kind` field:
      *
-     *   kind=attack   — row came from the `attacks` table
-     *   kind=sabotage — row came from `drill_point_sabotages` (this
-     *                   player triggered someone else's device)
+     *   kind=attack       — row came from the `attacks` table
+     *                       (someone raided this player's base)
+     *   kind=sabotage     — row came from `drill_point_sabotages`
+     *                       (this player triggered someone else's device)
+     *   kind=tile_combat  — row came from `tile_combats` — this player
+     *                       was either the aggressor or the defender
+     *                       on a wasteland duel. `role` discriminates.
      *
      * Limit applies per source before the merge, so a player with a
      * very active oil field could see more than $limit total entries.
-     * In practice 100+100 merged and sliced to 100 is fine for the
+     * In practice 100+100+100 merged and sliced to 100 is fine for the
      * 100-user launch scale.
      *
      * @return list<array<string,mixed>>
@@ -74,6 +79,11 @@ class AttackLogService
                 'device_key' => null,
                 'siphoned_barrels' => 0,
                 'rig_broken' => false,
+                // Shared envelope slots — null for non-tile-combat rows.
+                'role' => null,
+                'oil_stolen' => 0,
+                'tile_x' => null,
+                'tile_y' => null,
             ])
             ->all();
 
@@ -119,11 +129,89 @@ class AttackLogService
                 // tier-1 protected the rig while oil still flowed out —
                 // must not render as a wrecked-rig entry.
                 'rig_broken' => in_array((string) $row->outcome, ['drill_broken', 'drill_broken_and_siphoned'], true),
+                'role' => null,
+                'oil_stolen' => 0,
+                'tile_x' => null,
+                'tile_y' => null,
             ])
             ->all();
 
+        // Tile combat — include rows where the player was EITHER the
+        // attacker or defender. `role` tells the renderer which side
+        // they were on, so the UI can label it "You attacked X" vs
+        // "X attacked you on the road". The attacker's username is
+        // surfaced alongside role=defender rows so the dossier-gated
+        // feed fulfils its "who ambushed me" purpose.
+        //
+        // `tiles` is a plain join because tile_combats.tile_id is a
+        // hard FK; users is a LEFT JOIN on whichever side of the fight
+        // the viewer was NOT on, so a hard-deleted opponent shows up
+        // as [deleted] instead of silently dropping.
+        $tileCombats = DB::table('tile_combats')
+            ->where(function ($q) use ($player) {
+                $q->where('attacker_player_id', $player->id)
+                  ->orWhere('defender_player_id', $player->id);
+            })
+            ->join('tiles', 'tiles.id', '=', 'tile_combats.tile_id')
+            ->leftJoin('players as atk', 'atk.id', '=', 'tile_combats.attacker_player_id')
+            ->leftJoin('players as def', 'def.id', '=', 'tile_combats.defender_player_id')
+            ->leftJoin('users as atk_user', 'atk_user.id', '=', 'atk.user_id')
+            ->leftJoin('users as def_user', 'def_user.id', '=', 'def.user_id')
+            ->orderByDesc('tile_combats.created_at')
+            ->limit($limit)
+            ->get([
+                'tile_combats.id',
+                'tile_combats.attacker_player_id',
+                'tile_combats.defender_player_id',
+                'tile_combats.outcome',
+                'tile_combats.oil_stolen',
+                'tile_combats.created_at',
+                'tiles.x as tile_x',
+                'tiles.y as tile_y',
+                'atk.id as atk_player_id',
+                'def.id as def_player_id',
+                'atk_user.name as atk_username',
+                'def_user.name as def_username',
+            ])
+            ->map(function ($row) use ($player) {
+                $isDefender = (int) $row->defender_player_id === (int) $player->id;
+                $role = $isDefender ? 'defender' : 'attacker';
+                // "Opponent" = whoever wasn't $player. This is what the
+                // dossier UI shows — "AMBUSHER: Rusty_Vulture" on the
+                // defender side; "TARGET: X" on the attacker side.
+                $opponentUsername = $isDefender
+                    ? ($row->atk_username ?? '[deleted]')
+                    : ($row->def_username ?? '[deleted]');
+                $opponentPlayerId = $isDefender
+                    ? (int) $row->attacker_player_id
+                    : (int) $row->defender_player_id;
+
+                return [
+                    'kind' => 'tile_combat',
+                    'id' => 'tile_combat-'.(int) $row->id,
+                    'source_id' => (int) $row->id,
+                    'outcome' => (string) $row->outcome,
+                    'cash_stolen' => 0.0,
+                    'created_at' => $row->created_at,
+                    // Reuse attacker_username as the "opponent" slot so
+                    // the existing template column works without a
+                    // schema widening. The `role` field tells the UI
+                    // whether the reader was attacking or defending.
+                    'attacker_username' => (string) $opponentUsername,
+                    'attacker_player_id' => $opponentPlayerId,
+                    'device_key' => null,
+                    'siphoned_barrels' => 0,
+                    'rig_broken' => false,
+                    'role' => $role,
+                    'oil_stolen' => (int) $row->oil_stolen,
+                    'tile_x' => (int) $row->tile_x,
+                    'tile_y' => (int) $row->tile_y,
+                ];
+            })
+            ->all();
+
         // Merge chronologically and slice to the overall limit.
-        $merged = array_merge($attacks, $sabotages);
+        $merged = array_merge($attacks, $sabotages, $tileCombats);
         usort($merged, function (array $a, array $b) {
             $ta = is_string($a['created_at']) ? strtotime($a['created_at']) : (int) ($a['created_at']?->timestamp ?? 0);
             $tb = is_string($b['created_at']) ? strtotime($b['created_at']) : (int) ($b['created_at']?->timestamp ?? 0);

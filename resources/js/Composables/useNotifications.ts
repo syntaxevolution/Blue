@@ -97,6 +97,10 @@ export function subscribeToUserNotifications(userId: number | null | undefined):
     // envelope shape as the raid events.
     channel.listen('.SabotageTriggered', handle);
     channel.listen('.RigSabotaged', handle);
+    // Wasteland tile combat — defender-side toast. Attacker identity
+    // is NOT in the payload (anonymous by design, same as BaseUnderAttack);
+    // the Counter-Intel Dossier unlocks it on /attack-log.
+    channel.listen('.TileCombatResolved', handle);
 
     return () => {
         if (currentSubscribedUserId !== userId) return;

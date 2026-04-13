@@ -151,7 +151,27 @@ interface CasinoDetail {
     session_expires_at: string | null;
 }
 
-type TileDetail = OilFieldDetail | PostDetail | OwnBaseDetail | EnemyBaseDetail | CasinoDetail | null;
+interface WastelandOccupant {
+    player_id: number;
+    username: string;
+    mdn_tag: string | null;
+    mdn_name: string | null;
+    is_bot: boolean;
+    is_immune: boolean;
+    can_fight: boolean;
+    block_reason: string | null;
+    block_reason_label: string;
+}
+
+interface WastelandDetail {
+    kind: 'wasteland';
+    occupants: WastelandOccupant[];
+    cooldown_hours: number;
+    move_cost: number;
+    max_oil_loot_pct: number;
+}
+
+type TileDetail = OilFieldDetail | PostDetail | OwnBaseDetail | EnemyBaseDetail | CasinoDetail | WastelandDetail | null;
 
 interface MapState {
     player: PlayerState;
@@ -182,6 +202,7 @@ const drillError = computed(() => errors.value.drill ?? null);
 const purchaseError = computed(() => errors.value.purchase ?? null);
 const spyError = computed(() => errors.value.spy ?? null);
 const attackError = computed(() => errors.value.attack ?? null);
+const tileCombatError = computed(() => errors.value.tile_combat ?? null);
 const placeError = computed(() => errors.value.place_device ?? null);
 const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
 interface DrillResult {
@@ -267,6 +288,37 @@ const placeResultText = computed<string | null>(() => {
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
 const attackResult = computed(() => (flash.value.attack_result as string | undefined) ?? null);
+const tileCombatResult = computed(() => (flash.value.tile_combat_result as string | undefined) ?? null);
+
+const fightConfirmTarget = ref<WastelandOccupant | null>(null);
+const fightInFlight = ref(false);
+
+function openFightConfirm(occupant: WastelandOccupant) {
+    if (!occupant.can_fight) return;
+    fightConfirmTarget.value = occupant;
+}
+
+function cancelFight() {
+    fightConfirmTarget.value = null;
+}
+
+function confirmFight() {
+    const target = fightConfirmTarget.value;
+    if (!target) return;
+    fightInFlight.value = true;
+    router.post(
+        route('map.tile_combat'),
+        { defender_player_id: target.player_id },
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onFinish: () => {
+                fightInFlight.value = false;
+                fightConfirmTarget.value = null;
+            },
+        },
+    );
+}
 
 const neighborByDirection = computed<Record<string, Neighbor | null>>(() => {
     const map: Record<string, Neighbor | null> = { n: null, s: null, e: null, w: null };
@@ -609,12 +661,14 @@ const canAttackNow = computed(() => {
                 <div v-if="purchaseResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ purchaseResult }}</div>
                 <div v-if="spyResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ spyResult }}</div>
                 <div v-if="attackResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ attackResult }}</div>
+                <div v-if="tileCombatResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ tileCombatResult }}</div>
                 <div v-if="travelError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ travelError }}</div>
                 <div v-if="drillError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ drillError }}</div>
                 <div v-if="placeError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ placeError }}</div>
                 <div v-if="purchaseError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ purchaseError }}</div>
                 <div v-if="spyError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ spyError }}</div>
                 <div v-if="attackError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ attackError }}</div>
+                <div v-if="tileCombatError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ tileCombatError }}</div>
 
                 <!-- MAIN MAP PANEL -->
                 <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-3 sm:p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
@@ -894,7 +948,68 @@ const canAttackNow = computed(() => {
                                     </div>
                                 </div>
 
-                                <!-- Wasteland / landmark / ruin -->
+                                <!-- Wasteland — with opportunistic tile combat -->
+                                <div v-else-if="state.tile_detail?.kind === 'wasteland'" class="text-left">
+                                    <div v-if="state.tile_detail.occupants.length === 0" class="text-zinc-600 text-sm italic text-center">
+                                        Empty wasteland. Just you and the dust — keep walking.
+                                    </div>
+                                    <div v-else>
+                                        <div class="text-rose-400 text-xs uppercase tracking-widest mb-3 text-center flex items-center justify-center gap-2">
+                                            <span class="inline-block h-2 w-2 rounded-full bg-rose-400 animate-pulse"></span>
+                                            People here
+                                        </div>
+                                        <div class="space-y-2 mb-3">
+                                            <div
+                                                v-for="occ in state.tile_detail.occupants"
+                                                :key="occ.player_id"
+                                                class="rounded border border-rose-900/60 bg-rose-950/20 p-3 flex items-start justify-between gap-2"
+                                            >
+                                                <div class="flex-1 min-w-0">
+                                                    <div class="text-zinc-100 text-base font-bold break-words">
+                                                        {{ occ.username }}
+                                                        <span
+                                                            v-if="occ.mdn_tag"
+                                                            class="ml-2 font-mono text-xs text-amber-300"
+                                                            :title="occ.mdn_name ?? ''"
+                                                        >[{{ occ.mdn_tag }}]</span>
+                                                        <span
+                                                            v-if="occ.is_bot"
+                                                            class="ml-2 text-[10px] uppercase tracking-widest text-zinc-500"
+                                                        >bot</span>
+                                                    </div>
+                                                    <div
+                                                        v-if="!occ.can_fight && occ.block_reason_label"
+                                                        class="text-amber-400/80 text-xs mt-1 italic"
+                                                    >
+                                                        {{ occ.block_reason_label }}
+                                                    </div>
+                                                    <div v-else-if="occ.can_fight" class="text-zinc-500 text-xs mt-1">
+                                                        Fight them for up to {{ (state.tile_detail.max_oil_loot_pct * 100).toFixed(0) }}% of their oil — or lose up to the same of yours.
+                                                    </div>
+                                                </div>
+                                                <div class="shrink-0 flex flex-col items-end gap-1">
+                                                    <button
+                                                        type="button"
+                                                        class="bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-xs font-bold uppercase tracking-wider px-3 py-2 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        :disabled="!occ.can_fight"
+                                                        :title="occ.can_fight ? 'Initiate a duel' : occ.block_reason_label"
+                                                        @click="openFightConfirm(occ)"
+                                                    >
+                                                        Fight
+                                                    </button>
+                                                    <div class="text-[10px] text-zinc-500 uppercase tracking-widest">
+                                                        {{ state.tile_detail.move_cost }} moves
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="text-zinc-500 text-[11px] italic text-center">
+                                            One fight per tile per {{ state.tile_detail.cooldown_hours }}h for either participant.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Landmark / ruin fallback -->
                                 <div v-else class="text-zinc-600 text-sm italic">Nothing to do here but keep walking.</div>
                             </div>
                         </div>
@@ -954,6 +1069,53 @@ const canAttackNow = computed(() => {
             :owns-teleporter="state.player.owns_teleporter ?? false"
             @close="showTeleportModal = false"
         />
+
+        <!-- Tile combat confirmation modal -->
+        <div
+            v-if="fightConfirmTarget"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            @click.self="cancelFight"
+        >
+            <div class="bg-zinc-900 border-2 border-rose-500/50 rounded-lg p-5 sm:p-6 max-w-md w-full font-mono shadow-2xl shadow-rose-900/30">
+                <div class="text-rose-400 text-xs uppercase tracking-widest mb-2">Wasteland duel</div>
+                <div class="text-zinc-100 text-xl font-bold mb-3 break-words">
+                    Fight {{ fightConfirmTarget.username }}?
+                    <span
+                        v-if="fightConfirmTarget.mdn_tag"
+                        class="ml-2 font-mono text-sm text-amber-300"
+                    >[{{ fightConfirmTarget.mdn_tag }}]</span>
+                </div>
+                <div class="text-zinc-300 text-sm mb-4 leading-relaxed">
+                    <p class="mb-2">
+                        Strength decides the winner. A weaker attacker who wins gets up to
+                        <span class="text-amber-400 font-bold">{{ state.tile_detail && state.tile_detail.kind === 'wasteland' ? (state.tile_detail.max_oil_loot_pct * 100).toFixed(0) : '5' }}%</span>
+                        of the loser's oil; a bully gets almost nothing.
+                    </p>
+                    <p class="text-rose-300">
+                        If you lose, they take the same share from YOUR stash.
+                        Costs <span class="font-bold">{{ state.tile_detail && state.tile_detail.kind === 'wasteland' ? state.tile_detail.move_cost : 5 }} moves</span> regardless.
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        type="button"
+                        class="flex-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition"
+                        :disabled="fightInFlight"
+                        @click="cancelFight"
+                    >
+                        Back off
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        :disabled="fightInFlight"
+                        @click="confirmFight"
+                    >
+                        {{ fightInFlight ? 'Fighting…' : 'Throw down' }}
+                    </button>
+                </div>
+            </div>
+        </div>
     </AuthenticatedLayout>
 </template>
 

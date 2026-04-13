@@ -74,6 +74,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('/map/purchase', [MapController::class, 'purchase'])->name('map.purchase');
                 Route::post('/map/spy', [MapController::class, 'spy'])->name('map.spy');
                 Route::post('/map/attack', [MapController::class, 'attack'])->name('map.attack');
+                Route::post('/map/tile-combat', [MapController::class, 'tileCombat'])->name('map.tile_combat');
 
                 Route::post('/map/transport', [TransportController::class, 'switch'])->name('map.transport');
 

@@ -113,6 +113,134 @@ class CombatFormula
     }
 
     /**
+     * Resolve a spontaneous wasteland duel between two players standing
+     * on the same wasteland tile.
+     *
+     * Pure: no DB writes, no state mutation. TileCombatService is
+     * responsible for all persistence, oil transfer, and broadcasting.
+     *
+     * Differs from resolveAttack() in two material ways:
+     *   1. Strength vs Strength — there's no fortification on open
+     *      wasteland. Both combatants fight with their muscle only.
+     *   2. Oil loot instead of cash, with an UPSET-REWARD curve:
+     *      a stronger winner gets a smaller slice; a weaker underdog
+     *      pulling an upset gets the full ceiling. This pushes the
+     *      meta toward fair fights — farming weaklings yields nothing.
+     *
+     * Pseudocode:
+     *   atkPower   = scaledStat(attacker.strength)
+     *   defPower   = scaledStat(defender.strength)
+     *   baseOutcome = (atkPower - defPower) / (atkPower + defPower)
+     *   randomBand  = rng.rollBand('combat', eventKey, min, max)
+     *   finalScore  = baseOutcome + randomBand
+     *   winner = finalScore > 0 ? attacker : defender
+     *   oilPct = clamp(maxPct * scaled(loser) / scaled(winner), 0, maxPct)
+     *
+     * RNG band and scaled-stat curve share the same config keys as
+     * base raids, so tuning one tunes both consistently.
+     *
+     * @return array{
+     *   outcome: 'attacker_win'|'defender_win',
+     *   winner_id: int,
+     *   loser_id: int,
+     *   oil_pct: float,
+     *   final_score: float,
+     *   base_outcome: float,
+     *   random_band: float,
+     *   atk_power: float,
+     *   def_power: float,
+     * }
+     */
+    public function resolveTileDuel(
+        Player $attacker,
+        Player $defender,
+        string $eventKey,
+    ): array {
+        $atkPower = $this->scaledStat((int) $attacker->strength);
+        $defPower = $this->scaledStat((int) $defender->strength);
+
+        $denominator = $atkPower + $defPower;
+        $baseOutcome = $denominator > 0 ? ($atkPower - $defPower) / $denominator : 0.0;
+
+        $bandMin = (float) $this->config->get('combat.rng_band_min');
+        $bandMax = (float) $this->config->get('combat.rng_band_max');
+        $randomBand = $this->rng->rollBand('combat', $eventKey, $bandMin, $bandMax);
+
+        $finalScore = $baseOutcome + $randomBand;
+
+        $maxPct = (float) $this->config->get('combat.tile_duel.max_oil_loot_pct');
+        if ($maxPct < 0.0) {
+            $maxPct = 0.0;
+        }
+
+        if ($finalScore > 0) {
+            $winnerStr = $atkPower;
+            $loserStr  = $defPower;
+        } else {
+            $winnerStr = $defPower;
+            $loserStr  = $atkPower;
+        }
+
+        // Upset reward: ratio of loser-scaled to winner-scaled strength,
+        // clamped to [0, maxPct]. A stronger winner gets ~0%; a weaker
+        // winner gets the full ceiling.
+        $oilPct = 0.0;
+        if ($winnerStr > 0) {
+            $oilPct = max(0.0, min($maxPct, ($loserStr / $winnerStr) * $maxPct));
+        }
+
+        $outcome  = $finalScore > 0 ? 'attacker_win' : 'defender_win';
+        $winnerId = $finalScore > 0 ? (int) $attacker->id : (int) $defender->id;
+        $loserId  = $finalScore > 0 ? (int) $defender->id : (int) $attacker->id;
+
+        return [
+            'outcome' => $outcome,
+            'winner_id' => $winnerId,
+            'loser_id' => $loserId,
+            'oil_pct' => $oilPct,
+            'final_score' => $finalScore,
+            'base_outcome' => $baseOutcome,
+            'random_band' => $randomBand,
+            'atk_power' => $atkPower,
+            'def_power' => $defPower,
+        ];
+    }
+
+    /**
+     * Expected attacker win probability for a tile duel, ignoring RNG.
+     * Used by the bot opportunistic hook to filter out near-guaranteed
+     * wins (loot → 0) and near-guaranteed losses.
+     *
+     * Derivation: finalScore = baseOutcome + band, band uniform on
+     * [min, max]. Attacker wins iff finalScore > 0, i.e. band > -baseOutcome.
+     * Integrating the uniform distribution gives the closed-form below.
+     */
+    public function estimateTileDuelWinChance(Player $attacker, Player $defender): float
+    {
+        $atkPower = $this->scaledStat((int) $attacker->strength);
+        $defPower = $this->scaledStat((int) $defender->strength);
+        $denominator = $atkPower + $defPower;
+        if ($denominator <= 0) {
+            return 0.5;
+        }
+        $baseOutcome = ($atkPower - $defPower) / $denominator;
+
+        $bandMin = (float) $this->config->get('combat.rng_band_min');
+        $bandMax = (float) $this->config->get('combat.rng_band_max');
+        $bandWidth = $bandMax - $bandMin;
+        if ($bandWidth <= 0) {
+            return $baseOutcome > 0 ? 1.0 : 0.0;
+        }
+
+        // P(band > -baseOutcome) where band ~ U(min, max).
+        $threshold = -$baseOutcome;
+        if ($threshold <= $bandMin) return 1.0;
+        if ($threshold >= $bandMax) return 0.0;
+
+        return ($bandMax - $threshold) / $bandWidth;
+    }
+
+    /**
      * Apply the soft plateau using config ranges:
      *   1..linear_range[1]           → linear (1:1)
      *   partial_range[0]..partial_range[1] → partial_efficiency per point

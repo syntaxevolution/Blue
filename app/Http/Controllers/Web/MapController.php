@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Domain\Combat\AttackService;
 use App\Domain\Combat\SpyService;
+use App\Domain\Combat\TileCombatService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
 use App\Domain\Exceptions\CannotAttackException;
@@ -48,6 +49,7 @@ class MapController extends Controller
         private readonly AttackService $attackSvc,
         private readonly MapStateBuilder $mapState,
         private readonly SabotageService $sabotage,
+        private readonly TileCombatService $tileCombatSvc,
     ) {}
 
     public function show(Request $request): Response
@@ -227,5 +229,31 @@ class MapController extends Controller
             : 'Raid failed. The defenders held you off.';
 
         return redirect()->route('map.show')->with('attack_result', $message);
+    }
+
+    public function tileCombat(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'defender_player_id' => ['required', 'integer'],
+        ]);
+
+        $user = $request->user();
+        $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        try {
+            $result = $this->tileCombatSvc->engage($player->id, (int) $data['defender_player_id']);
+        } catch (InsufficientMovesException | CannotAttackException $e) {
+            return redirect()->route('map.show')->withErrors(['tile_combat' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            return redirect()->route('map.show')->withErrors([
+                'tile_combat' => 'Fight failed: '.$e->getMessage(),
+            ]);
+        }
+
+        $message = $result['attacker_won']
+            ? "You won the fight — took {$result['oil_stolen']} barrels from them."
+            : "You lost the fight — they took {$result['oil_stolen']} barrels from you.";
+
+        return redirect()->route('map.show')->with('tile_combat_result', $message);
     }
 }

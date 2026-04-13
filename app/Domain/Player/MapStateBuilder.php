@@ -2,6 +2,7 @@
 
 namespace App\Domain\Player;
 
+use App\Domain\Combat\TileCombatEligibilityService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\TransportService;
@@ -37,6 +38,7 @@ class MapStateBuilder
         private readonly TransportService $transport,
         private readonly ActivityLogService $activityLog,
         private readonly OilFieldRegenService $fieldRegen,
+        private readonly TileCombatEligibilityService $tileCombatEligibility,
     ) {}
 
     /**
@@ -250,8 +252,57 @@ class MapStateBuilder
             'base' => $tile->id === $player->base_tile_id
                 ? $this->ownBaseDetail($player)
                 : $this->enemyBaseDetail($tile, $player),
+            'wasteland' => $this->wastelandDetail($tile, $player),
             default => null,
         };
+    }
+
+    /**
+     * Wasteland tile payload: just the occupants list + per-occupant
+     * "can you fight them?" eligibility. Everything else about a
+     * wasteland tile (flavor text, coords) already lives in the
+     * shared current_tile block.
+     *
+     * @return array<string,mixed>
+     */
+    private function wastelandDetail(Tile $tile, Player $player): array
+    {
+        $cooldownHours = (int) $this->config->get('combat.tile_duel.cooldown_hours', 24);
+        $moveCost      = (int) $this->config->get('actions.tile_combat.move_cost', 5);
+        $maxLootPct    = (float) $this->config->get('combat.tile_duel.max_oil_loot_pct', 0.05);
+
+        $others = Player::query()
+            ->with(['user:id,name,is_bot', 'mdn:id,name,tag'])
+            ->where('current_tile_id', $tile->id)
+            ->where('id', '!=', $player->id)
+            ->get();
+
+        $occupants = [];
+        foreach ($others as $other) {
+            $eligibility = $this->tileCombatEligibility->canFight($player, $other, $tile);
+            $occupants[] = [
+                'player_id' => (int) $other->id,
+                'username' => (string) ($other->user?->name ?? '[unknown]'),
+                'mdn_tag' => $other->mdn?->tag,
+                'mdn_name' => $other->mdn?->name,
+                'is_bot' => (bool) ($other->user?->is_bot ?? false),
+                'is_immune' => $other->immunity_expires_at !== null && $other->immunity_expires_at->isFuture(),
+                'can_fight' => (bool) $eligibility['ok'],
+                'block_reason' => $eligibility['reason'],
+                'block_reason_label' => $this->tileCombatEligibility->reasonLabel(
+                    $eligibility['reason'],
+                    $cooldownHours,
+                ),
+            ];
+        }
+
+        return [
+            'kind' => 'wasteland',
+            'occupants' => $occupants,
+            'cooldown_hours' => $cooldownHours,
+            'move_cost' => $moveCost,
+            'max_oil_loot_pct' => $maxLootPct,
+        ];
     }
 
     /**

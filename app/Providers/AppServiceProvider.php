@@ -6,6 +6,8 @@ use App\Domain\Combat\AttackLogService;
 use App\Domain\Combat\AttackService;
 use App\Domain\Combat\CombatFormula;
 use App\Domain\Combat\SpyService;
+use App\Domain\Combat\TileCombatEligibilityService;
+use App\Domain\Combat\TileCombatService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
@@ -43,6 +45,7 @@ use App\Events\BaseUnderAttack;
 use App\Events\MdnEvent;
 use App\Events\RaidCompleted;
 use App\Events\SpyDetected;
+use App\Events\TileCombatResolved;
 use App\Listeners\RecordActivityLog;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
@@ -68,6 +71,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(CombatFormula::class);
         $this->app->singleton(SpyService::class);
         $this->app->singleton(AttackService::class);
+        $this->app->singleton(TileCombatEligibilityService::class);
+        $this->app->singleton(TileCombatService::class);
 
         // Batch 1 additions
         $this->app->singleton(StatOverflowService::class);
@@ -117,5 +122,6 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(SpyDetected::class, [RecordActivityLog::class, 'handleSpyDetected']);
         Event::listen(RaidCompleted::class, [RecordActivityLog::class, 'handleRaidCompleted']);
         Event::listen(MdnEvent::class, [RecordActivityLog::class, 'handleMdnEvent']);
+        Event::listen(TileCombatResolved::class, [RecordActivityLog::class, 'handleTileCombatResolved']);
     }
 }

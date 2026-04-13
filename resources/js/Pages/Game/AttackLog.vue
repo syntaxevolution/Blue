@@ -17,10 +17,15 @@ interface BaseEntry {
     device_key: string | null;
     siphoned_barrels: number;
     rig_broken: boolean;
+    role: 'attacker' | 'defender' | null;
+    oil_stolen: number;
+    tile_x: number | null;
+    tile_y: number | null;
 }
 interface AttackEntry extends BaseEntry { kind: 'attack' }
 interface SabotageEntry extends BaseEntry { kind: 'sabotage' }
-type LogEntry = AttackEntry | SabotageEntry;
+interface TileCombatEntry extends BaseEntry { kind: 'tile_combat' }
+type LogEntry = AttackEntry | SabotageEntry | TileCombatEntry;
 
 const props = defineProps<{
     owns_attack_log: boolean;
@@ -29,14 +34,23 @@ const props = defineProps<{
 
 const raidEntries = computed(() => props.attacks.filter((a): a is AttackEntry => a.kind === 'attack'));
 const sabotageEntries = computed(() => props.attacks.filter((a): a is SabotageEntry => a.kind === 'sabotage'));
+const tileCombatEntries = computed(() => props.attacks.filter((a): a is TileCombatEntry => a.kind === 'tile_combat'));
 
 const totalStolen = computed(() =>
     raidEntries.value.reduce((sum, a) => sum + (a.outcome === 'success' ? a.cash_stolen : 0), 0),
 );
 
-const totalSiphoned = computed(() =>
-    sabotageEntries.value.reduce((sum, s) => sum + s.siphoned_barrels, 0),
-);
+const totalSiphoned = computed(() => {
+    const sabotageTotal = sabotageEntries.value.reduce((sum, s) => sum + s.siphoned_barrels, 0);
+    // Count tile combat barrel losses (only where reader was the loser)
+    // so the top bar tells the full oil-bleed story.
+    const tileLosses = tileCombatEntries.value.reduce((sum, t) => {
+        const lost = (t.role === 'defender' && t.outcome === 'attacker_win')
+            || (t.role === 'attacker' && t.outcome === 'defender_win');
+        return lost ? sum + t.oil_stolen : sum;
+    }, 0);
+    return sabotageTotal + tileLosses;
+});
 
 const rigsWrecked = computed(() =>
     sabotageEntries.value.filter((s) => s.rig_broken).length,
@@ -49,6 +63,24 @@ const successCount = computed(() =>
 const failureCount = computed(() =>
     raidEntries.value.filter((a) => a.outcome === 'failure').length,
 );
+
+function tileCombatLabel(entry: TileCombatEntry): string {
+    const youWon = (entry.role === 'attacker' && entry.outcome === 'attacker_win')
+        || (entry.role === 'defender' && entry.outcome === 'defender_win');
+    const youInitiated = entry.role === 'attacker';
+    if (youInitiated) {
+        return youWon ? 'Tile fight — won' : 'Tile fight — lost';
+    }
+    return youWon ? 'Ambushed — repelled' : 'Ambushed — beaten';
+}
+
+function tileCombatBadgeClass(entry: TileCombatEntry): string {
+    const youWon = (entry.role === 'attacker' && entry.outcome === 'attacker_win')
+        || (entry.role === 'defender' && entry.outcome === 'defender_win');
+    return youWon
+        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+        : 'bg-rose-950 text-rose-300 border border-rose-800';
+}
 
 function formatTimestamp(iso: string): string {
     try {
@@ -176,7 +208,7 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
                         v-if="attacks.length === 0"
                         class="bg-zinc-900 border border-zinc-800 rounded-lg p-6 sm:p-12 text-center font-mono text-zinc-500"
                     >
-                        No raids or sabotage on your base yet. Enjoy the quiet — it won't last.
+                        No raids, sabotage, or wasteland duels against you yet. Enjoy the quiet — it won't last.
                     </div>
 
                     <!-- Log -->
@@ -220,7 +252,7 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
                             </template>
 
                             <!-- SABOTAGE ENTRY -->
-                            <template v-else>
+                            <template v-else-if="entry.kind === 'sabotage'">
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-baseline gap-2 flex-wrap">
                                         <span
@@ -245,6 +277,47 @@ function sabotageBadgeClass(entry: SabotageEntry): string {
                                     </div>
                                     <div v-else-if="entry.rig_broken" class="text-rose-400 text-xs uppercase tracking-widest">rig wrecked</div>
                                     <div v-else class="text-zinc-600 text-xs italic">rig safe</div>
+                                </div>
+                            </template>
+
+                            <!-- TILE COMBAT ENTRY -->
+                            <template v-else-if="entry.kind === 'tile_combat'">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-baseline gap-2 flex-wrap">
+                                        <span
+                                            class="text-xs uppercase tracking-widest px-2 py-0.5 rounded"
+                                            :class="tileCombatBadgeClass(entry)"
+                                        >
+                                            {{ tileCombatLabel(entry) }}
+                                        </span>
+                                        <span class="text-zinc-100 font-bold break-words">{{ entry.attacker_username }}</span>
+                                        <span class="text-zinc-500 text-xs">
+                                            on wasteland
+                                            <template v-if="entry.tile_x !== null && entry.tile_y !== null">
+                                                ({{ entry.tile_x }}, {{ entry.tile_y }})
+                                            </template>
+                                        </span>
+                                    </div>
+                                    <div class="text-zinc-500 text-xs mt-1">
+                                        {{ formatTimestamp(entry.created_at) }}
+                                    </div>
+                                </div>
+                                <div class="shrink-0 text-right">
+                                    <!-- Loss = attacker won while reader defended, or vice versa -->
+                                    <div
+                                        v-if="(entry.role === 'defender' && entry.outcome === 'attacker_win')
+                                            || (entry.role === 'attacker' && entry.outcome === 'defender_win')"
+                                        class="text-rose-400 text-sm"
+                                    >
+                                        -{{ entry.oil_stolen }} barrels
+                                    </div>
+                                    <div
+                                        v-else-if="entry.oil_stolen > 0"
+                                        class="text-emerald-400 text-sm"
+                                    >
+                                        +{{ entry.oil_stolen }} barrels
+                                    </div>
+                                    <div v-else class="text-zinc-600 text-xs italic">no loot</div>
                                 </div>
                             </template>
                         </div>
