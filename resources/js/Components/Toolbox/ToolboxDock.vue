@@ -258,7 +258,7 @@ function cancelPlacement(): void {
         >
             <div
                 v-if="open"
-                class="fixed inset-0 z-50 bg-zinc-950/70 backdrop-blur-sm sm:hidden"
+                class="fixed inset-0 z-[60] bg-zinc-950/70 backdrop-blur-sm sm:hidden"
                 @click.self="open = false"
                 aria-hidden="true"
             ></div>
@@ -277,7 +277,7 @@ function cancelPlacement(): void {
                 role="dialog"
                 aria-modal="true"
                 aria-label="Toolbox"
-                class="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t-2 border-amber-500/40 bg-zinc-950 shadow-2xl safe-bottom font-mono sm:hidden"
+                class="fixed inset-x-0 bottom-0 z-[60] max-h-[80vh] overflow-y-auto rounded-t-2xl border-t-2 border-amber-500/40 bg-zinc-950 shadow-2xl safe-bottom font-mono sm:hidden"
             >
                 <div class="mx-auto max-w-xl px-4 pb-4 pt-3">
                     <div

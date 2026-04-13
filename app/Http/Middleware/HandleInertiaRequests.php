@@ -67,6 +67,18 @@ class HandleInertiaRequests extends Middleware
             ? app(AttackLogService::class)->unreadCount($player)
             : 0;
 
+        // Minimal player balance shared globally so the mobile topbar
+        // can show the current Akzar Cash + Oil Barrels without every
+        // page having to thread its own player state down to the
+        // layout. Always plain values (not closures) so Inertia
+        // partial reloads refresh the badge on every navigation.
+        $playerBalance = $player !== null
+            ? [
+                'cash' => (float) $player->akzar_cash,
+                'barrels' => (int) $player->oil_barrels,
+            ]
+            : null;
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -78,6 +90,7 @@ class HandleInertiaRequests extends Middleware
                 'active_transport' => $player?->active_transport ?? 'walking',
                 'unread_activity_count' => $unreadActivityCount,
                 'unread_hostility_count' => $unreadHostilityCount,
+                'player_balance' => $playerBalance,
                 // Lazy-loaded via closure so only pages that actually
                 // render the gear modal pay for the query.
                 'owned_items' => function () use ($user) {

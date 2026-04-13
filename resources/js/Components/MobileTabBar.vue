@@ -64,7 +64,7 @@ const moreHasBadge = computed(() => props.unreadHostility > 0);
 
 <template>
     <nav
-        class="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur safe-bottom-0 sm:hidden"
+        class="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur safe-bottom-0 sm:hidden"
         aria-label="Primary mobile navigation"
     >
         <ul class="mx-auto flex max-w-xl items-stretch justify-around px-1 pt-1">

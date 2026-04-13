@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, watch } from 'vue';
+import { onBeforeUnmount, onMounted, watch } from 'vue';
 import { Link } from '@inertiajs/vue3';
 
 const props = defineProps<{
@@ -21,24 +21,48 @@ function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') close();
 }
 
+// No body scroll-lock here: the backdrop is `fixed inset-0` and covers
+// the whole viewport, so the page behind is already non-interactive.
+// Touching document.body.style.overflow would race with Modal.vue's
+// own scroll lock — whichever closes first would unlock the other.
 watch(
     () => props.open,
     (isOpen) => {
         if (typeof document === 'undefined') return;
         if (isOpen) {
             document.addEventListener('keydown', onKey);
-            document.body.style.overflow = 'hidden';
         } else {
             document.removeEventListener('keydown', onKey);
-            document.body.style.overflow = '';
         }
     },
 );
 
+// Tailwind `sm` breakpoint is 640px. If the user resizes past it
+// (e.g. rotates a tablet, attaches an external monitor) with the
+// drawer open, the drawer would silently disappear via `sm:hidden`
+// but its state would stay `open = true`, leaving the tab bar's
+// "More" button unable to re-open it (since emitting open-more sets
+// it true, which it already is). Force a close on the crossing so
+// the next mobile transition starts from a clean state.
+let desktopMq: MediaQueryList | null = null;
+
+function onDesktopMatch(e: MediaQueryListEvent): void {
+    if (e.matches && props.open) close();
+}
+
+onMounted(() => {
+    if (typeof window === 'undefined') return;
+    desktopMq = window.matchMedia('(min-width: 640px)');
+    desktopMq.addEventListener('change', onDesktopMatch);
+});
+
 onBeforeUnmount(() => {
     if (typeof document !== 'undefined') {
         document.removeEventListener('keydown', onKey);
-        document.body.style.overflow = '';
+    }
+    if (desktopMq !== null) {
+        desktopMq.removeEventListener('change', onDesktopMatch);
+        desktopMq = null;
     }
 });
 </script>
@@ -55,7 +79,7 @@ onBeforeUnmount(() => {
         >
             <div
                 v-if="open"
-                class="fixed inset-0 z-50 bg-zinc-950/70 backdrop-blur-sm sm:hidden"
+                class="fixed inset-0 z-[60] bg-zinc-950/70 backdrop-blur-sm sm:hidden"
                 @click.self="close"
                 aria-hidden="true"
             ></div>
@@ -74,7 +98,7 @@ onBeforeUnmount(() => {
                 role="dialog"
                 aria-modal="true"
                 aria-label="More navigation"
-                class="fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-zinc-950 shadow-2xl safe-bottom sm:hidden"
+                class="fixed inset-x-0 bottom-0 z-[60] max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-zinc-950 shadow-2xl safe-bottom sm:hidden"
             >
                 <div class="mx-auto max-w-xl px-4 pb-2 pt-3">
                     <div

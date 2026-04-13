@@ -65,10 +65,15 @@ function formatTime(ts: string): string {
             class="flex h-[60vh] w-[calc(100vw-2rem)] max-w-xs flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl sm:h-80 sm:w-72 sm:max-w-none"
         >
             <!-- Header -->
-            <div class="flex items-center justify-between border-b border-zinc-700 px-3 py-2">
+            <div class="flex items-center justify-between border-b border-zinc-700 pl-3 pr-1 py-1">
                 <span class="text-xs font-semibold text-zinc-400">Table Chat</span>
-                <button @click="isOpen = false" class="text-zinc-500 hover:text-zinc-300">
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button
+                    type="button"
+                    @click="isOpen = false"
+                    aria-label="Close table chat"
+                    class="tap-target -mr-1 text-zinc-500 hover:text-zinc-300 active:text-zinc-200"
+                >
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
@@ -99,7 +104,7 @@ function formatTime(ts: string): string {
                     />
                     <button
                         type="submit"
-                        class="rounded bg-amber-600 px-3 py-2 text-xs text-white hover:bg-amber-500 active:bg-amber-500"
+                        class="tap-target rounded bg-amber-600 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:bg-amber-500 active:bg-amber-500"
                     >
                         Send
                     </button>

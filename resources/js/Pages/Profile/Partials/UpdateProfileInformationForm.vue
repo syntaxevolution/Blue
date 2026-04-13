@@ -56,6 +56,8 @@ const form = useForm({
                 <TextInput
                     id="email"
                     type="email"
+                    inputmode="email"
+                    enterkeyhint="done"
                     class="mt-1 block w-full"
                     v-model="form.email"
                     required

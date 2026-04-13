@@ -43,6 +43,8 @@ const submit = () => {
                 <TextInput
                     id="email"
                     type="email"
+                    inputmode="email"
+                    enterkeyhint="send"
                     class="mt-1 block w-full"
                     v-model="form.email"
                     required

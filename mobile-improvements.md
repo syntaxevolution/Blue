@@ -225,9 +225,73 @@ Biggest gap. Blackjack, Hold'em, Roulette, Slots all desktop-only today. All log
 
 ---
 
-## Follow-ups
+## Post-implementation audit
 
-Items the QA pass on the VPS should explicitly verify, plus deferred work.
+Two independent code reviewers did a deep-code audit after implementation. Findings were triaged by the PM and the blocking items have been fixed. Summary:
+
+### Fixed in audit pass
+
+1. **Scroll-lock race between `MobileMoreDrawer.vue` and `Modal.vue`** — Both manipulated `document.body.style.overflow` without coordination. Fix: removed body overflow manipulation from `MobileMoreDrawer.vue` entirely. The drawer's `fixed inset-0` backdrop already prevents interaction with the page behind; no scroll lock needed. `Modal.vue` retains its own body-scroll lock because it's used by claim-username and broken-item flows that don't have a full-viewport backdrop.
+
+2. **`.scroll-snap-x` mask fade rendered unconditionally** — The `mask-image: linear-gradient(...)` utility always clipped the last 2rem of content regardless of whether the container actually overflowed, creating a false "scroll me" hint on short lists. Fix: removed the `mask-image` rule from `app.css`. The utility still exists for future use; can be re-added with a per-call-site opt-in.
+
+3. **`<main>` bottom padding didn't include home-indicator safe area** — `pb-16` = 64px was enough for the 56px tab bar on Android but ~26px of content was obscured on iPhones with a home indicator (tab bar at 56px + 34px safe area = 90px, content padding 64px). Fix: `pb-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:pb-0`.
+
+4. **`v-for="dir in (['w','n','s','e'] as const)"` TypeScript assertion in Vue template** — Edge case that may not compile in all Vite/Volar configs; also adjacent to the project's "no TS casts in templates" rule. Fix: moved the direction array plus arrow/label maps out of `Map.vue`'s template and into `<script setup>` as typed constants (`mobileDirections`, `directionArrow`, `directionLabel`).
+
+5. **Wasteland Fight button + tile-combat modal buttons under 44px tap target** — `px-3 py-2 text-xs` rendered at ~36px. Fix: added `.tap-target` and bumped padding to `px-4 py-2` on the Fight button; bumped the "Back off" / "Throw down" confirm modal buttons from `py-2` to `py-3`.
+
+### Reviewer findings that were false alarms after re-analysis
+
+- `tailwind.config.js` `xs` breakpoint — the `...defaultTheme.screens` spread correctly preserves all default breakpoints. Not a regression.
+- `Modal.vue` double scroll container — the outer `overflow-y-auto` only activates if total content exceeds viewport, which the inner `max-h-[90vh]` prevents. Benign.
+- ToolboxDock FAB badge `absolute -top-1 -right-1 → sm:static` — renders correctly on both viewports.
+- Hidden `sm:flex` class combinations on N/W/E/S desktop buttons — Tailwind correctly handles `display: none` at base + `display: flex` at sm+.
+- TableChat mobile panel positioning — fits within iPhone SE viewport (panel top ~187px, bottom ~80px from viewport bottom).
+
+### Confirmed-clean (no change needed)
+
+- `.tap-target` utility (44px enforced)
+- Casino Card / PlayerSeat / SlotReel responsive scaling
+- MDN twin-block (card list + table) pattern
+- CasinoNav horizontal scroll
+- Drill grid dimensions at mobile breakpoint
+- Modal `max-h-[90vh]` internal scroll behavior
+- MobileTabBar badge positioning and text sizing
+
+## Follow-ups pass
+
+Six deferred items from the audit were fixed in a follow-up pass. Summary:
+
+### Fixed in follow-ups pass
+
+1. **TableChat tap targets** — Close X button wrapped in `.tap-target` (44px hit area) with the icon scaled to `h-5 w-5`. Send button bumped from `px-3 py-2 text-xs` to `tap-target px-4 py-2 text-xs font-semibold uppercase`. Header padding adjusted (`pl-3 pr-1 py-1`) so the larger close button doesn't shift the title.
+2. **Shop item card desktop spacing** — Added `sm:gap-2` to the outer column so price → Buy column on desktop now has consistent 0.5rem spacing matching the existing Buy → error gap. Mobile layout (price left, Buy stack right inside a flex row) unchanged.
+3. **Mobile topbar currency display** — Added `player_balance: { cash, barrels }` to `HandleInertiaRequests::share()` (minimal backend addition: single relation read, plain values). Wired into `AuthenticatedLayout.vue` as a `sm:hidden` `<Link>` pill on the right side of the navbar showing `A{cash} | Bbl {barrels}` in the existing font-mono + amber/zinc palette. Tapping the pill jumps to `/map`. Desktop is untouched (the pill is `sm:hidden`).
+4. **Global z-index stacking order** — Established a clean stack: tab bar `z-30`, floating anchors (ToolboxDock, TableChat) `z-40`, regular modals `z-50`, bottom sheets (ToolboxDock mobile sheet, MobileMoreDrawer) `z-[60]`, toasts `z-[70]`. Bottom sheets now consistently sit above any open modal, and toasts sit above everything. Fixes the original `z-50` collision between the two bottom sheets.
+5. **MobileMoreDrawer viewport resize handling** — Added a `matchMedia('(min-width: 640px)')` listener that emits `close` when the viewport crosses into desktop range. If the user rotates a tablet or attaches an external monitor with the drawer open, the drawer cleanly closes instead of leaving stuck state. Listener is properly torn down in `onBeforeUnmount`.
+6. **Auth + Profile form keyboard hints** — Added `inputmode="email"` and `enterkeyhint` (next/send/done as appropriate) to all remaining auth forms (`ForgotPassword.vue`, `ResetPassword.vue`, `ConfirmPassword.vue`) and profile form partials (`UpdateProfileInformationForm.vue`, `UpdatePasswordForm.vue`, `DeleteUserForm.vue`). `VerifyEmail.vue` has no input fields so was skipped. All forms now render the correct mobile soft keyboard layout and the right action key.
+
+### Audit follow-up files touched
+
+- `resources/js/Components/Casino/TableChat.vue`
+- `resources/js/Pages/Game/Map.vue`
+- `app/Http/Middleware/HandleInertiaRequests.php`
+- `resources/js/Layouts/AuthenticatedLayout.vue`
+- `resources/js/Components/MobileTabBar.vue`
+- `resources/js/Components/MobileMoreDrawer.vue`
+- `resources/js/Components/Toolbox/ToolboxDock.vue`
+- `resources/js/Components/ToastContainer.vue`
+- `resources/js/Pages/Auth/ForgotPassword.vue`
+- `resources/js/Pages/Auth/ResetPassword.vue`
+- `resources/js/Pages/Auth/ConfirmPassword.vue`
+- `resources/js/Pages/Profile/Partials/UpdateProfileInformationForm.vue`
+- `resources/js/Pages/Profile/Partials/UpdatePasswordForm.vue`
+- `resources/js/Pages/Profile/Partials/DeleteUserForm.vue`
+
+## Follow-ups (truly remaining)
+
+Items still deferred — significant scope or genuinely out-of-scope.
 
 ### Deferred from original plan
 

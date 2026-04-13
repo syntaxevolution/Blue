@@ -29,8 +29,6 @@
         scroll-snap-type: x mandatory;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: thin;
-        mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
-        -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
     }
 
     .scroll-snap-x > * {

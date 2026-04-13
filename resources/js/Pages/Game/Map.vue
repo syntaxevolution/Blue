@@ -361,7 +361,26 @@ const activeTransportInfo = computed(() => {
     };
 });
 
-function travel(direction: 'n' | 's' | 'e' | 'w') {
+type Direction = 'n' | 's' | 'e' | 'w';
+
+// Mobile direction pad renders these in a left-to-right row above the
+// tile card. W/N/S/E reads as a horizontal strip; the desktop layout
+// still uses the spatial cross-shape.
+const mobileDirections: readonly Direction[] = ['w', 'n', 's', 'e'];
+const directionArrow: Record<Direction, string> = {
+    w: '←',
+    n: '↑',
+    s: '↓',
+    e: '→',
+};
+const directionLabel: Record<Direction, string> = {
+    w: 'West',
+    n: 'North',
+    s: 'South',
+    e: 'East',
+};
+
+function travel(direction: Direction) {
     router.post(route('map.move'), { direction }, { preserveScroll: true, preserveState: true });
 }
 
@@ -703,19 +722,15 @@ const canAttackNow = computed(() => {
                          Hidden on sm+ where the cross layout (N/W/center/E/S) takes over. -->
                     <div class="mb-3 grid grid-cols-4 gap-2 sm:hidden">
                         <button
-                            v-for="dir in (['w', 'n', 's', 'e'] as const)"
+                            v-for="dir in mobileDirections"
                             :key="dir"
                             type="button"
                             class="tap-target flex h-14 flex-col items-center justify-center gap-0.5 rounded border border-zinc-700 bg-zinc-800 px-1 py-1 text-amber-400 transition active:border-amber-400 active:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
                             :disabled="!neighborByDirection[dir]"
                             @click="travel(dir)"
                         >
-                            <span class="text-xl leading-none">
-                                {{ { w: '←', n: '↑', s: '↓', e: '→' }[dir] }}
-                            </span>
-                            <span class="text-[10px] uppercase tracking-widest text-zinc-400">
-                                {{ { w: 'West', n: 'North', s: 'South', e: 'East' }[dir] }}
-                            </span>
+                            <span class="text-xl leading-none">{{ directionArrow[dir] }}</span>
+                            <span class="text-[10px] uppercase tracking-widest text-zinc-400">{{ directionLabel[dir] }}</span>
                         </button>
                     </div>
 
@@ -877,7 +892,7 @@ const canAttackNow = computed(() => {
                                                         <span v-for="(effect, effectIdx) in formatEffects(item.effects)" :key="effectIdx" class="mr-2">{{ effect }}</span>
                                                     </div>
                                                 </div>
-                                                <div class="flex flex-row items-center justify-between gap-2 border-t border-zinc-800 pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0 sm:shrink-0 sm:max-w-[45%]">
+                                                <div class="flex flex-row items-center justify-between gap-2 border-t border-zinc-800 pt-2 sm:flex-col sm:items-end sm:justify-start sm:gap-2 sm:border-t-0 sm:pt-0 sm:shrink-0 sm:max-w-[45%]">
                                                     <div class="text-amber-400 text-xs font-bold break-words sm:text-right">{{ formatPrice(item) }}</div>
                                                     <div class="flex flex-col items-end gap-1">
                                                         <button
@@ -1039,7 +1054,7 @@ const canAttackNow = computed(() => {
                                                 <div class="shrink-0 flex flex-col items-end gap-1">
                                                     <button
                                                         type="button"
-                                                        class="bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-xs font-bold uppercase tracking-wider px-3 py-2 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        class="tap-target bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
                                                         :disabled="!occ.can_fight"
                                                         :title="occ.can_fight ? 'Initiate a duel' : occ.block_reason_label"
                                                         @click="openFightConfirm(occ)"
@@ -1156,7 +1171,7 @@ const canAttackNow = computed(() => {
                 <div class="flex gap-2">
                     <button
                         type="button"
-                        class="flex-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition"
+                        class="flex-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition"
                         :disabled="fightInFlight"
                         @click="cancelFight"
                     >
@@ -1164,7 +1179,7 @@ const canAttackNow = computed(() => {
                     </button>
                     <button
                         type="button"
-                        class="flex-1 bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-2 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="flex-1 bg-rose-700 hover:bg-rose-600 border border-rose-500 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
                         :disabled="fightInFlight"
                         @click="confirmFight"
                     >

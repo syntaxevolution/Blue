@@ -38,6 +38,15 @@ const brokenItem = computed<BrokenItemPayload | null>(
     () => (page.props.auth?.broken_item as BrokenItemPayload | null) ?? null,
 );
 
+interface PlayerBalance {
+    cash: number;
+    barrels: number;
+}
+
+const playerBalance = computed<PlayerBalance | null>(
+    () => (page.props.auth?.player_balance as PlayerBalance | null) ?? null,
+);
+
 // Server-authoritative unread counts, refreshed on every Inertia
 // visit via HandleInertiaRequests::share(). The displayed value adds
 // an in-memory delta that broadcast events bump in real time; when
@@ -153,6 +162,26 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
 
+                    <!-- Mobile-only balance readout. Gives the otherwise-empty
+                         mobile topbar a purpose and saves the player a trip
+                         back to the map just to check their stash. -->
+                    <Link
+                        v-if="playerBalance"
+                        :href="route('map.show')"
+                        class="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 font-mono text-xs leading-none sm:hidden"
+                        aria-label="Player balance — tap to open map"
+                    >
+                        <span class="flex items-center gap-1 text-amber-400">
+                            <span class="text-[9px] uppercase tracking-widest text-zinc-500">A</span>
+                            <span class="tabular-nums">{{ playerBalance.cash.toFixed(2) }}</span>
+                        </span>
+                        <span class="h-3 w-px bg-zinc-700"></span>
+                        <span class="flex items-center gap-1 text-zinc-200">
+                            <span class="text-[9px] uppercase tracking-widest text-zinc-500">Bbl</span>
+                            <span class="tabular-nums">{{ playerBalance.barrels }}</span>
+                        </span>
+                    </Link>
+
                     <div class="hidden sm:ms-6 sm:flex sm:items-center">
                         <!-- Settings Dropdown -->
                         <div class="relative ms-3">
@@ -211,8 +240,10 @@ onBeforeUnmount(() => {
             </div>
         </header>
 
-        <!-- Page Content -->
-        <main class="pb-16 sm:pb-0">
+        <!-- Page Content. The bottom padding clears the mobile tab bar
+             (h-14 = 56px) PLUS any home-indicator safe-area so the last
+             row of page content isn't obscured on notched iPhones. -->
+        <main class="pb-[calc(4rem+env(safe-area-inset-bottom,0px))] sm:pb-0">
             <slot />
         </main>
 

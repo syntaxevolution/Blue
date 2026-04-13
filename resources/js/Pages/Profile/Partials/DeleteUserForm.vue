@@ -80,6 +80,7 @@ const closeModal = () => {
                         ref="passwordInput"
                         v-model="form.password"
                         type="password"
+                        enterkeyhint="send"
                         class="mt-1 block w-full"
                         placeholder="Password"
                         @keyup.enter="deleteUser"
