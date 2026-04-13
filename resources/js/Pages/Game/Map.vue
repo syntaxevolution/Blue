@@ -172,7 +172,6 @@ interface WastelandOccupant {
     username: string;
     mdn_tag: string | null;
     mdn_name: string | null;
-    is_bot: boolean;
     is_immune: boolean;
     can_fight: boolean;
     block_reason: string | null;
@@ -1163,10 +1162,6 @@ function formatIntelPct(range: SpyIntelRange): string {
                                                             class="ml-2 font-mono text-xs text-amber-300"
                                                             :title="occ.mdn_name ?? ''"
                                                         >[{{ occ.mdn_tag }}]</span>
-                                                        <span
-                                                            v-if="occ.is_bot"
-                                                            class="ml-2 text-[10px] uppercase tracking-widest text-zinc-500"
-                                                        >bot</span>
                                                     </div>
                                                     <div
                                                         v-if="!occ.can_fight && occ.block_reason_label"

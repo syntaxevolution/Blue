@@ -271,8 +271,12 @@ class MapStateBuilder
         $moveCost = (int) $this->config->get('actions.tile_combat.move_cost', 5);
         $maxLootPct = (float) $this->config->get('combat.tile_duel.max_oil_loot_pct', 0.05);
 
+        // Bot status is intentionally NOT eager-loaded or shipped to
+        // the client. Players should never be able to tell who is a
+        // bot — not via a UI badge, not via the network payload. The
+        // is_bot column stays server-side only (admin / scheduler use).
         $others = Player::query()
-            ->with(['user:id,name,is_bot', 'mdn:id,name,tag'])
+            ->with(['user:id,name', 'mdn:id,name,tag'])
             ->where('current_tile_id', $tile->id)
             ->where('id', '!=', $player->id)
             ->get();
@@ -285,7 +289,6 @@ class MapStateBuilder
                 'username' => (string) ($other->user?->name ?? '[unknown]'),
                 'mdn_tag' => $other->mdn?->tag,
                 'mdn_name' => $other->mdn?->name,
-                'is_bot' => (bool) ($other->user?->is_bot ?? false),
                 'is_immune' => $other->immunity_expires_at !== null && $other->immunity_expires_at->isFuture(),
                 'can_fight' => (bool) $eligibility['ok'],
                 'block_reason' => $eligibility['reason'],
