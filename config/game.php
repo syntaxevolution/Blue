@@ -142,7 +142,7 @@ return [
         // points refill. Lazy reconcile: OilFieldRegenService applies
         // the reset on the next read (drill attempt or map state build)
         // after `depleted_at + field_refill_hours` is in the past.
-        'field_refill_hours' => 6,
+        'field_refill_hours' => 12,
         'daily_limit_per_field' => 5,
         // Tech item break roll fires per drill use on non-starter drills.
         // 1% default. Tier 1 (implicit starter, not in player_items) is exempt.

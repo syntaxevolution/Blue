@@ -39,6 +39,15 @@ class MapStateResource extends JsonResource
             'neighbors' => $state['neighbors'],
             'discovered_count' => $state['discovered_count'],
             'bank_cap' => $state['bank_cap'],
+            // Passthrough auxiliary state the builder emits — mobile
+            // clients need these to render the toolbox HUD, the
+            // immunity banner, owned gear / sabotage placement mode,
+            // and the unread-activity badge. Null-coalesced for
+            // forward-compat in case builder output ever slims down.
+            'transport_catalog' => $state['transport_catalog'] ?? (object) [],
+            'immunity_hours' => $state['immunity_hours'] ?? null,
+            'owned_items' => $state['owned_items'] ?? [],
+            'unread_activity_count' => $state['unread_activity_count'] ?? 0,
         ];
     }
 }

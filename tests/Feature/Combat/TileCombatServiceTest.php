@@ -101,7 +101,13 @@ it('transfers oil from loser to winner on a happy-path engagement', function () 
 it('writes an anonymous activity log entry on the defender side', function () {
     [$p1, $p2] = setupTwoPlayersOnWasteland();
 
-    app(TileCombatService::class)->engage($p1->id, $p2->id);
+    $result = app(TileCombatService::class)->engage($p1->id, $p2->id);
+
+    // Pin the outcome — stat differential (20 vs 4) is wide enough
+    // to guarantee attacker_win across the full RNG band, so the
+    // anonymity check below is testing the ambushed-title path
+    // rather than the counter-defence path.
+    expect($result['outcome'])->toBe('attacker_win');
 
     $log = ActivityLog::query()
         ->where('user_id', $p2->user_id)
@@ -110,8 +116,10 @@ it('writes an anonymous activity log entry on the defender side', function () {
         ->first();
 
     expect($log)->not->toBeNull();
-    // Title is anonymous — no attacker username leaks via the log
-    expect($log->title)->toContain('tile');
+    // Title is anonymous — no attacker username leaks via the log —
+    // and must land on the defender-loses branch ("ambushed") since
+    // we asserted attacker_win above.
+    expect($log->title)->toContain('ambushed');
     expect($log->title)->not->toContain($p1->user->name);
     // Body is anonymous too — no attacker_username key in the payload
     expect($log->body)->toBeArray();

@@ -161,6 +161,12 @@ class MapController extends Controller
             return response()->json(['errors' => ['tile_combat' => $e->getMessage()]], 422);
         } catch (CannotAttackException $e) {
             return response()->json(['errors' => ['tile_combat' => $e->getMessage()]], 422);
+        } catch (\Throwable $e) {
+            // Catch-all mirrors the web controller so a DB race or
+            // any other unexpected failure lands as a 422 JSON error
+            // instead of a raw 500, keeping mobile clients on a
+            // predictable error shape.
+            return response()->json(['errors' => ['tile_combat' => 'Fight failed: '.$e->getMessage()]], 422);
         }
 
         return new MapStateResource($this->mapState->build($player->fresh()));

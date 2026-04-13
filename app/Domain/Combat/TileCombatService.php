@@ -85,15 +85,23 @@ class TileCombatService
 
             // Lock both player rows in id-ascending order to avoid
             // deadlocks against concurrent engagements / base raids.
+            // We lock each row individually so the returned model
+            // references ARE the locked rows — a separate whereIn
+            // lock followed by an unlocked re-fetch would give us
+            // stale snapshots that the guard chain would operate on.
             [$lowId, $highId] = $attackerPlayerId < $defenderPlayerId
                 ? [$attackerPlayerId, $defenderPlayerId]
                 : [$defenderPlayerId, $attackerPlayerId];
-            Player::query()->lockForUpdate()->whereIn('id', [$lowId, $highId])->get();
+
+            /** @var Player $firstLocked */
+            $firstLocked = Player::query()->lockForUpdate()->findOrFail($lowId);
+            /** @var Player $secondLocked */
+            $secondLocked = Player::query()->lockForUpdate()->findOrFail($highId);
 
             /** @var Player $attacker */
-            $attacker = Player::query()->findOrFail($attackerPlayerId);
+            $attacker = $firstLocked->id === $attackerPlayerId ? $firstLocked : $secondLocked;
             /** @var Player $defender */
-            $defender = Player::query()->findOrFail($defenderPlayerId);
+            $defender = $firstLocked->id === $defenderPlayerId ? $firstLocked : $secondLocked;
 
             $this->moveRegen->reconcile($attacker);
             $attacker->refresh();
@@ -138,7 +146,12 @@ class TileCombatService
             }
 
             // ------ Resolve via the pure formula ------
-            $eventKey = 'tile-'.$attacker->id.'-'.$defender->id.'-'.$tile->id.'-'.now()->timestamp;
+            // Event key carries a per-call nonce so two fights in the
+            // same wall-clock second (even by the same pair) can never
+            // seed an identical RNG sequence. Tests pass explicit
+            // event keys and never rely on this format.
+            $eventKey = 'tile-'.$attacker->id.'-'.$defender->id.'-'.$tile->id
+                .'-'.now()->timestamp.'-'.random_int(100000, 999999);
             $res = $this->combat->resolveTileDuel($attacker, $defender, $eventKey);
 
             // ------ Oil transfer ------

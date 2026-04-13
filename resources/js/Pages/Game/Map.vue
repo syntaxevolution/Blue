@@ -293,6 +293,19 @@ const tileCombatResult = computed(() => (flash.value.tile_combat_result as strin
 const fightConfirmTarget = ref<WastelandOccupant | null>(null);
 const fightInFlight = ref(false);
 
+// Narrowed view of tile_detail for the fight modal — returns the
+// wasteland payload when the player is actually on a wasteland tile,
+// null otherwise. Used instead of inline `state.tile_detail.kind === ...`
+// checks in the template so we never fall back to hardcoded balance
+// values (project rule: no hardcoded balance numbers).
+const wastelandDetailForModal = computed<WastelandDetail | null>(() => {
+    const detail = props.state.tile_detail;
+    if (detail && detail.kind === 'wasteland') {
+        return detail;
+    }
+    return null;
+});
+
 function openFightConfirm(occupant: WastelandOccupant) {
     if (!occupant.can_fight) return;
     fightConfirmTarget.value = occupant;
@@ -312,9 +325,16 @@ function confirmFight() {
         {
             preserveScroll: true,
             preserveState: true,
+            // Close the modal only when the engagement SUCCEEDED.
+            // On 422 (cooldown race, target immunity flipped, target
+            // walked away) we keep the modal mounted so the player
+            // sees the inline error instead of it flashing in the
+            // top-of-page banner after the modal has already vanished.
+            onSuccess: () => {
+                fightConfirmTarget.value = null;
+            },
             onFinish: () => {
                 fightInFlight.value = false;
-                fightConfirmTarget.value = null;
             },
         },
     );
@@ -402,6 +422,13 @@ watch(
     (newType) => {
         if (newType !== 'oil_field' && toolbox.state.placementActive) {
             toolbox.exit();
+        }
+        // Auto-cancel the fight confirmation modal if the player
+        // travels away from the wasteland tile while the modal is
+        // open — the target they selected is no longer reachable,
+        // and the modal would display stale occupant info.
+        if (newType !== 'wasteland' && fightConfirmTarget.value !== null) {
+            fightConfirmTarget.value = null;
         }
     },
 );
@@ -1072,7 +1099,7 @@ const canAttackNow = computed(() => {
 
         <!-- Tile combat confirmation modal -->
         <div
-            v-if="fightConfirmTarget"
+            v-if="fightConfirmTarget && wastelandDetailForModal"
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
             @click.self="cancelFight"
         >
@@ -1088,13 +1115,21 @@ const canAttackNow = computed(() => {
                 <div class="text-zinc-300 text-sm mb-4 leading-relaxed">
                     <p class="mb-2">
                         Strength decides the winner. A weaker attacker who wins gets up to
-                        <span class="text-amber-400 font-bold">{{ state.tile_detail && state.tile_detail.kind === 'wasteland' ? (state.tile_detail.max_oil_loot_pct * 100).toFixed(0) : '5' }}%</span>
+                        <span class="text-amber-400 font-bold">{{ (wastelandDetailForModal.max_oil_loot_pct * 100).toFixed(0) }}%</span>
                         of the loser's oil; a bully gets almost nothing.
                     </p>
                     <p class="text-rose-300">
                         If you lose, they take the same share from YOUR stash.
-                        Costs <span class="font-bold">{{ state.tile_detail && state.tile_detail.kind === 'wasteland' ? state.tile_detail.move_cost : 5 }} moves</span> regardless.
+                        Costs <span class="font-bold">{{ wastelandDetailForModal.move_cost }} moves</span> regardless.
                     </p>
+                </div>
+                <!-- Inline error: shown when a POST came back 422 and we
+                     kept the modal open so the player can read why. -->
+                <div
+                    v-if="tileCombatError"
+                    class="mb-3 rounded border border-rose-800 bg-rose-950/60 p-2 text-rose-300 text-xs"
+                >
+                    {{ tileCombatError }}
                 </div>
                 <div class="flex gap-2">
                     <button

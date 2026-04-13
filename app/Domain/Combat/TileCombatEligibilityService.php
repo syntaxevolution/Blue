@@ -110,6 +110,15 @@ class TileCombatEligibilityService
      * the given tile within the cooldown window — as attacker OR
      * defender. This is the "strictest" cooldown mode the user
      * chose in the design phase.
+     *
+     * Implemented as two separate EXISTS queries instead of an
+     * `(atk = ? OR def = ?)` OR-clause so MariaDB's optimiser can
+     * hit the correct covering composite index on each side
+     * (tc_attacker_tile_idx / tc_defender_tile_idx). A single OR
+     * would force the planner onto the broader tile-only index
+     * and rescan historical rows — fine at launch scale, but not
+     * as the map fills up. PHP short-circuits so the second query
+     * is skipped when the first hits.
      */
     public function hasRecentCombatOnTile(int $playerId, int $tileId, int $hours): bool
     {
@@ -117,13 +126,22 @@ class TileCombatEligibilityService
             return false;
         }
 
-        return TileCombat::query()
+        $cutoff = now()->subHours($hours);
+
+        $asAttacker = TileCombat::query()
+            ->where('attacker_player_id', $playerId)
             ->where('tile_id', $tileId)
-            ->where('created_at', '>=', now()->subHours($hours))
-            ->where(function ($q) use ($playerId) {
-                $q->where('attacker_player_id', $playerId)
-                  ->orWhere('defender_player_id', $playerId);
-            })
+            ->where('created_at', '>=', $cutoff)
+            ->exists();
+
+        if ($asAttacker) {
+            return true;
+        }
+
+        return TileCombat::query()
+            ->where('defender_player_id', $playerId)
+            ->where('tile_id', $tileId)
+            ->where('created_at', '>=', $cutoff)
             ->exists();
     }
 
@@ -144,7 +162,7 @@ class TileCombatEligibilityService
             'same_mdn' => 'Fellow MDN member — combat blocked',
             'mdn_hop_cooldown' => 'Recent MDN change — combat locked',
             'self_cooldown' => "You already fought on this tile in the last {$cooldownHours}h",
-            'target_cooldown' => 'Target is catching their breath on this tile',
+            'target_cooldown' => "Target already fought on this tile in the last {$cooldownHours}h",
             default => ucfirst(str_replace('_', ' ', $reason)),
         };
     }
