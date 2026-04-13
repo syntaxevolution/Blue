@@ -12,6 +12,11 @@ export interface BrokenItemPayload {
     player_barrels: number;
 }
 
+export interface PlayerBalance {
+    cash: number;
+    barrels: number;
+}
+
 export type PageProps<
     T extends Record<string, unknown> = Record<string, unknown>,
 > = T & {
@@ -22,5 +27,6 @@ export type PageProps<
         broken_item?: BrokenItemPayload | null;
         unread_activity_count?: number;
         unread_hostility_count?: number;
+        player_balance?: PlayerBalance | null;
     };
 };
