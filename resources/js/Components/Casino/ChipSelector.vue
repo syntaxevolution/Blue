@@ -29,15 +29,15 @@ function formatChip(v: number): string {
 
 <template>
     <div class="space-y-2">
-        <div class="flex flex-wrap gap-1.5">
+        <div class="flex flex-wrap gap-2">
             <button
                 v-for="preset in presets"
                 :key="preset"
                 type="button"
-                class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+                class="tap-target rounded-md border px-3 py-2 text-xs font-medium transition-colors"
                 :class="model === preset
                     ? 'border-amber-500 bg-amber-600/20 text-amber-400'
-                    : 'border-zinc-600 bg-zinc-800 text-zinc-300 hover:border-zinc-500'"
+                    : 'border-zinc-600 bg-zinc-800 text-zinc-300 active:border-zinc-500 hover:border-zinc-500'"
                 @click="model = preset"
             >
                 {{ formatChip(preset) }}
@@ -48,10 +48,11 @@ function formatChip(v: number): string {
             <input
                 v-model.number="model"
                 type="number"
+                inputmode="decimal"
                 :min="min"
                 :max="max"
                 :step="currency === 'akzar_cash' ? 0.01 : 1"
-                class="w-28 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-sm text-zinc-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                class="w-28 rounded border border-zinc-600 bg-zinc-800 px-2 py-2 text-sm text-zinc-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
         </div>
     </div>

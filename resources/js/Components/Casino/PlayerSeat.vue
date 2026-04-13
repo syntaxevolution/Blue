@@ -58,8 +58,8 @@ function formatAmount(v: number, c: string): string {
             <CardHand :cards="visibleCards" />
         </div>
         <div v-else class="mb-1 flex gap-1">
-            <div class="h-16 w-11 rounded border border-amber-800 bg-amber-900/40"></div>
-            <div class="h-16 w-11 rounded border border-amber-800 bg-amber-900/40"></div>
+            <div class="h-16 w-11 rounded border border-amber-800 bg-amber-900/40 sm:h-20 sm:w-14"></div>
+            <div class="h-16 w-11 rounded border border-amber-800 bg-amber-900/40 sm:h-20 sm:w-14"></div>
         </div>
 
         <div class="text-xs">

@@ -42,18 +42,16 @@ function formatTime(ts: string): string {
 </script>
 
 <template>
-    <!-- Anchored above the global ToolboxDock (also bottom-right, mounted
-         in AuthenticatedLayout) so the two don't overlap on casino pages.
-         The toolbox trigger is ~56px tall at bottom-4; we sit at bottom-24
-         (96px) which leaves a small visible gap regardless of toolbox
-         expansion state. z-index matches so either can overlay the other
-         cleanly when opened. -->
-    <div class="fixed bottom-24 right-4 z-40">
+    <!-- Mobile: bottom-left corner so it doesn't clash with the ToolboxDock
+         FAB on the right. Lifted above the mobile bottom tab bar.
+         Desktop: original bottom-right anchor above the ToolboxDock pill. -->
+    <div class="fixed bottom-20 left-4 z-40 sm:bottom-24 sm:right-4 sm:left-auto">
         <!-- Toggle button -->
         <button
             v-if="!isOpen"
             @click="isOpen = true"
-            class="rounded-full bg-amber-600 p-3 text-white shadow-lg hover:bg-amber-500"
+            class="tap-target rounded-full bg-amber-600 p-3 text-white shadow-lg hover:bg-amber-500 active:bg-amber-500"
+            aria-label="Open table chat"
         >
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -64,7 +62,7 @@ function formatTime(ts: string): string {
         <!-- Chat panel -->
         <div
             v-if="isOpen"
-            class="flex h-80 w-72 flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
+            class="flex h-[60vh] w-[calc(100vw-2rem)] max-w-xs flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl sm:h-80 sm:w-72 sm:max-w-none"
         >
             <!-- Header -->
             <div class="flex items-center justify-between border-b border-zinc-700 px-3 py-2">
@@ -95,12 +93,13 @@ function formatTime(ts: string): string {
                         v-model="newMessage"
                         type="text"
                         maxlength="200"
+                        enterkeyhint="send"
                         placeholder="Type a message..."
-                        class="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
+                        class="flex-1 rounded border border-zinc-600 bg-zinc-800 px-2 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
                     />
                     <button
                         type="submit"
-                        class="rounded bg-amber-600 px-2 py-1 text-xs text-white hover:bg-amber-500"
+                        class="rounded bg-amber-600 px-3 py-2 text-xs text-white hover:bg-amber-500 active:bg-amber-500"
                     >
                         Send
                     </button>

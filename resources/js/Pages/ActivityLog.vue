@@ -104,7 +104,7 @@ function markAllRead() {
                         </div>
                         <span
                             v-if="!entry.read_at"
-                            class="shrink-0 rounded-full bg-amber-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-zinc-950"
+                            class="shrink-0 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-950"
                         >
                             New
                         </span>

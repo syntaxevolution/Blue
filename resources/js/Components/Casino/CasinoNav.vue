@@ -7,10 +7,10 @@ defineProps<{
 </script>
 
 <template>
-    <nav class="flex items-center gap-3 border-b border-zinc-700/50 bg-zinc-900/60 px-4 py-2">
+    <nav class="flex flex-nowrap items-center gap-3 overflow-x-auto border-b border-zinc-700/50 bg-zinc-900/60 px-3 py-2 sm:px-4">
         <Link
             :href="route('casino.show')"
-            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            class="shrink-0 rounded px-3 py-2 text-sm font-medium transition-colors"
             :class="currentPage === 'lobby'
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'text-zinc-400 hover:text-zinc-200'"
@@ -19,7 +19,7 @@ defineProps<{
         </Link>
         <Link
             :href="route('casino.slots.show')"
-            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            class="shrink-0 rounded px-3 py-2 text-sm font-medium transition-colors"
             :class="currentPage === 'slots'
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'text-zinc-400 hover:text-zinc-200'"
@@ -28,7 +28,7 @@ defineProps<{
         </Link>
         <Link
             :href="route('casino.roulette.index')"
-            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            class="shrink-0 rounded px-3 py-2 text-sm font-medium transition-colors"
             :class="currentPage === 'roulette'
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'text-zinc-400 hover:text-zinc-200'"
@@ -37,7 +37,7 @@ defineProps<{
         </Link>
         <Link
             :href="route('casino.blackjack.index')"
-            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            class="shrink-0 rounded px-3 py-2 text-sm font-medium transition-colors"
             :class="currentPage === 'blackjack'
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'text-zinc-400 hover:text-zinc-200'"
@@ -46,7 +46,7 @@ defineProps<{
         </Link>
         <Link
             :href="route('casino.holdem.index')"
-            class="rounded px-2.5 py-1 text-sm font-medium transition-colors"
+            class="shrink-0 rounded px-3 py-2 text-sm font-medium transition-colors"
             :class="currentPage === 'holdem'
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'text-zinc-400 hover:text-zinc-200'"
@@ -54,12 +54,12 @@ defineProps<{
             Hold'em
         </Link>
 
-        <div class="ml-auto">
+        <div class="shrink-0 sm:ml-auto">
             <Link
                 :href="route('casino.leave')"
                 method="post"
                 :as="'button'"
-                class="rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
+                class="shrink-0 rounded border border-zinc-600 px-3 py-2 text-xs text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 active:border-zinc-500"
             >
                 Leave Casino
             </Link>

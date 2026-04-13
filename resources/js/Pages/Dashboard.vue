@@ -166,7 +166,7 @@ const boards = [
                             </ol>
                             <!-- Viewer row: only rendered when the current player is NOT in the top-N -->
                             <div v-if="board.board.viewer" class="mt-2 pt-2 border-t border-dashed border-zinc-800">
-                                <div class="text-[9px] uppercase tracking-widest text-zinc-600 mb-1">Your rank</div>
+                                <div class="text-[10px] uppercase tracking-widest text-zinc-600 mb-1">Your rank</div>
                                 <div class="flex items-center gap-2 sm:gap-3 rounded px-2 py-1.5 text-xs sm:text-sm bg-amber-500/10 border border-amber-500/40 text-amber-100">
                                     <span class="w-6 text-right font-bold tabular-nums text-amber-300">{{ board.board.viewer.rank }}</span>
                                     <span class="flex-1 min-w-0 truncate">

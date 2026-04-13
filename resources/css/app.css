@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+    .tap-target {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .safe-bottom {
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+    }
+
+    .safe-top {
+        padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+    }
+
+    .safe-bottom-0 {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .scroll-snap-x {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
+        -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
+    }
+
+    .scroll-snap-x > * {
+        scroll-snap-align: center;
+        flex: 0 0 auto;
+    }
+
+    .scroll-snap-x::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .scroll-snap-x::-webkit-scrollbar-thumb {
+        background: rgba(161, 161, 170, 0.35);
+        border-radius: 2px;
+    }
+
+    /* Pill-style no-scrollbar variant (tab rows, chip rows) */
+    .scroll-snap-x-plain {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .scroll-snap-x-plain::-webkit-scrollbar {
+        display: none;
+    }
+
+    .scroll-snap-x-plain > * {
+        scroll-snap-align: start;
+        flex: 0 0 auto;
+    }
+}

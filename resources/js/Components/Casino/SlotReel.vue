@@ -64,7 +64,7 @@ onMounted(() => {
 
 <template>
     <div
-        class="flex h-24 w-20 items-center justify-center rounded-lg border-2 text-3xl font-bold transition-all"
+        class="flex h-20 w-16 items-center justify-center rounded-lg border-2 text-2xl font-bold transition-all sm:h-24 sm:w-20 sm:text-3xl"
         :class="isAnimating
             ? 'border-amber-500/50 bg-zinc-700/80 text-zinc-300'
             : 'border-zinc-600 bg-zinc-800 text-zinc-100'"

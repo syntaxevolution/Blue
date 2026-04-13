@@ -33,6 +33,7 @@ const submit = () => {
                 <TextInput
                     id="name"
                     type="text"
+                    enterkeyhint="next"
                     class="mt-1 block w-full"
                     v-model="form.name"
                     required
@@ -49,6 +50,8 @@ const submit = () => {
                 <TextInput
                     id="email"
                     type="email"
+                    inputmode="email"
+                    enterkeyhint="next"
                     class="mt-1 block w-full"
                     v-model="form.email"
                     required
@@ -64,6 +67,7 @@ const submit = () => {
                 <TextInput
                     id="password"
                     type="password"
+                    enterkeyhint="next"
                     class="mt-1 block w-full"
                     v-model="form.password"
                     required
@@ -82,6 +86,7 @@ const submit = () => {
                 <TextInput
                     id="password_confirmation"
                     type="password"
+                    enterkeyhint="send"
                     class="mt-1 block w-full"
                     v-model="form.password_confirmation"
                     required

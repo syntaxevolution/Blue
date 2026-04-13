@@ -218,51 +218,93 @@ function revokeAlliance(allianceId: number) {
                     id="mdn-panel-members"
                     role="tabpanel"
                     aria-labelledby="mdn-tab-members"
-                    class="overflow-x-auto rounded border border-zinc-800"
                 >
-                    <table class="w-full min-w-[560px] text-left text-sm">
-                        <thead class="bg-zinc-900 text-xs uppercase tracking-widest text-zinc-400">
-                            <tr>
-                                <th class="px-4 py-2">Name</th>
-                                <th class="px-4 py-2">Role</th>
-                                <th class="px-4 py-2">Cash</th>
-                                <th class="px-4 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr
-                                v-for="m in members"
-                                :key="m.player_id"
-                                class="border-t border-zinc-800"
-                            >
-                                <td class="px-4 py-2 text-zinc-100">{{ m.user_name }}</td>
-                                <td class="px-4 py-2 font-mono text-xs text-amber-300">
+                    <!-- Mobile: card list -->
+                    <div class="space-y-2 sm:hidden">
+                        <div
+                            v-for="m in members"
+                            :key="m.player_id"
+                            class="rounded border border-zinc-800 bg-zinc-900/40 p-3"
+                        >
+                            <div class="flex items-baseline justify-between gap-2">
+                                <div class="min-w-0 flex-1 text-base font-bold text-zinc-100 break-words">
+                                    {{ m.user_name }}
+                                </div>
+                                <span class="font-mono text-[10px] uppercase tracking-widest text-amber-300">
                                     {{ m.role }}
-                                </td>
-                                <td class="px-4 py-2 font-mono text-zinc-400">
-                                    A{{ m.akzar_cash.toFixed(2) }}
-                                </td>
-                                <td class="px-4 py-2 text-right">
-                                    <template v-if="is_leader && m.player_id !== player_id">
-                                        <button
-                                            type="button"
-                                            @click="promote(m.player_id, m.role === 'officer' ? 'member' : 'officer')"
-                                            class="mr-2 text-xs text-amber-400 hover:underline"
-                                        >
-                                            {{ m.role === 'officer' ? 'Demote' : 'Promote' }}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            @click="kick(m.player_id)"
-                                            class="text-xs text-rose-400 hover:underline"
-                                        >
-                                            Kick
-                                        </button>
-                                    </template>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                                </span>
+                            </div>
+                            <div class="mt-1 font-mono text-xs text-zinc-500">
+                                A{{ m.akzar_cash.toFixed(2) }}
+                            </div>
+                            <div
+                                v-if="is_leader && m.player_id !== player_id"
+                                class="mt-3 flex gap-2"
+                            >
+                                <button
+                                    type="button"
+                                    @click="promote(m.player_id, m.role === 'officer' ? 'member' : 'officer')"
+                                    class="tap-target flex-1 rounded border border-amber-700 bg-amber-950/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-amber-300 active:bg-amber-900/60"
+                                >
+                                    {{ m.role === 'officer' ? 'Demote' : 'Promote' }}
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="kick(m.player_id)"
+                                    class="tap-target flex-1 rounded border border-rose-700 bg-rose-950/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-rose-300 active:bg-rose-900/60"
+                                >
+                                    Kick
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Desktop: table -->
+                    <div class="hidden overflow-x-auto rounded border border-zinc-800 sm:block">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-zinc-900 text-xs uppercase tracking-widest text-zinc-400">
+                                <tr>
+                                    <th class="px-4 py-2">Name</th>
+                                    <th class="px-4 py-2">Role</th>
+                                    <th class="px-4 py-2">Cash</th>
+                                    <th class="px-4 py-2"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="m in members"
+                                    :key="m.player_id"
+                                    class="border-t border-zinc-800"
+                                >
+                                    <td class="px-4 py-2 text-zinc-100">{{ m.user_name }}</td>
+                                    <td class="px-4 py-2 font-mono text-xs text-amber-300">
+                                        {{ m.role }}
+                                    </td>
+                                    <td class="px-4 py-2 font-mono text-zinc-400">
+                                        A{{ m.akzar_cash.toFixed(2) }}
+                                    </td>
+                                    <td class="px-4 py-2 text-right">
+                                        <template v-if="is_leader && m.player_id !== player_id">
+                                            <button
+                                                type="button"
+                                                @click="promote(m.player_id, m.role === 'officer' ? 'member' : 'officer')"
+                                                class="mr-2 text-xs text-amber-400 hover:underline"
+                                            >
+                                                {{ m.role === 'officer' ? 'Demote' : 'Promote' }}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                @click="kick(m.player_id)"
+                                                class="text-xs text-rose-400 hover:underline"
+                                            >
+                                                Kick
+                                            </button>
+                                        </template>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Journal tab -->

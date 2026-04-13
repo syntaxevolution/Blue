@@ -75,7 +75,7 @@ function join(mdnId: number) {
                     <Link
                         v-if="!own_mdn"
                         :href="route('mdn.create')"
-                        class="rounded bg-amber-500 px-4 py-2 font-mono text-sm font-bold uppercase tracking-widest text-zinc-950 hover:bg-amber-400 text-center whitespace-nowrap"
+                        class="rounded bg-amber-500 px-4 py-3 font-mono text-xs sm:text-sm font-bold uppercase tracking-widest text-zinc-950 hover:bg-amber-400 text-center"
                     >
                         + Create MDN (A{{ creation_cost.toFixed(2) }})
                     </Link>
@@ -105,8 +105,56 @@ function join(mdnId: number) {
                     </div>
                 </div>
 
-                <div class="overflow-x-auto rounded border border-zinc-800">
-                    <table class="w-full min-w-[640px] text-left text-sm">
+                <!-- Mobile: card list -->
+                <div class="space-y-2 sm:hidden">
+                    <div
+                        v-if="filtered.length === 0"
+                        class="rounded border border-zinc-800 bg-zinc-900/40 px-4 py-8 text-center text-sm text-zinc-500"
+                    >
+                        No MDNs match your search.
+                    </div>
+                    <div
+                        v-for="m in filtered"
+                        :key="m.id"
+                        class="rounded border border-zinc-800 bg-zinc-900/40 p-3"
+                    >
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="font-mono text-sm text-amber-300">[{{ m.tag }}]</span>
+                            <span class="text-[10px] uppercase tracking-widest text-zinc-500">
+                                {{ m.member_count }} / {{ max_members }}
+                            </span>
+                        </div>
+                        <Link
+                            :href="route('mdn.show', m.id)"
+                            class="mt-1 block text-base font-bold text-zinc-100 break-words"
+                        >
+                            {{ m.name }}
+                        </Link>
+                        <div v-if="m.motto" class="mt-1 text-xs italic text-zinc-500 break-words">
+                            {{ m.motto }}
+                        </div>
+                        <div class="mt-3 flex gap-2">
+                            <Link
+                                :href="route('mdn.show', m.id)"
+                                class="tap-target flex-1 rounded border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-center text-xs font-mono uppercase tracking-widest text-zinc-200 active:bg-zinc-800"
+                            >
+                                View
+                            </Link>
+                            <button
+                                v-if="!own_mdn && m.member_count < max_members"
+                                type="button"
+                                @click="join(m.id)"
+                                class="tap-target flex-1 rounded bg-amber-500 px-3 py-2 text-xs font-mono uppercase tracking-widest text-zinc-950 active:bg-amber-400"
+                            >
+                                Join
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Desktop: table -->
+                <div class="hidden overflow-x-auto rounded border border-zinc-800 sm:block">
+                    <table class="w-full text-left text-sm">
                         <thead class="bg-zinc-900 text-xs uppercase tracking-widest text-zinc-400">
                             <tr>
                                 <th class="px-4 py-2">Tag</th>

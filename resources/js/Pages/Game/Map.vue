@@ -699,10 +699,30 @@ const canAttackNow = computed(() => {
 
                 <!-- MAIN MAP PANEL -->
                 <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-3 sm:p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
-                    <!-- N button on top -->
+                    <!-- Compact mobile direction pad: 4 equal buttons stacked above the tile info.
+                         Hidden on sm+ where the cross layout (N/W/center/E/S) takes over. -->
+                    <div class="mb-3 grid grid-cols-4 gap-2 sm:hidden">
+                        <button
+                            v-for="dir in (['w', 'n', 's', 'e'] as const)"
+                            :key="dir"
+                            type="button"
+                            class="tap-target flex h-14 flex-col items-center justify-center gap-0.5 rounded border border-zinc-700 bg-zinc-800 px-1 py-1 text-amber-400 transition active:border-amber-400 active:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                            :disabled="!neighborByDirection[dir]"
+                            @click="travel(dir)"
+                        >
+                            <span class="text-xl leading-none">
+                                {{ { w: '←', n: '↑', s: '↓', e: '→' }[dir] }}
+                            </span>
+                            <span class="text-[10px] uppercase tracking-widest text-zinc-400">
+                                {{ { w: 'West', n: 'North', s: 'South', e: 'East' }[dir] }}
+                            </span>
+                        </button>
+                    </div>
+
+                    <!-- N button on top (desktop cross layout) -->
                     <button
                         type="button"
-                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mb-3"
+                        class="hidden w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded sm:flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mb-3"
                         :disabled="!neighborByDirection.n"
                         @click="travel('n')"
                     >
@@ -723,10 +743,10 @@ const canAttackNow = computed(() => {
                     </button>
 
                     <div class="flex items-stretch gap-2 sm:gap-3">
-                        <!-- W button -->
+                        <!-- W button (desktop cross layout) -->
                         <button
                             type="button"
-                            class="w-14 sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            class="hidden sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded sm:flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
                             :disabled="!neighborByDirection.w"
                             @click="travel('w')"
                         >
@@ -785,13 +805,13 @@ const canAttackNow = computed(() => {
                                     <div v-if="state.tile_detail.fully_depleted" class="mb-3 rounded border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs font-mono text-amber-200">
                                         Field fully depleted — refills {{ refillCountdown }}.
                                     </div>
-                                    <div class="inline-block max-w-full">
+                                    <div class="mx-auto inline-block max-w-full">
                                         <div v-for="y in [4, 3, 2, 1, 0]" :key="y" class="flex gap-1 mb-1 justify-center">
                                             <button
                                                 v-for="x in [0, 1, 2, 3, 4]"
                                                 :key="`${x}:${y}`"
                                                 type="button"
-                                                class="relative w-9 h-9 sm:w-11 sm:h-11 rounded border flex items-center justify-center text-base sm:text-lg transition"
+                                                class="relative w-11 h-11 sm:w-12 sm:h-12 rounded border flex items-center justify-center text-base sm:text-lg transition"
                                                 :class="drillCellClass(drillGridMap[`${x}:${y}`])"
                                                 :disabled="
                                                     !drillGridMap[`${x}:${y}`]
@@ -846,8 +866,8 @@ const canAttackNow = computed(() => {
                                                 <div class="text-amber-400 text-[10px] sm:text-xs uppercase tracking-widest font-bold">{{ item.category }}</div>
                                                 <div class="h-px flex-1 bg-zinc-800"></div>
                                             </div>
-                                            <div class="bg-zinc-900 border border-zinc-800 rounded p-3 flex items-start justify-between gap-2 sm:gap-3">
-                                                <div class="flex-1 min-w-0">
+                                            <div class="bg-zinc-900 border border-zinc-800 rounded p-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div class="min-w-0 flex-1">
                                                     <div class="text-zinc-100 text-sm font-bold break-words">
                                                         {{ item.name }}
                                                         <span v-if="item.owned_quantity > 0" class="ml-1 text-amber-400/80 text-[10px] uppercase tracking-widest">owned ×{{ item.owned_quantity }}</span>
@@ -857,16 +877,18 @@ const canAttackNow = computed(() => {
                                                         <span v-for="(effect, effectIdx) in formatEffects(item.effects)" :key="effectIdx" class="mr-2">{{ effect }}</span>
                                                     </div>
                                                 </div>
-                                                <div class="shrink-0 flex flex-col items-end gap-2 max-w-[45%]">
-                                                    <div class="text-amber-400 text-xs font-bold text-right break-words">{{ formatPrice(item) }}</div>
-                                                    <button
-                                                        type="button"
-                                                        class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                                        :disabled="!item.can_purchase"
-                                                        @click="buy(item)"
-                                                    >Buy</button>
-                                                    <div v-if="!item.can_afford" class="text-rose-400 text-[10px] uppercase tracking-widest">Can't afford</div>
-                                                    <div v-else-if="item.block_reason" class="text-rose-400 text-[10px] uppercase tracking-widest">{{ item.block_reason }}</div>
+                                                <div class="flex flex-row items-center justify-between gap-2 border-t border-zinc-800 pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0 sm:shrink-0 sm:max-w-[45%]">
+                                                    <div class="text-amber-400 text-xs font-bold break-words sm:text-right">{{ formatPrice(item) }}</div>
+                                                    <div class="flex flex-col items-end gap-1">
+                                                        <button
+                                                            type="button"
+                                                            class="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                                                            :disabled="!item.can_purchase"
+                                                            @click="buy(item)"
+                                                        >Buy</button>
+                                                        <div v-if="!item.can_afford" class="text-rose-400 text-[10px] uppercase tracking-widest">Can't afford</div>
+                                                        <div v-else-if="item.block_reason" class="text-rose-400 text-[10px] uppercase tracking-widest">{{ item.block_reason }}</div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </template>
@@ -1041,10 +1063,10 @@ const canAttackNow = computed(() => {
                             </div>
                         </div>
 
-                        <!-- E button -->
+                        <!-- E button (desktop cross layout) -->
                         <button
                             type="button"
-                            class="w-14 sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            class="hidden sm:w-20 md:w-28 shrink-0 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded sm:flex flex-col items-center justify-center gap-1 sm:gap-2 px-1 sm:px-2 py-3 sm:py-4 disabled:opacity-30 disabled:cursor-not-allowed transition"
                             :disabled="!neighborByDirection.e"
                             @click="travel('e')"
                         >
@@ -1062,10 +1084,10 @@ const canAttackNow = computed(() => {
                         </button>
                     </div>
 
-                    <!-- S button -->
+                    <!-- S button (desktop cross layout) -->
                     <button
                         type="button"
-                        class="w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mt-3"
+                        class="hidden w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-amber-400 rounded sm:flex items-center justify-center gap-2 sm:gap-3 py-2 sm:py-3 disabled:opacity-30 disabled:cursor-not-allowed transition mt-3"
                         :disabled="!neighborByDirection.s"
                         @click="travel('s')"
                     >
