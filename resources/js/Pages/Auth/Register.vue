@@ -28,7 +28,7 @@ const submit = () => {
 
         <form @submit.prevent="submit">
             <div>
-                <InputLabel for="name" value="Name" />
+                <InputLabel for="name" value="Username" />
 
                 <TextInput
                     id="name"
@@ -38,7 +38,7 @@ const submit = () => {
                     v-model="form.name"
                     required
                     autofocus
-                    autocomplete="name"
+                    autocomplete="username"
                 />
 
                 <InputError class="mt-2" :message="form.errors.name" />

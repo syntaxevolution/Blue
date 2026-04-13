@@ -1259,64 +1259,72 @@ function formatIntelPct(range: SpyIntelRange): string {
         <!-- Tile combat RESULT modal — appears after a duel resolves so
              the player can't miss the outcome. Mirrored from flash into
              a local ref so it survives subsequent navigations until the
-             player explicitly dismisses it. -->
-        <div
-            v-if="tileCombatResult"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-            @click.self="dismissTileCombatResult"
-        >
+             player explicitly dismisses it.
+             Teleported to <body> to escape any ancestor stacking context
+             — without this, mobile Safari traps `position: fixed` inside
+             the nearest containing block when an ancestor uses transform
+             or backdrop-filter, and the modal renders off-screen or
+             behind the page chrome. z-[80] sits above MobileMoreDrawer
+             (z-60), ToolboxDock (z-60), and the toast container (z-70). -->
+        <Teleport to="body">
             <div
-                class="bg-zinc-900 border-2 rounded-lg p-5 sm:p-6 max-w-md w-full font-mono shadow-2xl"
-                :class="tileCombatResult.attacker_won
-                    ? 'border-emerald-500/60 shadow-emerald-900/30'
-                    : 'border-rose-500/60 shadow-rose-900/30'"
+                v-if="tileCombatResult"
+                class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+                @click.self="dismissTileCombatResult"
             >
                 <div
-                    class="text-xs uppercase tracking-widest mb-2"
-                    :class="tileCombatResult.attacker_won ? 'text-emerald-400' : 'text-rose-400'"
-                >
-                    Wasteland duel
-                </div>
-                <div class="text-zinc-100 text-2xl font-bold mb-3">
-                    {{ tileCombatResult.attacker_won ? 'Victory' : 'Defeat' }}
-                </div>
-                <div class="text-zinc-300 text-sm mb-4 leading-relaxed">
-                    <p class="mb-2">
-                        <template v-if="tileCombatResult.attacker_won">
-                            You overpowered
-                            <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
-                            <span
-                                v-if="tileCombatResult.opponent_mdn_tag"
-                                class="ml-1 font-mono text-xs text-amber-300"
-                            >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
-                            and walked away with
-                            <span class="text-amber-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
-                            barrels of oil.
-                        </template>
-                        <template v-else>
-                            <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
-                            <span
-                                v-if="tileCombatResult.opponent_mdn_tag"
-                                class="ml-1 font-mono text-xs text-amber-300"
-                            >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
-                            beat you down. They took
-                            <span class="text-rose-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
-                            barrels off your back.
-                        </template>
-                    </p>
-                </div>
-                <button
-                    type="button"
-                    class="w-full text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition border"
+                    class="bg-zinc-900 border-2 rounded-lg p-5 sm:p-6 max-w-md w-full font-mono shadow-2xl"
                     :class="tileCombatResult.attacker_won
-                        ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-500 text-zinc-100'
-                        : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'"
-                    @click="dismissTileCombatResult"
+                        ? 'border-emerald-500/60 shadow-emerald-900/30'
+                        : 'border-rose-500/60 shadow-rose-900/30'"
                 >
-                    Continue
-                </button>
+                    <div
+                        class="text-xs uppercase tracking-widest mb-2"
+                        :class="tileCombatResult.attacker_won ? 'text-emerald-400' : 'text-rose-400'"
+                    >
+                        Wasteland duel
+                    </div>
+                    <div class="text-zinc-100 text-2xl font-bold mb-3">
+                        {{ tileCombatResult.attacker_won ? 'Victory' : 'Defeat' }}
+                    </div>
+                    <div class="text-zinc-300 text-sm mb-4 leading-relaxed">
+                        <p class="mb-2">
+                            <template v-if="tileCombatResult.attacker_won">
+                                You overpowered
+                                <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
+                                <span
+                                    v-if="tileCombatResult.opponent_mdn_tag"
+                                    class="ml-1 font-mono text-xs text-amber-300"
+                                >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
+                                and walked away with
+                                <span class="text-amber-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
+                                barrels of oil.
+                            </template>
+                            <template v-else>
+                                <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
+                                <span
+                                    v-if="tileCombatResult.opponent_mdn_tag"
+                                    class="ml-1 font-mono text-xs text-amber-300"
+                                >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
+                                beat you down. They took
+                                <span class="text-rose-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
+                                barrels off your back.
+                            </template>
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        class="w-full text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition border"
+                        :class="tileCombatResult.attacker_won
+                            ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-500 text-zinc-100'
+                            : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'"
+                        @click="dismissTileCombatResult"
+                    >
+                        Continue
+                    </button>
+                </div>
             </div>
-        </div>
+        </Teleport>
 
         <!-- Tile combat confirmation modal -->
         <div
