@@ -81,11 +81,13 @@ class BotDecisionService
         $failThreshold = max(1, (int) $this->config->get('bots.goal_fail_clear_threshold', 3));
         $ttlMinutes = max(1, (int) $this->config->get('bots.goal_max_ttl_minutes', 60));
 
-        // Load or pick a goal.
+        // Load or pick a goal. A resumed goal does NOT touch the
+        // consecutive-drill counter (already counted when originally
+        // picked) — only fresh picks go through commitFreshGoal().
         $goal = $this->currentGoalOrNull($bot);
         if ($goal === null) {
             $goal = $this->planner->pickGoal($bot, $tierCfg);
-            $this->persistGoal($bot, $goal, $ttlMinutes);
+            $this->commitFreshGoal($bot, $goal, $ttlMinutes);
         }
 
         $budget = min((int) $bot->moves_current, $maxActions);
@@ -129,7 +131,7 @@ class BotDecisionService
                     $bot->bot_goal_fail_count = 0;
                     $this->persistGoal($bot, null, $ttlMinutes);
                     $goal = $this->planner->pickGoal($bot->refresh(), $tierCfg);
-                    $this->persistGoal($bot, $goal, $ttlMinutes);
+                    $this->commitFreshGoal($bot, $goal, $ttlMinutes);
                 }
                 continue;
             }
@@ -147,7 +149,7 @@ class BotDecisionService
                 // Persist the just-finished goal state so the debug
                 // log matches what we actually did, then plan fresh.
                 $goal = $this->planner->pickGoal($bot->refresh(), $tierCfg);
-                $this->persistGoal($bot, $goal, $ttlMinutes);
+                $this->commitFreshGoal($bot, $goal, $ttlMinutes);
                 continue;
             }
 
@@ -187,6 +189,33 @@ class BotDecisionService
         }
 
         return $raw;
+    }
+
+    /**
+     * Commit a freshly-planned goal: update the consecutive-drill
+     * counter before persisting. Only called when the planner has
+     * actually produced a new goal (not on resume, not on in-place
+     * explore-budget decrement) so the counter reflects "planner
+     * decisions" rather than "tick wall-clock."
+     *
+     *   - drill goal  → increment counter
+     *   - any other   → reset to 0
+     *   - null goal   → leave counter alone (no decision made)
+     *
+     * @param  array<string,mixed>|null  $goal
+     */
+    private function commitFreshGoal(Player $bot, ?array $goal, int $ttlMinutes): void
+    {
+        if ($goal !== null) {
+            $kind = (string) ($goal['kind'] ?? '');
+            if ($kind === BotGoalPlanner::KIND_DRILL) {
+                $bot->bot_consecutive_drill_count = (int) $bot->bot_consecutive_drill_count + 1;
+            } else {
+                $bot->bot_consecutive_drill_count = 0;
+            }
+        }
+
+        $this->persistGoal($bot, $goal, $ttlMinutes);
     }
 
     /**

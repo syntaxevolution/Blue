@@ -49,13 +49,14 @@ class BotsList extends Command
                 'mode' => $defensive ? 'DEF' : '—',
                 'goal' => $this->formatGoal($p),
                 'expires' => $this->formatExpires($p),
+                'streak' => $this->formatDrillStreak($p),
                 'fails' => (int) $p->bot_goal_fail_count > 0 ? (string) $p->bot_goal_fail_count : '',
                 'last_tick' => $p->bot_last_tick_at?->diffForHumans() ?? 'never',
             ];
         })->all();
 
         $this->table(
-            ['#', 'Name', 'Tier', 'DrT', 'S/F/St/Sc', 'Cash', 'Oil', 'Intel', 'Moves', 'Pos', 'Mode', 'Goal', 'Expires', 'Fails', 'Last tick'],
+            ['#', 'Name', 'Tier', 'DrT', 'S/F/St/Sc', 'Cash', 'Oil', 'Intel', 'Moves', 'Pos', 'Mode', 'Goal', 'Expires', 'Streak', 'Fails', 'Last tick'],
             $rows,
         );
         $this->info("Total bots: {$bots->count()}");
@@ -76,6 +77,25 @@ class BotsList extends Command
             (int) $p->stealth,
             (int) $p->security,
         ]);
+    }
+
+    /**
+     * Consecutive-drill streak, as "current/threshold". Rendered bold
+     * with a ⚠ when the counter has hit (or crossed) the threshold,
+     * so it's obvious at a glance which bots are about to be
+     * force-diversified on their next replan. Blank when 0 to keep
+     * the column quiet for bots doing anything else.
+     */
+    private function formatDrillStreak(Player $p): string
+    {
+        $count = (int) $p->bot_consecutive_drill_count;
+        if ($count === 0) {
+            return '';
+        }
+        $threshold = (int) config('game.bots.force_explore_after_drills', 5);
+        $cell = "{$count}/{$threshold}";
+
+        return $count >= $threshold ? "⚠ {$cell}" : $cell;
     }
 
     /**

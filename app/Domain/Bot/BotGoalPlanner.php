@@ -28,16 +28,28 @@ use Illuminate\Support\Facades\DB;
  *
  * Goals are picked by a fixed priority, not a weighted roll:
  *
- *   1. raid     — we already have a valid in-window spy, target still
- *                 raid-worthy, no cooldown
- *   2. spy      — known enemy base above cash floor, no in-window spy,
- *                 tier allows it
- *   3. sabotage — bot owns a deployable, there's a rival-contested oil
- *                 field, tier allows it
- *   4. drill    — nearest drillable oil field with daily-limit headroom
- *   5. shop     — barrels above upgrade_threshold AND a reachable post
- *                 sells an upgrade we don't own
- *   6. explore  — fallback: walk a fresh heading and reveal fog
+ *   1. raid         — we already have a valid in-window spy, target
+ *                     still raid-worthy, no cooldown
+ *   2. spy          — known enemy base above cash floor, no in-window
+ *                     spy, tier allows it
+ *   3. sabotage     — bot owns a deployable, there's a rival-contested
+ *                     oil field, tier allows it
+ *   3.5 shop-urgent — barrels sit above
+ *                     upgrade_threshold × shop_urgent_barrel_multiplier
+ *                     AND there's an affordable unowned
+ *                     set_drill_tier item at a reachable tech post.
+ *                     Stops bots from hoarding barrels while never
+ *                     upgrading their rig.
+ *   4. drill        — nearest drillable oil field with daily-limit
+ *                     headroom. Skipped when
+ *                     bot_consecutive_drill_count >=
+ *                     bots.force_explore_after_drills, which forces
+ *                     the planner to fall through to shop/explore so
+ *                     the bot actually uses the rest of the feature
+ *                     set instead of camping the nearest field.
+ *   5. shop         — barrels above upgrade_threshold AND a reachable
+ *                     post sells an upgrade we don't own
+ *   6. explore      — fallback: walk a fresh heading and reveal fog
  *
  * Casino tiles are never a valid target. They're filtered out at every
  * nearest*-of-type helper, and the explore step validator rotates
@@ -117,13 +129,30 @@ class BotGoalPlanner
             }
         }
 
-        // Priority 4 — Drill.
-        $drill = $this->pickDrillGoal($bot);
-        if ($drill !== null) {
-            return $drill;
+        // Priority 3.5 — Shop-urgent. Only drill-tier upgrades
+        // qualify here (not stat items, not transports) — the point
+        // is to stop a bot from sitting on 40k barrels while still
+        // running a Dentist Drill.
+        $shopUrgent = $this->pickShopUrgentGoal($bot, $tierCfg);
+        if ($shopUrgent !== null) {
+            return $shopUrgent;
         }
 
-        // Priority 5 — Shop.
+        // Priority 4 — Drill. Skipped when the diversification counter
+        // is tripped so the bot falls through to shop → explore and
+        // actually engages with the rest of the game instead of
+        // camping oil fields.
+        $forceExploreAfter = (int) $this->config->get('bots.force_explore_after_drills', 5);
+        $drillStreakTripped = (int) $bot->bot_consecutive_drill_count >= $forceExploreAfter;
+
+        if (! $drillStreakTripped) {
+            $drill = $this->pickDrillGoal($bot);
+            if ($drill !== null) {
+                return $drill;
+            }
+        }
+
+        // Priority 5 — Shop (discretionary).
         $shop = $this->pickShopGoal($bot, $tierCfg, $defensiveMode);
         if ($shop !== null) {
             return $shop;
@@ -386,6 +415,100 @@ class BotGoalPlanner
             'grid_y' => (int) $point->grid_y,
             'device_key' => $deviceKey,
         ];
+    }
+
+    /**
+     * Shop-urgent: promote a drill-tier upgrade above drilling itself
+     * when the bot is clearly stockpiling. Narrower than the regular
+     * pickShopGoal:
+     *
+     *   - Gated on barrels ≥ upgrade_threshold × shop_urgent_barrel_multiplier
+     *     so it fires only when the bot has an obvious surplus.
+     *   - Only `set_drill_tier` items qualify (not stat items, not
+     *     transports, not drill-yield passives). The point is raw drill
+     *     capability — stats and transports stay in the discretionary
+     *     shop layer.
+     *   - Target drill_tier must strictly exceed current drill_tier so
+     *     the bot never "upgrades" sideways or downwards.
+     *   - Needs a discovered tech post. If none is in fog yet, the
+     *     bot will fall through to drill (still earns barrels) or
+     *     eventually explore (finds one).
+     *
+     * @param  array<string,mixed>  $tierCfg
+     * @return array<string,mixed>|null
+     */
+    private function pickShopUrgentGoal(Player $bot, array $tierCfg): ?array
+    {
+        $baseThreshold = (int) ($tierCfg['upgrade_threshold_barrels'] ?? 300);
+        $multiplier = (float) $this->config->get('bots.shop_urgent_barrel_multiplier', 2.0);
+        $gate = (int) ceil($baseThreshold * $multiplier);
+
+        if ((int) $bot->oil_barrels < $gate) {
+            return null;
+        }
+
+        $discovered = $this->fogOfWar->getDiscoveredTileIds($bot->id);
+        if ($discovered === []) {
+            return null;
+        }
+
+        $current = Tile::query()->find($bot->current_tile_id);
+        if ($current === null) {
+            return null;
+        }
+
+        $post = $this->nearestDiscoveredPostOfType($bot, $discovered, $current, 'tech');
+        if ($post === null) {
+            return null;
+        }
+
+        // Walk tech items, most expensive first, and pick the first
+        // affordable, unowned, strictly-higher-tier drill. Same
+        // affordability rules as the discretionary shop path.
+        $items = Item::query()
+            ->where('post_type', 'tech')
+            ->orderByDesc('price_barrels')
+            ->get();
+
+        $ownedKeys = DB::table('player_items')
+            ->where('player_id', $bot->id)
+            ->where('status', 'active')
+            ->pluck('item_key')
+            ->all();
+
+        foreach ($items as $item) {
+            if (in_array($item->key, $ownedKeys, true)) {
+                continue;
+            }
+
+            $effects = is_array($item->effects) ? $item->effects : [];
+            if (! isset($effects['set_drill_tier'])) {
+                continue;
+            }
+            if ((int) $effects['set_drill_tier'] <= (int) $bot->drill_tier) {
+                continue;
+            }
+
+            if ((int) $bot->oil_barrels < (int) $item->price_barrels) {
+                continue;
+            }
+            if ((float) $bot->akzar_cash < (float) $item->price_cash) {
+                continue;
+            }
+            if ((int) $bot->intel < (int) $item->price_intel) {
+                continue;
+            }
+
+            return [
+                'kind' => self::KIND_SHOP,
+                'tile_id' => (int) $post->tile_id,
+                'post_type' => 'tech',
+                'want_item' => (string) $item->key,
+                'urgent' => true,
+            ];
+        }
+
+        return null;
     }
 
     /**

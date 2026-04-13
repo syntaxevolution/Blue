@@ -424,10 +424,29 @@ return [
 
         // Explore budget: how many tiles the fallback "walk and reveal"
         // goal commits to before replanning. At the 5-min cadence and
-        // 3 moves/tick, 15 tiles ≈ 5 ticks ≈ 25 wall-clock minutes of
-        // sustained scouting — long enough to escape a fog pocket,
-        // short enough to abort if the heading is a dead end.
-        'explore_budget_tiles' => 15,
+        // ~1 move/tick average (200 moves/day regen spread over 288
+        // ticks), 20 tiles ≈ a full day of scouting — but the goal
+        // completes early whenever the bot walks onto something
+        // interesting (oil field, post, base, auction, landmark, ruin)
+        // so in practice it rarely runs the full budget.
+        'explore_budget_tiles' => 20,
+
+        // Shop-urgent gate: when the bot is sitting on a multiple of
+        // its per-tier upgrade_threshold_barrels, a drill-tier upgrade
+        // jumps above drilling in the priority ladder. Stops bots from
+        // stockpiling 40k barrels while never capitalising them into
+        // better yields. 2.0 means "twice the usual shop floor."
+        'shop_urgent_barrel_multiplier' => 2.0,
+
+        // Diversification break: after N consecutive drill goals with
+        // no interleaved action, the planner skips the drill layer so
+        // the bot falls through to shop → explore. Forces engagement
+        // with the rest of the feature set (scouting, upgrades,
+        // combat prep) instead of camping the nearest oil field until
+        // daily caps run out map-wide. Counter lives on the player row
+        // (bot_consecutive_drill_count) and resets on any non-drill
+        // goal pick.
+        'force_explore_after_drills' => 5,
 
         // Revenge / defensive-mode trigger. If the bot was the defender
         // in >= N attacks in the last M hours, shop priority flips to
