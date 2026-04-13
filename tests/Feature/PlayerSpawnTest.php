@@ -66,16 +66,19 @@ it('sets a 48-hour immunity window from now', function () {
     expect($hoursFromNow)->toBeGreaterThanOrEqual(47)->toBeLessThanOrEqual(49);
 });
 
-it('places the spawn inside the configured spawn band radius', function () {
+it('places the spawn on a tile that exists in the current world', function () {
     $user = User::factory()->create();
 
     $player = app(WorldService::class)->spawnPlayer($user->id);
     $base = $player->baseTile;
 
-    $spawnRadius = 12; // world.spawn_band_radius
+    // Spawns are no longer constrained to a central band — they can
+    // land anywhere in the generated world. The only invariant is
+    // that the chosen tile must fall inside the generated disc.
+    $worldRadius = (int) config('game.world.initial_radius');
     $distanceSq = $base->x ** 2 + $base->y ** 2;
 
-    expect($distanceSq)->toBeLessThanOrEqual($spawnRadius * $spawnRadius);
+    expect($distanceSq)->toBeLessThanOrEqual($worldRadius * $worldRadius);
 });
 
 it('throws when no wasteland tiles are available', function () {

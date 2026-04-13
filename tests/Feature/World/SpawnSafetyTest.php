@@ -17,12 +17,11 @@ it('spawnPlayer only selects wasteland tiles and converts them to base', functio
     expect($tile->type)->toBe('base');
 });
 
-it('throws when no wasteland remains inside the spawn band', function () {
-    // Move every wasteland tile inside the spawn band to 'landmark'.
-    $spawnRadius = (int) config('game.world.spawn_band_radius');
+it('throws when no wasteland remains anywhere in the world', function () {
+    // Blank out every wasteland tile — spawn should fail gracefully
+    // because it can no longer find a candidate anywhere.
     Tile::query()
         ->where('type', 'wasteland')
-        ->whereRaw('(x * x + y * y) <= ?', [$spawnRadius * $spawnRadius])
         ->update(['type' => 'landmark']);
 
     $user = User::factory()->create();
@@ -62,7 +61,9 @@ it('bots spawn through the exact same safe path as humans', function () {
     expect($bot->isBot())->toBeTrue();
     expect($bot->bot_difficulty)->toBe('normal');
 
-    $spawnRadius = (int) config('game.world.spawn_band_radius');
+    // Spawn can land anywhere in the generated world — assert the
+    // tile falls inside the initial world disc, not the spawn band.
+    $worldRadius = (int) config('game.world.initial_radius');
     $distSq = $tile->x * $tile->x + $tile->y * $tile->y;
-    expect($distSq)->toBeLessThanOrEqual($spawnRadius * $spawnRadius);
+    expect($distSq)->toBeLessThanOrEqual($worldRadius * $worldRadius);
 });

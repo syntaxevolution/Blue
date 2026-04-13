@@ -473,35 +473,38 @@ class WorldService
     /**
      * Drop a freshly-created user onto Akzar.
      *
-     * Picks a wasteland tile inside the configured spawn band, converts
-     * it to a player base, creates the Player row with the full starting
+     * Picks a wasteland tile anywhere in the current world, converts it
+     * to a player base, creates the Player row with the full starting
      * loadout from GameConfig, and auto-discovers the spawn tile plus its
      * four cardinal neighbors via FogOfWarService so the new player can
      * see something on the map from move one.
+     *
+     * Spawns are uniformly distributed across ALL wasteland tiles that
+     * exist — no central-band constraint — so new bases get scattered
+     * the same way posts, oil fields and casinos already are. The
+     * `world.spawn_band_radius` config key is still used by other
+     * systems (casino placement via CasinoRetrofit) and is intentionally
+     * left in place.
      *
      * Tile selection is deterministic: candidate tiles are ordered by id,
      * and RngService::rollInt picks an index keyed on the user id. Same
      * user id against the same world always lands on the same tile, which
      * makes spawn reproducible in tests and auditable in disputes.
      *
-     * Throws if no wasteland tiles remain inside the spawn band (world
+     * Throws if no wasteland tiles remain anywhere in the world (world
      * too full or not yet generated).
      */
     public function spawnPlayer(int $userId): Player
     {
-        $spawnRadius = (int) $this->config->get('world.spawn_band_radius');
-        $spawnRadiusSq = $spawnRadius * $spawnRadius;
-
-        return DB::transaction(function () use ($userId, $spawnRadiusSq) {
+        return DB::transaction(function () use ($userId) {
             $candidateIds = Tile::query()
                 ->where('type', 'wasteland')
-                ->whereRaw('(x * x + y * y) <= ?', [$spawnRadiusSq])
                 ->orderBy('id')
                 ->pluck('id')
                 ->all();
 
             if ($candidateIds === []) {
-                throw new RuntimeException('WorldService::spawnPlayer: no wasteland tiles available inside the spawn band');
+                throw new RuntimeException('WorldService::spawnPlayer: no wasteland tiles available anywhere in the world');
             }
 
             $index = $this->rng->rollInt(
