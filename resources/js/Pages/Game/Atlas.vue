@@ -11,6 +11,10 @@ interface AtlasTile {
     type: string;
     subtype: string | null;
     discovered_at: string;
+    // Populated only for base tiles (the owner's current username).
+    // Null on every other tile type, and null on base tiles whose
+    // owner has since been deleted.
+    owner_username: string | null;
 }
 
 interface Bounds {
@@ -35,6 +39,7 @@ function tileColor(type: string): string {
         post: 'text-sky-400',
         landmark: 'text-violet-400',
         auction: 'text-rose-400',
+        casino: 'text-fuchsia-400',
         ruin: 'text-zinc-500',
         wasteland: 'text-zinc-600',
     }[type] ?? 'text-zinc-500';
@@ -93,7 +98,12 @@ interface HoverInfo {
     label: string;        // "oil field / standard" or "undiscovered"
     discovered: boolean;
     is_current: boolean;
-    is_base: boolean;
+    is_own_base: boolean;
+    is_enemy_base: boolean;
+    // Owner username, surfaced for ANY base the viewer has discovered
+    // (own or enemy) so the hover line matches what Map.vue shows when
+    // actually standing on an enemy base tile.
+    owner_username: string | null;
 }
 
 const hoverInfo = ref<HoverInfo | null>(null);
@@ -103,13 +113,17 @@ function setHover(x: number, y: number): void {
     if (tile) {
         const parts = [tile.type];
         if (tile.subtype) parts.push(tile.subtype);
+        const isOwn = tile.id === props.base_tile_id;
+        const isBase = tile.type === 'base';
         hoverInfo.value = {
             x,
             y,
             label: parts.join(' / '),
             discovered: true,
             is_current: tile.id === props.current_tile_id,
-            is_base: tile.id === props.base_tile_id,
+            is_own_base: isOwn,
+            is_enemy_base: isBase && !isOwn,
+            owner_username: tile.owner_username,
         };
     } else {
         hoverInfo.value = {
@@ -118,7 +132,9 @@ function setHover(x: number, y: number): void {
             label: 'undiscovered',
             discovered: false,
             is_current: false,
-            is_base: false,
+            is_own_base: false,
+            is_enemy_base: false,
+            owner_username: null,
         };
     }
 }
@@ -358,6 +374,35 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
 
+                    <!-- Hover info line — sits directly under the legend
+                         so the cover location details are always in the
+                         same place on screen regardless of where the
+                         player has dragged the grid. Reserves a fixed
+                         min-height so scroll position doesn't jump when
+                         the mouse enters/leaves the grid. -->
+                    <div class="bg-zinc-900/60 border border-zinc-800 rounded-lg px-4 py-2 text-xs font-mono min-h-[2.25rem] flex items-center gap-2">
+                        <template v-if="hoverInfo">
+                            <span class="text-amber-400">({{ hoverInfo.x }}, {{ hoverInfo.y }})</span>
+                            <span class="text-zinc-600">&mdash;</span>
+                            <span :class="hoverInfo.discovered ? 'text-zinc-200' : 'text-zinc-600 italic'">
+                                {{ hoverInfo.label }}
+                            </span>
+                            <span
+                                v-if="hoverInfo.owner_username"
+                                class="text-zinc-500"
+                            >
+                                &mdash; owner
+                                <span :class="hoverInfo.is_own_base ? 'text-emerald-300' : 'text-rose-300'">{{ hoverInfo.owner_username }}</span>
+                            </span>
+                            <span v-if="hoverInfo.is_current" class="text-amber-400 uppercase tracking-widest text-[10px]">· You are here</span>
+                            <span v-else-if="hoverInfo.is_own_base" class="text-emerald-400 uppercase tracking-widest text-[10px]">· Your base</span>
+                            <span v-else-if="hoverInfo.is_enemy_base" class="text-rose-400 uppercase tracking-widest text-[10px]">· Enemy base</span>
+                        </template>
+                        <template v-else>
+                            <span class="text-zinc-500">North is up. Click and drag to pan &mdash; hover a tile for details.</span>
+                        </template>
+                    </div>
+
                     <!-- Empty state — atlas owned but no tiles discovered (shouldn't happen post-spawn, but defensive) -->
                     <div
                         v-if="tiles.length === 0 || !bounds"
@@ -418,24 +463,6 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
 
-                    <!-- Hover info line — fills the gap left by the
-                         missing native tooltip. Always reserves the
-                         same height so the layout doesn't jump when
-                         the mouse enters/leaves the grid. -->
-                    <div class="text-xs font-mono min-h-[1.25rem] flex items-center gap-2">
-                        <template v-if="hoverInfo">
-                            <span class="text-amber-400">({{ hoverInfo.x }}, {{ hoverInfo.y }})</span>
-                            <span class="text-zinc-600">&mdash;</span>
-                            <span :class="hoverInfo.discovered ? 'text-zinc-200' : 'text-zinc-600 italic'">
-                                {{ hoverInfo.label }}
-                            </span>
-                            <span v-if="hoverInfo.is_current" class="text-amber-400 uppercase tracking-widest text-[10px]">· You are here</span>
-                            <span v-else-if="hoverInfo.is_base" class="text-emerald-400 uppercase tracking-widest text-[10px]">· Your base</span>
-                        </template>
-                        <template v-else>
-                            <span class="text-zinc-500">North is up. Click and drag to pan &mdash; hover a tile for details.</span>
-                        </template>
-                    </div>
                 </template>
             </div>
         </div>

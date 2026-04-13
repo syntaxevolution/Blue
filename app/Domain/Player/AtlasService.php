@@ -26,15 +26,25 @@ class AtlasService
 
     /**
      * @return array{
-     *   tiles: list<array{id:int,x:int,y:int,type:string,subtype:string|null,discovered_at:mixed}>,
+     *   tiles: list<array{id:int,x:int,y:int,type:string,subtype:string|null,discovered_at:mixed,owner_username:string|null}>,
      *   bounds: array{min_x:int,max_x:int,min_y:int,max_y:int}|null
      * }
      */
     public function buildPayload(Player $player): array
     {
+        // Left-join players→users on base_tile_id so we can expose the
+        // owner_username for every base the viewer has discovered.
+        // Non-base tiles get null here, which is fine — the frontend
+        // only reads owner_username when type === 'base'. Matters for
+        // the atlas hover panel (so a player hovering any enemy base
+        // in fog sees the same name they'd see if they actually
+        // walked onto it in Map.vue) and for debugging who owns what
+        // in screenshots.
         $tiles = DB::table('tile_discoveries')
             ->where('tile_discoveries.player_id', $player->id)
             ->join('tiles', 'tiles.id', '=', 'tile_discoveries.tile_id')
+            ->leftJoin('players', 'players.base_tile_id', '=', 'tiles.id')
+            ->leftJoin('users', 'users.id', '=', 'players.user_id')
             ->orderBy('tiles.y')
             ->orderBy('tiles.x')
             ->get([
@@ -44,6 +54,7 @@ class AtlasService
                 'tiles.type',
                 'tiles.subtype',
                 'tile_discoveries.discovered_at',
+                'users.name as owner_username',
             ]);
 
         $bounds = null;
@@ -64,6 +75,9 @@ class AtlasService
                 'type' => (string) $t->type,
                 'subtype' => $t->subtype,
                 'discovered_at' => $t->discovered_at,
+                'owner_username' => $t->type === 'base' && $t->owner_username !== null
+                    ? (string) $t->owner_username
+                    : null,
             ])->all(),
             'bounds' => $bounds,
         ];
