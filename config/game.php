@@ -424,7 +424,7 @@ return [
         // force-replans. Stops a bot clinging to an unreachable or
         // stale target (e.g. field depleted by a rush, target player
         // went immune mid-walk and planner didn't notice).
-        'goal_max_ttl_minutes' => 60,
+        'goal_max_ttl_minutes' => 90,
 
         // Consecutive step() exceptions before the goal is torn down
         // and replanned. Small on purpose — if a goal breaks 3 times in
