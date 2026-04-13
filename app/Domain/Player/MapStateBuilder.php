@@ -268,8 +268,8 @@ class MapStateBuilder
     private function wastelandDetail(Tile $tile, Player $player): array
     {
         $cooldownHours = (int) $this->config->get('combat.tile_duel.cooldown_hours', 24);
-        $moveCost      = (int) $this->config->get('actions.tile_combat.move_cost', 5);
-        $maxLootPct    = (float) $this->config->get('combat.tile_duel.max_oil_loot_pct', 0.05);
+        $moveCost = (int) $this->config->get('actions.tile_combat.move_cost', 5);
+        $maxLootPct = (float) $this->config->get('combat.tile_duel.max_oil_loot_pct', 0.05);
 
         $others = Player::query()
             ->with(['user:id,name,is_bot', 'mdn:id,name,tag'])
@@ -514,6 +514,7 @@ class MapStateBuilder
         if (isset($effects['stat_add']['security'])) {
             return ['Security', 2];
         }
+
         return ['Fortification', 1];
     }
 
@@ -732,8 +733,12 @@ class MapStateBuilder
                 'same_mdn_blocked' => false,
                 'spy_decay_hours' => (int) $this->config->get('combat.spy_decay_hours'),
                 'raid_cooldown_hours' => (int) $this->config->get('combat.raid_cooldown_hours'),
+                'spy_cooldown_hours' => (int) $this->config->get('combat.spy.cooldown_hours'),
                 'has_active_spy' => false,
                 'latest_spy_at' => null,
+                'latest_spy_attempt_at' => null,
+                'spy_intel' => null,
+                'spy_intel_recorded_at' => null,
                 'last_attack_at' => null,
                 'spy_move_cost' => (int) $this->config->get('actions.spy.move_cost'),
                 'attack_move_cost' => (int) $this->config->get('actions.attack.move_cost'),
@@ -742,6 +747,7 @@ class MapStateBuilder
 
         $spyDecayHours = (int) $this->config->get('combat.spy_decay_hours');
         $raidCooldownHours = (int) $this->config->get('combat.raid_cooldown_hours');
+        $spyCooldownHours = (int) $this->config->get('combat.spy.cooldown_hours');
 
         $latestSpy = SpyAttempt::query()
             ->where('spy_player_id', $player->id)
@@ -750,6 +756,19 @@ class MapStateBuilder
             ->where('created_at', '>=', now()->subHours($spyDecayHours))
             ->orderByDesc('created_at')
             ->first();
+
+        // Cooldown lookup is widest-window; counts ALL attempts so a
+        // failed spy still locks the target. Falls back to $latestSpy
+        // when both the success-only window and the cooldown window
+        // share their freshest row.
+        $latestAttempt = $spyCooldownHours > 0
+            ? SpyAttempt::query()
+                ->where('spy_player_id', $player->id)
+                ->where('target_player_id', $owner->id)
+                ->where('created_at', '>=', now()->subHours($spyCooldownHours))
+                ->orderByDesc('created_at')
+                ->first()
+            : null;
 
         $lastAttack = DB::table('attacks')
             ->where('attacker_player_id', $player->id)
@@ -767,8 +786,12 @@ class MapStateBuilder
             'same_mdn_blocked' => $sameMdn,
             'spy_decay_hours' => $spyDecayHours,
             'raid_cooldown_hours' => $raidCooldownHours,
+            'spy_cooldown_hours' => $spyCooldownHours,
             'has_active_spy' => $latestSpy !== null,
             'latest_spy_at' => $latestSpy?->created_at->toIso8601String(),
+            'latest_spy_attempt_at' => $latestAttempt?->created_at->toIso8601String(),
+            'spy_intel' => $latestSpy?->intel_payload,
+            'spy_intel_recorded_at' => $latestSpy?->created_at->toIso8601String(),
             'last_attack_at' => $lastAttack,
             'spy_move_cost' => (int) $this->config->get('actions.spy.move_cost'),
             'attack_move_cost' => (int) $this->config->get('actions.attack.move_cost'),

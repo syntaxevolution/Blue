@@ -52,10 +52,15 @@ return [
         'formula_version' => 'v1',
         'rng_band_min' => -0.10,
         'rng_band_max' => 0.15,
-        // Loot curve: loot_pct = min(loot_ceiling, loot_base_pct + loot_scale_factor * finalScore)
-        'loot_base_pct' => 0.05,
+        // Loot curve: rawPct = loot_base_pct + loot_scale_factor * finalScore,
+        // clamped to [0, loot_ceiling_pct], floored to loot_pct_quantum (0.1%
+        // steps), then applied to defender cash and rounded UP to the cent.
+        // Successful raids with finalScore barely above zero can therefore
+        // legitimately yield $0.00 — the floor is intentional, not a bug.
+        'loot_base_pct' => 0.00,
         'loot_scale_factor' => 0.15,
         'loot_ceiling_pct' => 0.20,
+        'loot_pct_quantum' => 0.001,
         'raid_cooldown_hours' => 12,
         'spy_decay_hours' => 24,
         // When true, a defender who is physically on their base tile
@@ -88,6 +93,26 @@ return [
             'success_per_stealth_diff' => 0.05,
             'success_chance_min' => 0.10,
             'success_chance_max' => 0.95,
+            // Per-target per-attacker spy cooldown. A spy on player A does
+            // not block a spy on player B; it only blocks re-spying A.
+            // Counts ALL attempts (success or failure) so a botched spy
+            // still locks the target for the cooldown window.
+            'cooldown_hours' => 12,
+            // Reveal payload — a successful spy snapshots fortification,
+            // security, cash, and an estimated raid win chance, with
+            // fuzz noise applied so the player sees a range, not the
+            // exact number. Stored on spy_attempts.intel_payload at the
+            // moment of the spy and rendered "as of Xh ago" in the UI.
+            //
+            // Numeric noise scales DOWN as the spy's stealth advantage
+            // over the target's security grows: a max-stealth spy gets
+            // tight ranges, a barely-trained spy gets wide ones. The
+            // scale key controls how many points of advantage halve the
+            // noise. Win chance uses an absolute ±pp band instead.
+            'reveal_fuzz_numeric_pct' => 0.15,
+            'reveal_fuzz_min_numeric_pct' => 0.05,
+            'reveal_fuzz_advantage_scale' => 10,
+            'reveal_fuzz_win_chance_abs' => 0.10,
         ],
     ],
 
@@ -351,11 +376,11 @@ return [
         // fuel   = oil_barrels deducted per button press
         // flags  = special behaviours (reveal_path, reveal_cardinal_neighbours)
         'transport' => [
-            'bicycle'     => ['cost_barrels' => 500,    'spaces' => 2,  'fuel' => 0,  'flags' => []],
-            'motorcycle'  => ['cost_barrels' => 1500,   'spaces' => 5,  'fuel' => 1,  'flags' => []],
+            'bicycle' => ['cost_barrels' => 500,    'spaces' => 2,  'fuel' => 0,  'flags' => []],
+            'motorcycle' => ['cost_barrels' => 1500,   'spaces' => 5,  'fuel' => 1,  'flags' => []],
             'sand_runner' => ['cost_barrels' => 5000,   'spaces' => 10, 'fuel' => 2,  'flags' => ['reveal_cardinal_neighbours']],
-            'helicopter'  => ['cost_barrels' => 25000,  'spaces' => 25, 'fuel' => 5,  'flags' => []],
-            'airplane'    => ['cost_barrels' => 100000, 'spaces' => 50, 'fuel' => 10, 'flags' => ['reveal_path']],
+            'helicopter' => ['cost_barrels' => 25000,  'spaces' => 25, 'fuel' => 5,  'flags' => []],
+            'airplane' => ['cost_barrels' => 100000, 'spaces' => 50, 'fuel' => 10, 'flags' => ['reveal_path']],
         ],
     ],
 
@@ -509,7 +534,7 @@ return [
         // Word pool used by bots:spawn when auto-generating names.
         'name_pool' => [
             'adjectives' => ['Rusty', 'Dusty', 'Silent', 'Iron', 'Sandy', 'Shady', 'Greasy', 'Feral', 'Tinny', 'Cobalt', 'Brass', 'Hollow'],
-            'nouns'      => ['Jack', 'Whip', 'Prowler', 'Hound', 'Scrap', 'Fang', 'Coil', 'Drifter', 'Ghost', 'Shark', 'Badger', 'Vulture'],
+            'nouns' => ['Jack', 'Whip', 'Prowler', 'Hound', 'Scrap', 'Fang', 'Coil', 'Drifter', 'Ghost', 'Shark', 'Badger', 'Vulture'],
         ],
 
         // Per-tier gates. The planner ladder is always the same —
@@ -634,14 +659,14 @@ return [
             // Pay-table order matters: first matching rule wins. 3-of-a-kind
             // entries must appear before 2-of-a-kind for the same symbol.
             'symbols' => [
-                'cherry'     => ['weight' => 28, 'display' => 'Cherry'],
-                'bar'        => ['weight' => 22, 'display' => 'BAR'],
+                'cherry' => ['weight' => 28, 'display' => 'Cherry'],
+                'bar' => ['weight' => 22, 'display' => 'BAR'],
                 'double_bar' => ['weight' => 14, 'display' => '2xBAR'],
                 'triple_bar' => ['weight' => 10, 'display' => '3xBAR'],
-                'seven'      => ['weight' => 8,  'display' => '7'],
-                'diamond'    => ['weight' => 5,  'display' => 'Diamond'],
-                'akzar'      => ['weight' => 2,  'display' => 'AKZAR'],
-                'blank'      => ['weight' => 20, 'display' => '—'],
+                'seven' => ['weight' => 8,  'display' => '7'],
+                'diamond' => ['weight' => 5,  'display' => 'Diamond'],
+                'akzar' => ['weight' => 2,  'display' => 'AKZAR'],
+                'blank' => ['weight' => 20, 'display' => '—'],
             ],
             // Pay table tuned to ~5.9% house edge (EV ≈ 0.941) against
             // the symbol weights above. Recalculate if symbol weights

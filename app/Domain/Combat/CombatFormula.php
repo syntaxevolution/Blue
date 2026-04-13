@@ -78,13 +78,9 @@ class CombatFormula
 
         $finalScore = $baseOutcome + $randomBand;
 
-        $lootCeiling = (float) $this->config->get('combat.loot_ceiling_pct');
-        $lootBase = (float) $this->config->get('combat.loot_base_pct');
-        $lootScale = (float) $this->config->get('combat.loot_scale_factor');
-
         if ($finalScore > 0) {
-            $lootPct = min($lootCeiling, $lootBase + $lootScale * $finalScore);
-            $cashStolen = round((float) $defender->akzar_cash * $lootPct, 2);
+            $lootPct = $this->resolveLootPct($finalScore);
+            $cashStolen = $this->resolveCashStolen((float) $defender->akzar_cash, $lootPct);
 
             return [
                 'outcome' => 'success',
@@ -175,10 +171,10 @@ class CombatFormula
 
         if ($finalScore > 0) {
             $winnerStr = $atkPower;
-            $loserStr  = $defPower;
+            $loserStr = $defPower;
         } else {
             $winnerStr = $defPower;
-            $loserStr  = $atkPower;
+            $loserStr = $atkPower;
         }
 
         // Upset reward: ratio of loser-scaled to winner-scaled strength,
@@ -189,9 +185,9 @@ class CombatFormula
             $oilPct = max(0.0, min($maxPct, ($loserStr / $winnerStr) * $maxPct));
         }
 
-        $outcome  = $finalScore > 0 ? 'attacker_win' : 'defender_win';
+        $outcome = $finalScore > 0 ? 'attacker_win' : 'defender_win';
         $winnerId = $finalScore > 0 ? (int) $attacker->id : (int) $defender->id;
-        $loserId  = $finalScore > 0 ? (int) $defender->id : (int) $attacker->id;
+        $loserId = $finalScore > 0 ? (int) $defender->id : (int) $attacker->id;
 
         return [
             'outcome' => $outcome,
@@ -234,8 +230,108 @@ class CombatFormula
 
         // P(band > -baseOutcome) where band ~ U(min, max).
         $threshold = -$baseOutcome;
-        if ($threshold <= $bandMin) return 1.0;
-        if ($threshold >= $bandMax) return 0.0;
+        if ($threshold <= $bandMin) {
+            return 1.0;
+        }
+        if ($threshold >= $bandMax) {
+            return 0.0;
+        }
+
+        return ($bandMax - $threshold) / $bandWidth;
+    }
+
+    /**
+     * Resolve the loot percentage from a positive final score.
+     *
+     * Pipeline:
+     *   raw     = base + scale * finalScore
+     *   clamped = clamp(raw, 0, ceiling)
+     *   stepped = floor(clamped / quantum) * quantum
+     *
+     * The floor-quantize is intentional: it favors the defender when
+     * the math lands between two 0.1% steps. A successful raid CAN
+     * yield zero loot if finalScore is small enough that clamped is
+     * below one quantum step — that's by design.
+     */
+    public function resolveLootPct(float $finalScore): float
+    {
+        $base = (float) $this->config->get('combat.loot_base_pct');
+        $scale = (float) $this->config->get('combat.loot_scale_factor');
+        $ceiling = (float) $this->config->get('combat.loot_ceiling_pct');
+        $quantum = (float) $this->config->get('combat.loot_pct_quantum');
+
+        $raw = $base + $scale * $finalScore;
+        $clamped = max(0.0, min($ceiling, $raw));
+
+        if ($quantum <= 0.0) {
+            return $clamped;
+        }
+
+        return floor($clamped / $quantum) * $quantum;
+    }
+
+    /**
+     * Apply a loot pct to defender cash, rounding UP to the nearest cent.
+     *
+     * Round-up is asymmetric on purpose: any nonzero loot pct on a
+     * nonzero pool yields at least $0.01, so weak-but-positive raids
+     * always feel like they did something. Pairs with the floor-quantize
+     * in resolveLootPct() above to keep the bias from compounding.
+     */
+    public function resolveCashStolen(float $defenderCash, float $lootPct): float
+    {
+        if ($defenderCash <= 0.0 || $lootPct <= 0.0) {
+            return 0.0;
+        }
+
+        return ceil($defenderCash * $lootPct * 100.0) / 100.0;
+    }
+
+    /**
+     * Closed-form estimate of attacker raid win probability, ignoring
+     * the random band (mirror of estimateTileDuelWinChance but for
+     * fortification-based defense, plus the optional at-base strength
+     * bonus).
+     *
+     * Used by SpyService to bake an "estimated win chance" into the
+     * spy reveal payload — it's computed at spy time and snapshotted,
+     * so the player sees the win odds AS OF the moment of the spy.
+     * Defenders moving home/away after the spy isn't reflected; that's
+     * intentional (intel goes stale).
+     */
+    public function estimateRaidWinChance(
+        Player $attacker,
+        Player $defender,
+        bool $defenderAtBase = false,
+    ): float {
+        $atkPower = $this->scaledStat((int) $attacker->strength);
+        $defPower = $this->scaledStat((int) $defender->fortification);
+
+        $bonusEnabled = (bool) $this->config->get('combat.at_base_defense_bonus_enabled');
+        if ($bonusEnabled && $defenderAtBase) {
+            $defPower += $this->scaledStat((int) $defender->strength);
+        }
+
+        $denominator = $atkPower + $defPower;
+        if ($denominator <= 0) {
+            return 0.5;
+        }
+        $baseOutcome = ($atkPower - $defPower) / $denominator;
+
+        $bandMin = (float) $this->config->get('combat.rng_band_min');
+        $bandMax = (float) $this->config->get('combat.rng_band_max');
+        $bandWidth = $bandMax - $bandMin;
+        if ($bandWidth <= 0) {
+            return $baseOutcome > 0 ? 1.0 : 0.0;
+        }
+
+        $threshold = -$baseOutcome;
+        if ($threshold <= $bandMin) {
+            return 1.0;
+        }
+        if ($threshold >= $bandMax) {
+            return 0.0;
+        }
 
         return ($bandMax - $threshold) / $bandWidth;
     }

@@ -35,4 +35,9 @@ class CannotSpyException extends RuntimeException
     {
         return new self("Recent MDN change — spies unlocked in {$hoursRemaining}h");
     }
+
+    public static function inCooldown(int $hoursRemaining): self
+    {
+        return new self("Spy cooldown active on this target — try again in {$hoursRemaining}h");
+    }
 }

@@ -26,6 +26,7 @@ class SpyAttempt extends Model
         'detected',
         'rng_seed',
         'rng_output',
+        'intel_payload',
         'created_at',
     ];
 
@@ -33,6 +34,7 @@ class SpyAttempt extends Model
         'success' => 'boolean',
         'detected' => 'boolean',
         'rng_seed' => 'integer',
+        'intel_payload' => 'array',
         'created_at' => 'datetime',
     ];
 

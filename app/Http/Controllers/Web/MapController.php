@@ -24,6 +24,7 @@ use App\Http\Requests\PlaceDeviceRequest;
 use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use App\Models\Item;
+use App\Models\Player;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -71,7 +72,7 @@ class MapController extends Controller
 
         try {
             $this->travel->travel($player->id, $request->validated('direction'));
-        } catch (InsufficientMovesException | CannotTravelException $e) {
+        } catch (InsufficientMovesException|CannotTravelException $e) {
             return redirect()->route('map.show')->withErrors(['travel' => $e->getMessage()]);
         } catch (\Throwable $e) {
             // Catch-all so DB errors (e.g. an un-deployed FogOfWar fix) show
@@ -106,7 +107,7 @@ class MapController extends Controller
                 (int) $request->validated('grid_x'),
                 (int) $request->validated('grid_y'),
             );
-        } catch (InsufficientMovesException | CannotDrillException $e) {
+        } catch (InsufficientMovesException|CannotDrillException $e) {
             return redirect()->route('map.show')->withErrors(['drill' => $e->getMessage()]);
         } catch (\Throwable $e) {
             return redirect()->route('map.show')->withErrors([
@@ -139,7 +140,7 @@ class MapController extends Controller
                 (int) $request->validated('grid_y'),
                 (string) $request->validated('item_key'),
             );
-        } catch (InsufficientMovesException | CannotSabotageException $e) {
+        } catch (InsufficientMovesException|CannotSabotageException $e) {
             return redirect()->route('map.show')->withErrors(['place_device' => $e->getMessage()]);
         } catch (\Throwable $e) {
             return redirect()->route('map.show')->withErrors([
@@ -194,7 +195,7 @@ class MapController extends Controller
 
         try {
             $result = $this->spySvc->spy($player->id);
-        } catch (InsufficientMovesException | CannotSpyException $e) {
+        } catch (InsufficientMovesException|CannotSpyException $e) {
             return redirect()->route('map.show')->withErrors(['spy' => $e->getMessage()]);
         } catch (\Throwable $e) {
             return redirect()->route('map.show')->withErrors([
@@ -216,7 +217,7 @@ class MapController extends Controller
 
         try {
             $result = $this->attackSvc->attack($player->id);
-        } catch (InsufficientMovesException | CannotAttackException $e) {
+        } catch (InsufficientMovesException|CannotAttackException $e) {
             return redirect()->route('map.show')->withErrors(['attack' => $e->getMessage()]);
         } catch (\Throwable $e) {
             return redirect()->route('map.show')->withErrors([
@@ -242,7 +243,7 @@ class MapController extends Controller
 
         try {
             $result = $this->tileCombatSvc->engage($player->id, (int) $data['defender_player_id']);
-        } catch (InsufficientMovesException | CannotAttackException $e) {
+        } catch (InsufficientMovesException|CannotAttackException $e) {
             return redirect()->route('map.show')->withErrors(['tile_combat' => $e->getMessage()]);
         } catch (\Throwable $e) {
             return redirect()->route('map.show')->withErrors([
@@ -250,10 +251,18 @@ class MapController extends Controller
             ]);
         }
 
-        $message = $result['attacker_won']
-            ? "You won the fight — took {$result['oil_stolen']} barrels from them."
-            : "You lost the fight — they took {$result['oil_stolen']} barrels from you.";
+        // Look up the opponent's username + MDN tag for the result modal.
+        // Single targeted query — Player::find returns null on a missing
+        // row which we handle as 'Unknown'.
+        $opponent = Player::query()
+            ->with(['user:id,name', 'mdn:id,tag'])
+            ->find((int) $data['defender_player_id']);
 
-        return redirect()->route('map.show')->with('tile_combat_result', $message);
+        return redirect()->route('map.show')->with('tile_combat_result', [
+            'attacker_won' => (bool) $result['attacker_won'],
+            'oil_stolen' => (int) $result['oil_stolen'],
+            'opponent_username' => (string) ($opponent?->user?->name ?? 'Unknown'),
+            'opponent_mdn_tag' => $opponent?->mdn?->tag,
+        ]);
     }
 }

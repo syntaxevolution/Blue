@@ -268,11 +268,25 @@ class BotGoalPlanner
 
         $minCash = (float) ($tierCfg['min_target_cash'] ?? 5.0);
         $revengeAttackerId = $defensiveMode ? $this->mostRecentAttackerId($bot) : null;
+        $spyCooldownHours = (int) $this->config->get('combat.spy.cooldown_hours', 12);
+
+        // Targets we've spied (success OR failure) inside the cooldown
+        // window are off-limits — SpyService will throw inCooldown()
+        // and BotGoalExecutor will invalidate the goal. Filter them
+        // out at planning time so we don't burn a tick on a doomed pick.
+        $spyCooldownTargetIds = $spyCooldownHours > 0
+            ? SpyAttempt::query()
+                ->where('spy_player_id', $bot->id)
+                ->where('created_at', '>=', now()->subHours($spyCooldownHours))
+                ->pluck('target_player_id')
+                ->all()
+            : [];
 
         $query = Player::query()
             ->whereIn('base_tile_id', $discovered)
             ->where('id', '!=', $bot->id)
             ->where('akzar_cash', '>=', $minCash)
+            ->when($spyCooldownTargetIds !== [], fn ($q) => $q->whereNotIn('id', $spyCooldownTargetIds))
             ->where(function ($q) {
                 $q->whereNull('immunity_expires_at')
                     ->orWhere('immunity_expires_at', '<', now());
@@ -593,10 +607,10 @@ class BotGoalPlanner
         //   mid  → balanced (tech → fort → strength → security → stealth)
         $risk = (float) ($tierCfg['risk_tolerance'] ?? 0.5);
         $priority = match (true) {
-            $defensiveMode       => ['fort', 'security', 'tech', 'strength', 'stealth'],
-            $risk > 0.6          => ['tech', 'strength', 'stealth', 'fort', 'security'],
-            $risk < 0.4          => ['fort', 'security', 'tech', 'stealth', 'strength'],
-            default              => ['tech', 'fort', 'strength', 'security', 'stealth'],
+            $defensiveMode => ['fort', 'security', 'tech', 'strength', 'stealth'],
+            $risk > 0.6 => ['tech', 'strength', 'stealth', 'fort', 'security'],
+            $risk < 0.4 => ['fort', 'security', 'tech', 'stealth', 'strength'],
+            default => ['tech', 'fort', 'strength', 'security', 'stealth'],
         };
 
         $current = Tile::query()->find($bot->current_tile_id);

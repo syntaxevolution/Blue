@@ -126,6 +126,18 @@ interface OwnBaseDetail {
     stored_intel: number;
 }
 
+interface SpyIntelRange {
+    low: number;
+    high: number;
+}
+
+interface SpyIntel {
+    fortification: SpyIntelRange;
+    security: SpyIntelRange;
+    cash: SpyIntelRange;
+    win_chance: SpyIntelRange;
+}
+
 interface EnemyBaseDetail {
     kind: 'enemy_base';
     owner_username: string | null;
@@ -135,8 +147,12 @@ interface EnemyBaseDetail {
     same_mdn_blocked: boolean;
     spy_decay_hours: number;
     raid_cooldown_hours: number;
+    spy_cooldown_hours: number;
     has_active_spy: boolean;
     latest_spy_at: string | null;
+    latest_spy_attempt_at: string | null;
+    spy_intel: SpyIntel | null;
+    spy_intel_recorded_at: string | null;
     last_attack_at: string | null;
     spy_move_cost: number;
     attack_move_cost: number;
@@ -288,7 +304,33 @@ const placeResultText = computed<string | null>(() => {
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
 const attackResult = computed(() => (flash.value.attack_result as string | undefined) ?? null);
-const tileCombatResult = computed(() => (flash.value.tile_combat_result as string | undefined) ?? null);
+
+interface TileCombatResultPayload {
+    attacker_won: boolean;
+    oil_stolen: number;
+    opponent_username: string;
+    opponent_mdn_tag: string | null;
+}
+
+// Tile-combat result is mirrored from flash into a local ref so the
+// modal stays mounted across subsequent navigations until the player
+// clicks Continue. Flash is one-shot (Inertia clears it on the next
+// request), so without the mirror the modal would unmount as soon as
+// the player did anything else.
+const tileCombatResult = ref<TileCombatResultPayload | null>(null);
+watch(
+    () => flash.value.tile_combat_result,
+    (incoming) => {
+        if (incoming && typeof incoming === 'object') {
+            tileCombatResult.value = incoming as TileCombatResultPayload;
+        }
+    },
+    { immediate: true },
+);
+
+function dismissTileCombatResult() {
+    tileCombatResult.value = null;
+}
 
 const fightConfirmTarget = ref<WastelandOccupant | null>(null);
 const fightInFlight = ref(false);
@@ -613,6 +655,60 @@ const canAttackNow = computed(() => {
     }
     return true;
 });
+
+// Spy cooldown remaining in hours for the displayed enemy base.
+// Same local-clock approach as canAttackNow so the button re-enables
+// itself when the cooldown elapses without forcing a page reload.
+const spyCooldownRemainingHours = computed(() => {
+    if (props.state.tile_detail?.kind !== 'enemy_base') return 0;
+    const d = props.state.tile_detail;
+    if (!d.latest_spy_attempt_at) return 0;
+    const cooldownHours = d.spy_cooldown_hours ?? 0;
+    if (cooldownHours <= 0) return 0;
+    const lastMs = new Date(d.latest_spy_attempt_at).getTime();
+    if (Number.isNaN(lastMs)) return 0;
+    const elapsedHours = (Date.now() - lastMs) / 3600 / 1000;
+    return Math.max(0, Math.ceil(cooldownHours - elapsedHours));
+});
+
+const canSpyNow = computed(() => {
+    if (props.state.tile_detail?.kind !== 'enemy_base') return false;
+    const d = props.state.tile_detail;
+    if (d.owner_immune || d.same_mdn_blocked) return false;
+    return spyCooldownRemainingHours.value === 0;
+});
+
+// Recorded-X-ago label for the intel snapshot on the enemy base panel.
+const spyIntelAgeLabel = computed(() => {
+    if (props.state.tile_detail?.kind !== 'enemy_base') return '';
+    const d = props.state.tile_detail;
+    if (!d.spy_intel_recorded_at) return '';
+    const recordedAt = new Date(d.spy_intel_recorded_at).getTime();
+    if (Number.isNaN(recordedAt)) return '';
+    const elapsedMin = Math.max(0, (Date.now() - recordedAt) / 60000);
+    if (elapsedMin < 1) return 'just now';
+    if (elapsedMin < 60) return `${Math.floor(elapsedMin)}m ago`;
+    const hours = elapsedMin / 60;
+    if (hours < 24) return `${Math.floor(hours)}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+});
+
+function formatIntelInt(range: SpyIntelRange): string {
+    if (range.low === range.high) return `~${range.low}`;
+    return `~${range.low}–${range.high}`;
+}
+
+function formatIntelCash(range: SpyIntelRange): string {
+    if (range.low === range.high) return `~A${range.low.toFixed(2)}`;
+    return `~A${range.low.toFixed(2)}–A${range.high.toFixed(2)}`;
+}
+
+function formatIntelPct(range: SpyIntelRange): string {
+    const lowPct = Math.round(range.low * 100);
+    const highPct = Math.round(range.high * 100);
+    if (lowPct === highPct) return `~${lowPct}%`;
+    return `~${lowPct}–${highPct}%`;
+}
 </script>
 
 <template>
@@ -707,7 +803,6 @@ const canAttackNow = computed(() => {
                 <div v-if="purchaseResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ purchaseResult }}</div>
                 <div v-if="spyResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ spyResult }}</div>
                 <div v-if="attackResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ attackResult }}</div>
-                <div v-if="tileCombatResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ tileCombatResult }}</div>
                 <div v-if="travelError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ travelError }}</div>
                 <div v-if="drillError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ drillError }}</div>
                 <div v-if="placeError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ placeError }}</div>
@@ -992,11 +1087,43 @@ const canAttackNow = computed(() => {
                                         Spy intel is fresh. You can raid.
                                     </div>
 
+                                    <!-- Spy intel snapshot — fuzzed ranges from the most recent
+                                         successful spy. Player never sees the exact value, only
+                                         the rolled low/high bounds; the band tightens as the
+                                         spy's stealth advantage grows. Frozen at spy time. -->
+                                    <div
+                                        v-if="state.tile_detail.spy_intel"
+                                        class="rounded border border-violet-900/60 bg-violet-950/30 p-3 mt-3 mb-1"
+                                    >
+                                        <div class="flex items-center justify-between text-violet-300 text-[10px] uppercase tracking-widest mb-2">
+                                            <span>Reconnaissance</span>
+                                            <span class="text-violet-500 normal-case tracking-normal">recorded {{ spyIntelAgeLabel }}</span>
+                                        </div>
+                                        <dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-mono">
+                                            <dt class="text-zinc-500">Fortification</dt>
+                                            <dd class="text-zinc-100 text-right">{{ formatIntelInt(state.tile_detail.spy_intel.fortification) }}</dd>
+                                            <dt class="text-zinc-500">Security</dt>
+                                            <dd class="text-zinc-100 text-right">{{ formatIntelInt(state.tile_detail.spy_intel.security) }}</dd>
+                                            <dt class="text-zinc-500">Cash on hand</dt>
+                                            <dd class="text-amber-400 text-right">{{ formatIntelCash(state.tile_detail.spy_intel.cash) }}</dd>
+                                            <dt class="text-zinc-500">Raid win chance</dt>
+                                            <dd class="text-emerald-400 text-right">{{ formatIntelPct(state.tile_detail.spy_intel.win_chance) }}</dd>
+                                        </dl>
+                                    </div>
+
+                                    <div
+                                        v-if="spyCooldownRemainingHours > 0"
+                                        class="text-amber-400 text-xs mt-2 italic"
+                                    >
+                                        Spy cooldown: ~{{ spyCooldownRemainingHours }}h remaining on this target.
+                                    </div>
+
                                     <div class="flex flex-col sm:flex-row gap-2 mt-4">
                                         <button
                                             type="button"
                                             class="flex-1 bg-violet-800 hover:bg-violet-700 border border-violet-600 text-zinc-100 text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                            :disabled="state.tile_detail.owner_immune || state.tile_detail.same_mdn_blocked"
+                                            :disabled="!canSpyNow"
+                                            :title="spyCooldownRemainingHours > 0 ? `Spy cooldown — ${spyCooldownRemainingHours}h remaining` : ''"
                                             @click="spy"
                                         >
                                             Spy ({{ state.tile_detail.spy_move_cost }} moves)
@@ -1133,6 +1260,68 @@ const canAttackNow = computed(() => {
             :owns-teleporter="state.player.owns_teleporter ?? false"
             @close="showTeleportModal = false"
         />
+
+        <!-- Tile combat RESULT modal — appears after a duel resolves so
+             the player can't miss the outcome. Mirrored from flash into
+             a local ref so it survives subsequent navigations until the
+             player explicitly dismisses it. -->
+        <div
+            v-if="tileCombatResult"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            @click.self="dismissTileCombatResult"
+        >
+            <div
+                class="bg-zinc-900 border-2 rounded-lg p-5 sm:p-6 max-w-md w-full font-mono shadow-2xl"
+                :class="tileCombatResult.attacker_won
+                    ? 'border-emerald-500/60 shadow-emerald-900/30'
+                    : 'border-rose-500/60 shadow-rose-900/30'"
+            >
+                <div
+                    class="text-xs uppercase tracking-widest mb-2"
+                    :class="tileCombatResult.attacker_won ? 'text-emerald-400' : 'text-rose-400'"
+                >
+                    Wasteland duel
+                </div>
+                <div class="text-zinc-100 text-2xl font-bold mb-3">
+                    {{ tileCombatResult.attacker_won ? 'Victory' : 'Defeat' }}
+                </div>
+                <div class="text-zinc-300 text-sm mb-4 leading-relaxed">
+                    <p class="mb-2">
+                        <template v-if="tileCombatResult.attacker_won">
+                            You overpowered
+                            <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
+                            <span
+                                v-if="tileCombatResult.opponent_mdn_tag"
+                                class="ml-1 font-mono text-xs text-amber-300"
+                            >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
+                            and walked away with
+                            <span class="text-amber-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
+                            barrels of oil.
+                        </template>
+                        <template v-else>
+                            <span class="text-zinc-100 font-bold">{{ tileCombatResult.opponent_username }}</span>
+                            <span
+                                v-if="tileCombatResult.opponent_mdn_tag"
+                                class="ml-1 font-mono text-xs text-amber-300"
+                            >[{{ tileCombatResult.opponent_mdn_tag }}]</span>
+                            beat you down. They took
+                            <span class="text-rose-400 font-bold">{{ tileCombatResult.oil_stolen }}</span>
+                            barrels off your back.
+                        </template>
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    class="w-full text-sm font-bold uppercase tracking-wider px-4 py-3 rounded transition border"
+                    :class="tileCombatResult.attacker_won
+                        ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-500 text-zinc-100'
+                        : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'"
+                    @click="dismissTileCombatResult"
+                >
+                    Continue
+                </button>
+            </div>
+        </div>
 
         <!-- Tile combat confirmation modal -->
         <div
