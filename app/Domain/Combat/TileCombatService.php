@@ -77,9 +77,9 @@ class TileCombatService
             throw CannotAttackException::cannotFightSelf();
         }
 
-        $cost          = (int) $this->config->get('actions.tile_combat.move_cost');
+        $cost = (int) $this->config->get('actions.tile_combat.move_cost');
         $cooldownHours = (int) $this->config->get('combat.tile_duel.cooldown_hours');
-        $broadcastOn   = (bool) $this->config->get('notifications.broadcast_enabled');
+        $broadcastOn = (bool) $this->config->get('notifications.broadcast_enabled');
 
         $result = DB::transaction(function () use ($attackerPlayerId, $defenderPlayerId, $cost, $cooldownHours) {
 
@@ -157,10 +157,17 @@ class TileCombatService
             // ------ Oil transfer ------
             $attackerWon = $res['outcome'] === 'attacker_win';
             $winner = $attackerWon ? $attacker : $defender;
-            $loser  = $attackerWon ? $defender : $attacker;
+            $loser = $attackerWon ? $defender : $attacker;
 
-            $rawStolen = (int) floor(((int) $loser->oil_barrels) * (float) $res['oil_pct']);
-            $oilStolen = max(0, min($rawStolen, (int) $loser->oil_barrels));
+            // Round UP so any non-zero oil_pct on a non-empty stash
+            // yields at least 1 barrel — matches the cash-loot ceil()
+            // in CombatFormula::resolveCashStolen(). Floor() used to
+            // strip small upset-reward wins to zero, which made winning
+            // fights against low-oil opponents feel pointless.
+            $oilPct = (float) $res['oil_pct'];
+            $loserOil = (int) $loser->oil_barrels;
+            $rawStolen = ($oilPct > 0.0 && $loserOil > 0) ? (int) ceil($loserOil * $oilPct) : 0;
+            $oilStolen = max(0, min($rawStolen, $loserOil));
 
             if ($oilStolen > 0) {
                 $loser->update(['oil_barrels' => (int) $loser->oil_barrels - $oilStolen]);

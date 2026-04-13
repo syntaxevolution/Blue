@@ -129,6 +129,7 @@ class HandleInertiaRequests extends Middleware
                 'purchase_result' => fn () => $request->session()->get('purchase_result'),
                 'spy_result' => fn () => $request->session()->get('spy_result'),
                 'attack_result' => fn () => $request->session()->get('attack_result'),
+                'tile_combat_result' => fn () => $request->session()->get('tile_combat_result'),
                 'teleport_result' => fn () => $request->session()->get('teleport_result'),
                 'transport_switched' => fn () => $request->session()->get('transport_switched'),
                 'item_repair_result' => fn () => $request->session()->get('item_repair_result'),
