@@ -1148,10 +1148,14 @@ class BotGoalPlanner
     }
 
     /**
-     * Explore heading selection. Rolls a direction and, if the tile one
-     * step that way is a casino, rotates 90° until a non-casino
-     * neighbour is found. Falls back to the original roll if every
-     * neighbour is a casino (shouldn't be possible on a real map).
+     * Explore heading selection. Rolls a direction and, if the tile
+     * one step that way is off-world, rotates 90° until a valid
+     * neighbour is found. Casino tiles are NOT avoided — bots walk
+     * over them like any other tile. The "never gamble" rule is
+     * enforced at goal-target filters, not at heading selection.
+     * Falls back to the raw roll if every neighbour is off-world
+     * (shouldn't be possible unless the bot is standing in the
+     * middle of nowhere on a broken map).
      */
     private function rollFreshHeading(Player $bot): string
     {
@@ -1172,9 +1176,6 @@ class BotGoalPlanner
         foreach ($rotated as $dir) {
             $neighbour = $this->neighbourTile($current, $dir);
             if ($neighbour === null) {
-                continue;
-            }
-            if ($neighbour->type === 'casino') {
                 continue;
             }
 

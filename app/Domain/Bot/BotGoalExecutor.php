@@ -329,9 +329,12 @@ class BotGoalExecutor
 
     /**
      * Explore goal: walk one tile in the committed heading, decrement
-     * the remaining budget. Casino tiles are never walked onto — if
-     * the heading would step onto one, rotate 90° and retry once;
+     * the remaining budget. If the primary heading throws (edge of
+     * world, insufficient moves/fuel), rotate 90° and retry once;
      * second failure invalidates so the planner picks a new heading.
+     * Casino tiles are walked over freely — the "never gamble" rule
+     * lives at the planner layer which won't pick a casino as a goal
+     * target, not at the pathing layer.
      *
      * @param  array<string,mixed>  $goal
      * @return array{status:string, log:array<string,mixed>, goal?:array<string,mixed>}
@@ -348,19 +351,20 @@ class BotGoalExecutor
             ];
         }
 
-        // Pre-check the next tile for casino.
         $current = Tile::query()->find($bot->current_tile_id);
         if ($current === null) {
             return $this->invalidated('explore', 'no_current_tile');
         }
 
+        // Bots walk THROUGH casino tiles freely — the tile itself is
+        // just a square on the map. The distinction we care about is
+        // "bots must never ENTER the casino and place bets", which is
+        // a planner-level concern (pickShopGoal/pickDrillGoal/etc.
+        // never target casino tiles as goal destinations). Routing
+        // is fog-blind and casino-blind; the bot just keeps walking.
         $attempts = [$heading, $this->perpendicular($heading)];
         $stepped = null;
         foreach ($attempts as $dir) {
-            $next = $this->neighbourTile($current, $dir);
-            if ($next !== null && $next->type === 'casino') {
-                continue;
-            }
             try {
                 $this->travel->travel($bot->id, $dir);
                 $stepped = $dir;
@@ -408,10 +412,12 @@ class BotGoalExecutor
     // ------------------------------------------------------------------
 
     /**
-     * Walk one step toward $target, avoiding casino tiles. Used by
-     * every travel-to-tile goal. If the primary direction is blocked
-     * by a casino, tries the secondary (perpendicular) axis. If both
-     * are blocked or both throw, invalidates.
+     * Walk one step toward $target. Used by every travel-to-tile
+     * goal. Tries the primary Manhattan-axis direction first, falls
+     * back to the perpendicular if the primary throws (edge of
+     * world, insufficient moves/fuel). Bots walk through casino
+     * tiles freely — the "don't gamble" rule is enforced at the
+     * planner layer, which never picks a casino as a goal target.
      *
      * @return array{status:string, log:array<string,mixed>}
      */
@@ -434,10 +440,6 @@ class BotGoalExecutor
         }
 
         foreach ($tried as $dir) {
-            $next = $this->neighbourTile($current, $dir);
-            if ($next !== null && $next->type === 'casino') {
-                continue;
-            }
             try {
                 $this->travel->travel($bot->id, $dir);
 
@@ -530,10 +532,12 @@ class BotGoalExecutor
     }
 
     /**
-     * Perpendicular-axis direction toward the same target. Lets the
-     * travel fallback step around a casino on the primary axis without
-     * losing sight of the goal. Returns null if the target is on the
-     * primary axis only (no secondary delta to exploit).
+     * Perpendicular-axis direction toward the same target. Used by
+     * the travel fallback when the primary step throws (edge of
+     * world, insufficient moves/fuel) so the bot keeps closing on
+     * the target along the other axis instead of invalidating.
+     * Returns null if the target is on the primary axis only (no
+     * secondary delta to exploit).
      */
     private function secondaryAxis(Tile $from, Tile $to, string $primary): ?string
     {
