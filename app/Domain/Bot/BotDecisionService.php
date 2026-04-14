@@ -65,6 +65,20 @@ class BotDecisionService
         $this->moveRegen->reconcile($bot);
         $bot->refresh();
 
+        // Swarm TTL sweep: if an admin-issued forced raid target
+        // has aged out, clear both columns before the planner runs
+        // so a stale target can't freeze a bot in spy-retry hell.
+        if ($bot->bot_forced_raid_target_player_id !== null
+            && $bot->bot_forced_raid_expires_at !== null
+            && $bot->bot_forced_raid_expires_at->isPast()) {
+            $bot->forceFill([
+                'bot_forced_raid_target_player_id' => null,
+                'bot_forced_raid_expires_at' => null,
+            ])->save();
+            $bot->refresh();
+            $actions[] = ['kind' => 'swarm_expired', 'detail' => 'ttl_reached'];
+        }
+
         // Self-heal: auto-abandon a broken rig before picking a goal.
         // Humans get a modal prompting repair-or-abandon; bots have no
         // UI, so we abandon (which drops drill_tier to the next-owned
@@ -154,6 +168,7 @@ class BotDecisionService
                     $goal = $this->planner->pickGoal($bot->refresh(), $tierCfg);
                     $this->commitFreshGoal($bot, $goal, $ttlMinutes);
                 }
+
                 continue;
             }
 
@@ -167,10 +182,20 @@ class BotDecisionService
 
             if ($result['status'] === BotGoalExecutor::STATUS_COMPLETED
                 || $result['status'] === BotGoalExecutor::STATUS_INVALIDATED) {
+                // Swarm sweep: if the just-resolved goal was a
+                // forced-swarm raid (or the spy-to-unlock-raid step
+                // that preceded it), clear the forced target column
+                // on COMPLETED raids. Per user spec: bots attack
+                // once and then return to normal. Spy completions
+                // leave the column set so the next tick re-plans
+                // into a raid against the same target.
+                $this->clearForcedRaidIfApplicable($bot, $goal, $result['status']);
+
                 // Persist the just-finished goal state so the debug
                 // log matches what we actually did, then plan fresh.
                 $goal = $this->planner->pickGoal($bot->refresh(), $tierCfg);
                 $this->commitFreshGoal($bot, $goal, $ttlMinutes);
+
                 continue;
             }
 
@@ -188,6 +213,67 @@ class BotDecisionService
         $bot->save();
 
         return ['actions' => $actions, 'ended_with' => $endedWith];
+    }
+
+    /**
+     * Clear the forced-raid swarm columns on the bot once the
+     * forced goal has reached its termination condition:
+     *
+     *   - COMPLETED raid goal against the forced target → the bot
+     *     fired an attack (success OR failure). Per user spec, one
+     *     attack is enough — the swarm commitment is discharged.
+     *
+     *   - INVALIDATED raid goal against the forced target → the
+     *     target became unreachable mid-march (went immune, moved
+     *     into the bot's MDN, base tile deleted). Clear so the bot
+     *     drops back into the normal ladder instead of re-trying
+     *     a doomed target every tick.
+     *
+     *   - A spy goal (forced_swarm=true) completing against the
+     *     forced target is NOT a termination — the bot now HAS an
+     *     in-window spy and will raid next tick. Leave the column
+     *     set so the raid happens.
+     *
+     *   - Any goal kind OTHER than raid/spy → never clears. Shouldn't
+     *     happen because pickForcedRaidGoal only emits raid or spy,
+     *     but we defend against future planner changes.
+     *
+     * @param  array<string,mixed>  $goal
+     */
+    private function clearForcedRaidIfApplicable(Player $bot, array $goal, string $status): void
+    {
+        $forcedTargetId = $bot->bot_forced_raid_target_player_id;
+        if ($forcedTargetId === null) {
+            return;
+        }
+
+        $goalKind = (string) ($goal['kind'] ?? '');
+        $goalTargetId = (int) ($goal['target_player_id'] ?? 0);
+
+        if ($goalTargetId !== (int) $forcedTargetId) {
+            return;
+        }
+
+        // Raid goal (success OR invalidation both count as "done")
+        // always clears. Spy goal only clears on invalidation (the
+        // bot couldn't reach the target); spy success continues the
+        // swarm so the bot raids next tick.
+        $shouldClear = false;
+        if ($goalKind === BotGoalPlanner::KIND_RAID) {
+            $shouldClear = true;
+        } elseif ($goalKind === BotGoalPlanner::KIND_SPY
+            && $status === BotGoalExecutor::STATUS_INVALIDATED) {
+            $shouldClear = true;
+        }
+
+        if (! $shouldClear) {
+            return;
+        }
+
+        $bot->forceFill([
+            'bot_forced_raid_target_player_id' => null,
+            'bot_forced_raid_expires_at' => null,
+        ])->save();
     }
 
     /**
@@ -294,8 +380,8 @@ class BotDecisionService
         }
 
         $minWinChance = (float) ($tierCfg['tile_combat_min_win_chance'] ?? 0.65);
-        $bullyCap     = (float) $this->config->get('bots.tile_combat.bully_cap_win_chance', 0.92);
-        $moveCost     = (int) $this->config->get('actions.tile_combat.move_cost', 5);
+        $bullyCap = (float) $this->config->get('bots.tile_combat.bully_cap_win_chance', 0.92);
+        $moveCost = (int) $this->config->get('actions.tile_combat.move_cost', 5);
 
         // Need budget for the fight itself — don't pop into combat
         // with exactly 5 moves and strand the goal loop on 0.

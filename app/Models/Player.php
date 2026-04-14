@@ -56,6 +56,8 @@ class Player extends Model
         'bot_goal_expires_at',
         'bot_goal_fail_count',
         'bot_consecutive_drill_count',
+        'bot_forced_raid_target_player_id',
+        'bot_forced_raid_expires_at',
     ];
 
     protected $casts = [
@@ -85,6 +87,7 @@ class Player extends Model
         'bot_goal_expires_at' => 'datetime',
         'bot_goal_fail_count' => 'integer',
         'bot_consecutive_drill_count' => 'integer',
+        'bot_forced_raid_expires_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

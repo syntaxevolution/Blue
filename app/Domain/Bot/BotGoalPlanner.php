@@ -103,6 +103,18 @@ class BotGoalPlanner
      */
     public function pickGoal(Player $bot, array $tierCfg): ?array
     {
+        // Priority 0 — Admin-commanded swarm. When the bots:swarm
+        // command has stamped a forced raid target on this bot, it
+        // overrides every tier gate (including can_raid=false for
+        // easy bots) and every normal priority until the bot fires
+        // an attack at the target. BotDecisionService clears the
+        // column after a completed raid goal so the bot drops back
+        // into the normal ladder automatically on the next tick.
+        $forced = $this->pickForcedRaidGoal($bot);
+        if ($forced !== null) {
+            return $forced;
+        }
+
         $defensiveMode = $this->isInDefensiveMode($bot);
 
         // Priority 1 — Raid (post-spy revenge or opportunity strike).
@@ -416,6 +428,108 @@ class BotGoalPlanner
     // ------------------------------------------------------------------
     // Goal pickers
     // ------------------------------------------------------------------
+
+    /**
+     * Admin-commanded swarm goal: when the bots:swarm artisan
+     * command has stamped a forced raid target on this bot, return
+     * a raid goal (if a valid in-window spy exists) or a spy goal
+     * (to refresh intel first) pointed at the victim. Bypasses
+     * tier can_raid flags — even an easy bot will hunt the target.
+     *
+     * Returns null when:
+     *   - No forced target set.
+     *   - Forced TTL has expired → column is left dirty for
+     *     BotDecisionService::tick to sweep; planner falls through
+     *     to the normal ladder so the bot doesn't stall.
+     *   - Target no longer exists, is immune, is in the same MDN,
+     *     or their base tile has been deleted. In all these cases
+     *     we leave the column set so tick() can decide whether to
+     *     clear it via the "raid goal completed" hook; the bot
+     *     falls through to the normal ladder for the current tick.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function pickForcedRaidGoal(Player $bot): ?array
+    {
+        $forcedTargetId = $bot->bot_forced_raid_target_player_id;
+        if ($forcedTargetId === null) {
+            return null;
+        }
+
+        // TTL expired → treat as cleared, let the normal ladder run
+        // this tick. BotDecisionService::tick() clears the column
+        // after the first successful raid against the forced target;
+        // the TTL sweep lives there too for the "target permanently
+        // unreachable" case.
+        if ($bot->bot_forced_raid_expires_at !== null
+            && $bot->bot_forced_raid_expires_at->isPast()) {
+            return null;
+        }
+
+        /** @var Player|null $target */
+        $target = Player::query()->find((int) $forcedTargetId);
+        if ($target === null) {
+            return null;
+        }
+
+        // Immune targets: hold position. The planner can't bypass
+        // immunity on the server side (AttackService would throw)
+        // so there's no point returning a raid goal while the
+        // target is protected. Bot falls through to normal ladder
+        // this tick; the swarm column stays set so the next tick
+        // re-evaluates once immunity expires.
+        if ($target->immunity_expires_at !== null
+            && $target->immunity_expires_at->isFuture()) {
+            return null;
+        }
+
+        // Same MDN gate: respected even under swarm. Spec rule
+        // says same-MDN attacks are blocked — the command doesn't
+        // override that.
+        if ($bot->mdn_id !== null && (int) $target->mdn_id === (int) $bot->mdn_id) {
+            return null;
+        }
+
+        /** @var Tile|null $baseTile */
+        $baseTile = Tile::query()->find($target->base_tile_id);
+        if ($baseTile === null || $baseTile->type === 'casino') {
+            return null;
+        }
+
+        // Is there a valid in-window spy on this target? If yes,
+        // return a raid goal. If no, return a spy goal (the bot
+        // will walk to the base and spy, then re-plan and raid on
+        // the next tick).
+        $spyDecayHours = (int) $this->config->get('combat.spy_decay_hours', 24);
+
+        /** @var SpyAttempt|null $spy */
+        $spy = SpyAttempt::query()
+            ->where('spy_player_id', $bot->id)
+            ->where('target_player_id', $target->id)
+            ->where('success', true)
+            ->where('created_at', '>=', now()->subHours($spyDecayHours))
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($spy !== null) {
+            return [
+                'kind' => self::KIND_RAID,
+                'tile_id' => (int) $target->base_tile_id,
+                'target_player_id' => (int) $target->id,
+                'spy_id' => (int) $spy->id,
+                'defensive_revenge' => false,
+                'forced_swarm' => true,
+            ];
+        }
+
+        return [
+            'kind' => self::KIND_SPY,
+            'tile_id' => (int) $target->base_tile_id,
+            'target_player_id' => (int) $target->id,
+            'defensive_revenge' => false,
+            'forced_swarm' => true,
+        ];
+    }
 
     /**
      * @param  array<string,mixed>  $tierCfg
