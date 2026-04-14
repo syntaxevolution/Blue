@@ -584,7 +584,7 @@ class MapStateBuilder
      */
     private function generalStoreCategory(array $effects): array
     {
-        if (isset($effects['deployable_sabotage'])) {
+        if (isset($effects['deployable_sabotage']) || isset($effects['deployable_loot_crate'])) {
             return ['Sabotage', 7];
         }
         if (isset($effects['counter_measure'])) {
