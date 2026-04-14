@@ -140,6 +140,14 @@ class HandleInertiaRequests extends Middleware
                 'roulette_bet' => fn () => $request->session()->get('roulette_bet'),
                 'blackjack_result' => fn () => $request->session()->get('blackjack_result'),
                 'holdem_result' => fn () => $request->session()->get('holdem_result'),
+                // Loot crate keys: arrival event (auto-pop modal),
+                // open outcome (resolved reveal), and deploy receipt
+                // (toolbox confirmation). Map.vue reads these via
+                // page.props.flash.* — without explicit middleware
+                // exposure, Inertia would omit them entirely.
+                'loot_event' => fn () => $request->session()->get('loot_event'),
+                'loot_result' => fn () => $request->session()->get('loot_result'),
+                'loot_deploy_result' => fn () => $request->session()->get('loot_deploy_result'),
             ],
             // Broadcast connection details for the Echo JS client.
             'reverb' => [

@@ -6,6 +6,7 @@ use App\Domain\Combat\TileCombatEligibilityService;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\TransportService;
+use App\Domain\Items\PassiveBonusService;
 use App\Domain\Items\StatOverflowService;
 use App\Domain\Loot\LootCrateService;
 use App\Domain\Notifications\ActivityLogService;
@@ -41,6 +42,7 @@ class MapStateBuilder
         private readonly OilFieldRegenService $fieldRegen,
         private readonly TileCombatEligibilityService $tileCombatEligibility,
         private readonly LootCrateService $lootCrates,
+        private readonly PassiveBonusService $passiveBonus,
     ) {}
 
     /**
@@ -371,6 +373,14 @@ class MapStateBuilder
         if ($dailyLimit <= 0) {
             $dailyLimit = 5;
         }
+        // Apply passive daily_drill_limit_bonus from owned items
+        // (Field Journal, Iron Resolve, Dual Shaft Mount, etc.) so
+        // the UI shows the same N/M ceiling that DrillService::drill
+        // actually enforces. Without this, the Buy gives the player
+        // the bonus on the server but the frontend's
+        // dailyDrillLimitReached computed locks the buttons at the
+        // base 5/5 and the player thinks the item is broken.
+        $dailyLimit += $this->passiveBonus->drillLimitBonus($player);
 
         if ($field) {
             // Lazy refill: if this field has been fully depleted long

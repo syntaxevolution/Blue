@@ -482,6 +482,15 @@ class LootCrateService
         // Activity log entry for the opener — low-key informational,
         // unlike a hostility log entry. Wrapped in afterCommit so a
         // rolled-back open doesn't leak a stale toast.
+        //
+        // Body field naming: we deliberately store the full payload
+        // under `loot_outcome` (not `outcome`). The activity log Vue
+        // template treats `body.outcome` as a string enum from the
+        // attacks system ('success' → 'breached', else → 'repelled')
+        // and would mis-render a loot crate object as "repelled".
+        // The dedicated `result_label` string is what the template
+        // shows directly so the renderer never has to know about
+        // crate-specific outcome shapes.
         DB::afterCommit(function () use ($opener, $crate, $outcome) {
             $this->activityLog->record(
                 (int) $opener->user_id,
@@ -489,7 +498,8 @@ class LootCrateService
                 $this->realCrateToastTitle($outcome),
                 [
                     'crate_id' => (int) $crate->id,
-                    'outcome' => $outcome,
+                    'loot_outcome' => $outcome,
+                    'result_label' => $this->realCrateResultLabel($outcome),
                 ],
             );
 
@@ -998,6 +1008,12 @@ class LootCrateService
             $crateId, $deviceKey, $outcome, $kind
         ) {
             if ($placerUserId !== null) {
+                // Body field naming: same rule as resolveReal — the
+                // full payload goes under `loot_outcome`, never
+                // `outcome`, so the activity log Vue template can't
+                // mistake it for an attack outcome enum and render
+                // "repelled". `result_label` is the human-readable
+                // string the template displays directly.
                 $this->activityLog->record(
                     $placerUserId,
                     'loot.sabotage.triggered',
@@ -1005,7 +1021,8 @@ class LootCrateService
                     [
                         'crate_id' => $crateId,
                         'device_key' => $deviceKey,
-                        'outcome' => $outcome,
+                        'loot_outcome' => $outcome,
+                        'result_label' => $this->sabotagePlacerResultLabel($outcome),
                     ],
                 );
                 SabotageLootCrateTriggered::dispatch(
@@ -1027,7 +1044,8 @@ class LootCrateService
                 [
                     'crate_id' => $crateId,
                     'device_key' => $deviceKey,
-                    'outcome' => $outcome,
+                    'loot_outcome' => $outcome,
+                    'result_label' => $this->sabotageVictimResultLabel($outcome),
                 ],
             );
         });
@@ -1047,6 +1065,53 @@ class LootCrateService
             self::OUTCOME_ITEM => sprintf('Found a loot crate — %s', (string) ($outcome['item_name'] ?? 'a mystery item')),
             self::OUTCOME_ITEM_DUPE => sprintf('Found a loot crate — duplicate %s, discarded', (string) ($outcome['item_name'] ?? 'item')),
             default => 'Opened a loot crate — nothing inside',
+        };
+    }
+
+    /**
+     * Short outcome label rendered in the activity log "result" line
+     * for real-crate openings. Stays short (one or two words) — the
+     * full title at the top of the entry already carries the detail.
+     *
+     * @param  array<string,mixed>  $outcome
+     */
+    private function realCrateResultLabel(array $outcome): string
+    {
+        return match ((string) $outcome['kind']) {
+            self::OUTCOME_OIL, self::OUTCOME_CASH, self::OUTCOME_ITEM => 'Obtained',
+            self::OUTCOME_ITEM_DUPE => 'Duplicate, already have',
+            self::OUTCOME_NOTHING => 'Empty',
+            default => 'Opened',
+        };
+    }
+
+    /**
+     * Result label for the placer-side activity log entry on a
+     * sabotage crate trigger (someone else opened your trap).
+     *
+     * @param  array<string,mixed>  $outcome
+     */
+    private function sabotagePlacerResultLabel(array $outcome): string
+    {
+        return match ((string) $outcome['kind']) {
+            self::OUTCOME_SABOTAGE_OIL, self::OUTCOME_SABOTAGE_CASH => 'Sabotaged',
+            self::OUTCOME_IMMUNE_NO_EFFECT => 'Fizzled (target immune)',
+            default => 'Triggered',
+        };
+    }
+
+    /**
+     * Result label for the victim-side activity log entry on a
+     * sabotage crate trigger (you opened a trap).
+     *
+     * @param  array<string,mixed>  $outcome
+     */
+    private function sabotageVictimResultLabel(array $outcome): string
+    {
+        return match ((string) $outcome['kind']) {
+            self::OUTCOME_SABOTAGE_OIL, self::OUTCOME_SABOTAGE_CASH => 'Trapped',
+            self::OUTCOME_IMMUNE_NO_EFFECT => 'Trap fizzled (immunity held)',
+            default => 'Triggered',
         };
     }
 

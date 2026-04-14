@@ -80,7 +80,29 @@ function markAllRead() {
                                 v-if="entry.body && Object.keys(entry.body).length > 0"
                                 class="mt-2 text-[11px] text-zinc-500 space-y-0.5"
                             >
-                                <div v-if="entry.body.outcome" class="flex gap-1">
+                                <!-- Loot-crate entries carry their own
+                                     pre-formatted result label so the
+                                     attack-style outcome enum doesn't
+                                     mis-render an object as "repelled".
+                                     Hits before the outcome string check
+                                     so loot rows always take this path. -->
+                                <div v-if="typeof entry.body.result_label === 'string' && entry.body.result_label.length > 0" class="flex gap-1">
+                                    <span class="text-zinc-600">result:</span>
+                                    <span
+                                        :class="
+                                            entry.body.result_label === 'Sabotaged'
+                                                ? 'text-rose-400'
+                                                : entry.body.result_label === 'Trapped'
+                                                    ? 'text-rose-400'
+                                                    : entry.body.result_label === 'Obtained'
+                                                        ? 'text-emerald-400'
+                                                        : 'text-amber-400'
+                                        "
+                                    >
+                                        {{ entry.body.result_label }}
+                                    </span>
+                                </div>
+                                <div v-else-if="typeof entry.body.outcome === 'string'" class="flex gap-1">
                                     <span class="text-zinc-600">outcome:</span>
                                     <span :class="entry.body.outcome === 'success' ? 'text-rose-400' : 'text-emerald-400'">
                                         {{ entry.body.outcome === 'success' ? 'breached' : 'repelled' }}
