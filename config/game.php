@@ -123,7 +123,7 @@ return [
     */
     'actions' => [
         'travel' => ['move_cost' => 1],
-        'drill' => ['move_cost' => 0],
+        'drill' => ['move_cost' => 1],
         'spy' => ['move_cost' => 3],
         'attack' => ['move_cost' => 5],
         'tile_combat' => ['move_cost' => 5],
