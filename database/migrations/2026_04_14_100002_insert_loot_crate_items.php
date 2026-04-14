@@ -1,6 +1,5 @@
 <?php
 
-use App\Domain\Config\GameConfigResolver;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -13,18 +12,18 @@ use Illuminate\Support\Facades\DB;
  * DB that already has these rows (e.g. a fresh install where the
  * seeder ran first) is a no-op.
  *
- * Prices read from config/game.php via GameConfigResolver so the
- * single source of truth stays in one place.
+ * Prices read from `config/game.php` via the Laravel config helper
+ * (no GameConfigResolver / service container — migrations should
+ * stay self-contained and bootable before the full app is wired).
+ * The fallback ints below match the spec defaults so a fresh install
+ * with no DB overrides still gets the right prices.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        /** @var GameConfigResolver $config */
-        $config = app(GameConfigResolver::class);
-
-        $oilCost = (int) $config->get('loot.items.siphon_oil.price_barrels', 500);
-        $cashCost = (int) $config->get('loot.items.siphon_cash.price_barrels', 10000);
+        $oilCost = (int) config('game.loot.items.siphon_oil.price_barrels', 500);
+        $cashCost = (int) config('game.loot.items.siphon_cash.price_barrels', 10000);
 
         $now = now();
 

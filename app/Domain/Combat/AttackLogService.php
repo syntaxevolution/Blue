@@ -71,10 +71,12 @@ class AttackLogService
             ->where('opened_by_player_id', $player->id)
             ->whereNotNull('placed_by_player_id')
             ->whereNotNull('opened_at')
+            ->whereNotNull('opened_by_player_id')
             ->whereColumn('opened_by_player_id', '!=', 'placed_by_player_id');
         $lootCratePlacerQuery = DB::table('tile_loot_crates')
             ->where('placed_by_player_id', $player->id)
             ->whereNotNull('opened_at')
+            ->whereNotNull('opened_by_player_id')
             ->whereColumn('opened_by_player_id', '!=', 'placed_by_player_id');
 
         if ($since !== null) {
@@ -298,6 +300,7 @@ class AttackLogService
         $lootCrateVictim = DB::table('tile_loot_crates')
             ->whereNotNull('tile_loot_crates.placed_by_player_id')
             ->whereNotNull('tile_loot_crates.opened_at')
+            ->whereNotNull('tile_loot_crates.opened_by_player_id')
             ->where('tile_loot_crates.opened_by_player_id', $player->id)
             ->whereColumn('tile_loot_crates.opened_by_player_id', '!=', 'tile_loot_crates.placed_by_player_id')
             ->leftJoin('players as placer', 'placer.id', '=', 'tile_loot_crates.placed_by_player_id')
@@ -342,6 +345,7 @@ class AttackLogService
         $lootCratePlacer = DB::table('tile_loot_crates')
             ->where('tile_loot_crates.placed_by_player_id', $player->id)
             ->whereNotNull('tile_loot_crates.opened_at')
+            ->whereNotNull('tile_loot_crates.opened_by_player_id')
             ->whereColumn('tile_loot_crates.opened_by_player_id', '!=', 'tile_loot_crates.placed_by_player_id')
             ->leftJoin('players as opener', 'opener.id', '=', 'tile_loot_crates.opened_by_player_id')
             ->leftJoin('users as opener_user', 'opener_user.id', '=', 'opener.user_id')

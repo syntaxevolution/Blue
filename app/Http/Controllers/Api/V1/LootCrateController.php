@@ -12,6 +12,7 @@ use App\Http\Resources\MapStateResource;
 use App\Models\TileLootCrate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * REST mirror of Web\LootCrateController for the /api/v1/* surface.
@@ -39,7 +40,13 @@ class LootCrateController extends Controller
         } catch (CannotOpenLootCrateException $e) {
             return response()->json(['errors' => ['loot_crate' => $e->getMessage()]], 422);
         } catch (\Throwable $e) {
-            return response()->json(['errors' => ['loot_crate' => 'Open failed: '.$e->getMessage()]], 422);
+            Log::error('Loot crate open failed', [
+                'player_id' => $player->id,
+                'crate_id' => (int) $crate->id,
+                'exception' => $e,
+            ]);
+
+            return response()->json(['errors' => ['loot_crate' => 'Could not open the crate. Please try again.']], 422);
         }
 
         $state = $this->mapState->build($player->fresh());
@@ -75,7 +82,13 @@ class LootCrateController extends Controller
         } catch (CannotOpenLootCrateException $e) {
             return response()->json(['errors' => ['loot_deploy' => $e->getMessage()]], 422);
         } catch (\Throwable $e) {
-            return response()->json(['errors' => ['loot_deploy' => 'Deploy failed: '.$e->getMessage()]], 422);
+            Log::error('Loot crate deploy failed', [
+                'player_id' => $player->id,
+                'item_key' => (string) $request->validated('item_key'),
+                'exception' => $e,
+            ]);
+
+            return response()->json(['errors' => ['loot_deploy' => 'Could not deploy the crate. Please try again.']], 422);
         }
 
         $state = $this->mapState->build($player->fresh());

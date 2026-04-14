@@ -334,7 +334,10 @@ const attackResult = computed(() => (flash.value.attack_result as string | undef
 //
 // The modal stays open across navigations for case 3 by mirroring
 // the flash into a local ref on first sight, matching the existing
-// tile_combat_result pattern.
+// tile_combat_result pattern. The mirror tags itself with the crate
+// id it belongs to so a player who travels to a *different* wasteland
+// tile and finds a *new* crate doesn't render that new crate with
+// the previous crate's resolved outcome.
 interface LootEventPayload {
     crate_id: number;
     placed_by_me: boolean;
@@ -352,19 +355,13 @@ interface LootResultPayload {
     steal_pct?: number;
     victim_before?: number;
 }
+interface LootResultMirror {
+    crateId: number;
+    placedByMe: boolean;
+    payload: LootResultPayload;
+}
 const lootEventFromFlash = computed<LootEventPayload | null>(
     () => (flash.value.loot_event as LootEventPayload | undefined) ?? null,
-);
-const lootCratePanelOpen = ref(false);
-const lootResultMirror = ref<LootResultPayload | null>(null);
-watch(
-    () => flash.value.loot_result,
-    (incoming) => {
-        if (incoming && typeof incoming === 'object') {
-            lootResultMirror.value = incoming as LootResultPayload;
-        }
-    },
-    { immediate: true },
 );
 // Current crate on the wasteland tile detail panel — used by the
 // modal payload when the player opens via the manual button.
@@ -375,29 +372,59 @@ const currentTileLootCrate = computed<LootCratePresence | null>(() => {
     }
     return null;
 });
-// Which crate should the modal be bound to? Priority: result mirror
-// → fresh flash event → manual panel open. The modal auto-closes
-// when the player navigates away from a tile and nothing references
-// a crate any more.
-const activeLootCrateBinding = computed<LootEventPayload | null>(() => {
-    // When a result is being shown we keep the same crate id bound
-    // so the modal can render the "resolved" state over top of the
-    // discovery prompt.
-    if (lootResultMirror.value && lootEventFromFlash.value) {
-        return lootEventFromFlash.value;
-    }
-    if (lootResultMirror.value && currentTileLootCrate.value) {
-        return {
-            crate_id: currentTileLootCrate.value.id,
-            placed_by_me: currentTileLootCrate.value.placed_by_me,
+const lootCratePanelOpen = ref(false);
+const lootResultMirror = ref<LootResultMirror | null>(null);
+// On open success the server flashes loot_result. Capture the result
+// alongside the crate id it belongs to so the binding logic below
+// can detect when the mirror is stale relative to a new tile/crate.
+watch(
+    () => flash.value.loot_result,
+    (incoming) => {
+        if (!incoming || typeof incoming !== 'object') {
+            return;
+        }
+        const crateId =
+            lootEventFromFlash.value?.crate_id ??
+            currentTileLootCrate.value?.id ??
+            0;
+        const placedByMe =
+            lootEventFromFlash.value?.placed_by_me ??
+            currentTileLootCrate.value?.placed_by_me ??
+            false;
+        lootResultMirror.value = {
+            crateId,
+            placedByMe,
+            payload: incoming as LootResultPayload,
         };
-    }
-    if (lootResultMirror.value && !lootEventFromFlash.value && !currentTileLootCrate.value) {
-        // Opened a crate and the tile no longer has one on refresh —
-        // still need to render the resolved reveal. Stub the binding
-        // with a dummy id so the modal stays mounted; the only
-        // branches it uses are the resolved-state fields.
-        return { crate_id: 0, placed_by_me: false };
+    },
+    { immediate: true },
+);
+// Drop a stale mirror when a *different* crate's loot_event arrives.
+// Without this, walking from crate A (resolved) onto a new wasteland
+// tile holding crate B would render crate B with crate A's outcome.
+watch(
+    () => lootEventFromFlash.value?.crate_id,
+    (newCrateId) => {
+        if (
+            newCrateId !== undefined
+            && lootResultMirror.value !== null
+            && lootResultMirror.value.crateId !== newCrateId
+        ) {
+            lootResultMirror.value = null;
+        }
+    },
+);
+// Which crate should the modal be bound to?
+//   1. Resolved mirror takes priority — show the outcome reveal.
+//   2. Otherwise a fresh loot_event from the move endpoint.
+//   3. Otherwise the manual "Check it" panel open.
+//   4. None — modal hidden.
+const activeLootCrateBinding = computed<LootEventPayload | null>(() => {
+    if (lootResultMirror.value) {
+        return {
+            crate_id: lootResultMirror.value.crateId,
+            placed_by_me: lootResultMirror.value.placedByMe,
+        };
     }
     if (lootEventFromFlash.value) {
         return lootEventFromFlash.value;
@@ -410,6 +437,9 @@ const activeLootCrateBinding = computed<LootEventPayload | null>(() => {
     }
     return null;
 });
+const lootResultPayloadForModal = computed<LootResultPayload | null>(
+    () => lootResultMirror.value?.payload ?? null,
+);
 
 function openLootCratePanel(): void {
     if (currentTileLootCrate.value) {
@@ -623,11 +653,22 @@ function buy(item: ShopItem) {
     router.post(route('map.purchase'), { item_key: item.key }, { preserveScroll: true, preserveState: true });
 }
 
+const lootDeployInFlight = ref(false);
 function deployLootCrate(itemKey: string): void {
+    if (lootDeployInFlight.value) {
+        return;
+    }
+    lootDeployInFlight.value = true;
     router.post(
         route('map.loot_crates.deploy'),
         { item_key: itemKey },
-        { preserveScroll: true, preserveState: true },
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onFinish: () => {
+                lootDeployInFlight.value = false;
+            },
+        },
     );
 }
 
@@ -1344,20 +1385,26 @@ function formatIntelPct(range: SpyIntelRange): string {
                                                 v-if="state.tile_detail.loot_deploy.owned_oil_crates > 0"
                                                 type="button"
                                                 class="tap-target flex-1 rounded border border-amber-700 bg-amber-950/60 px-3 py-2 text-xs font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-900/60 disabled:opacity-30 disabled:cursor-not-allowed"
-                                                :disabled="state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
+                                                :disabled="lootDeployInFlight || state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
                                                 @click="deployLootCrate(state.tile_detail.loot_deploy.oil_item_key)"
                                             >
-                                                Deploy oil siphon ({{ state.tile_detail.loot_deploy.owned_oil_crates }} owned)
+                                                {{ lootDeployInFlight ? 'Deploying…' : `Deploy oil siphon (${state.tile_detail.loot_deploy.owned_oil_crates} owned)` }}
                                             </button>
                                             <button
                                                 v-if="state.tile_detail.loot_deploy.owned_cash_crates > 0"
                                                 type="button"
                                                 class="tap-target flex-1 rounded border border-amber-700 bg-amber-950/60 px-3 py-2 text-xs font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-900/60 disabled:opacity-30 disabled:cursor-not-allowed"
-                                                :disabled="state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
+                                                :disabled="lootDeployInFlight || state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
                                                 @click="deployLootCrate(state.tile_detail.loot_deploy.cash_item_key)"
                                             >
-                                                Deploy cash siphon ({{ state.tile_detail.loot_deploy.owned_cash_crates }} owned)
+                                                {{ lootDeployInFlight ? 'Deploying…' : `Deploy cash siphon (${state.tile_detail.loot_deploy.owned_cash_crates} owned)` }}
                                             </button>
+                                        </div>
+                                        <div
+                                            v-if="lootDeployError"
+                                            class="mt-2 rounded border border-rose-800 bg-rose-950/60 p-2 text-rose-300 text-xs"
+                                        >
+                                            {{ lootDeployError }}
                                         </div>
                                     </div>
 
@@ -1481,13 +1528,20 @@ function formatIntelPct(range: SpyIntelRange): string {
              which folds the three triggers (fresh arrival flash, manual
              panel click, resolved-outcome mirror) into one source of
              truth. `resolved` drives the template between the discovery
-             prompt and the reveal. -->
+             prompt and the reveal.
+
+             :key uses crate_id ALONE so the discovery → resolved
+             transition does not remount the component mid-flight
+             (which would reset the in-flight click guard and could
+             allow a double-open). The mirror's crate id tag means
+             a stale resolved payload from crate A never bleeds onto
+             crate B — see the lootResultMirror watch above. -->
         <LootCrateModal
             v-if="activeLootCrateBinding"
-            :key="`loot-crate-${activeLootCrateBinding.crate_id}-${lootResultMirror?.kind ?? 'discovered'}`"
+            :key="`loot-crate-${activeLootCrateBinding.crate_id}`"
             :crate-id="activeLootCrateBinding.crate_id"
             :placed-by-me="activeLootCrateBinding.placed_by_me"
-            :resolved="lootResultMirror"
+            :resolved="lootResultPayloadForModal"
             @close="dismissLootCrateModal"
         />
 

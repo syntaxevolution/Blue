@@ -12,6 +12,7 @@ use App\Models\Item;
 use App\Models\Player;
 use App\Models\Tile;
 use App\Models\TileLootCrate;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -69,6 +70,16 @@ class LootCrateService
     private const TILE_COUNT_CACHE_KEY = 'loot_crate.world_tile_count';
 
     private const TILE_COUNT_CACHE_TTL = 300; // 5 minutes
+
+    /**
+     * Per-instance cache of device_key → display name lookups, used
+     * by sabotage notification copy. Instance-scoped (not static)
+     * so individual test runs and bot ticks see fresh data when the
+     * items catalog is mutated mid-process.
+     *
+     * @var array<string, string>
+     */
+    private array $deviceNameCache = [];
 
     public function __construct(
         private readonly GameConfigResolver $config,
@@ -269,22 +280,33 @@ class LootCrateService
      */
     public function decline(int $playerId, int $crateId): void
     {
-        /** @var TileLootCrate|null $crate */
-        $crate = TileLootCrate::query()->find($crateId);
-        if ($crate === null) {
-            throw CannotOpenLootCrateException::notFound($crateId);
-        }
-        if ($crate->opened_at !== null) {
-            throw CannotOpenLootCrateException::alreadyOpened($crateId);
-        }
+        // Wrapped in a transaction so the (crate, player) pair is
+        // read consistently. Even though decline() does not mutate
+        // anything, an unlocked read could let the player decline a
+        // crate that another player just consumed — the controller
+        // would flash a stale "you declined" success when the more
+        // accurate response is a 422 "already opened". The lock is
+        // released as soon as the transaction returns.
+        DB::transaction(function () use ($playerId, $crateId) {
+            /** @var TileLootCrate|null $crate */
+            $crate = TileLootCrate::query()
+                ->lockForUpdate()
+                ->find($crateId);
+            if ($crate === null) {
+                throw CannotOpenLootCrateException::notFound($crateId);
+            }
+            if ($crate->opened_at !== null) {
+                throw CannotOpenLootCrateException::alreadyOpened($crateId);
+            }
 
-        /** @var Player $player */
-        $player = Player::query()->findOrFail($playerId);
-        $this->assertPlayerOnCrateTile($player, $crate);
+            /** @var Player $player */
+            $player = Player::query()->findOrFail($playerId);
+            $this->assertPlayerOnCrateTile($player, $crate);
 
-        // No mutation — crate stays. Endpoint exists purely for the
-        // UX contract ("I chose not to take it") and to keep the API
-        // symmetric for mobile clients.
+            // No mutation — crate stays. Endpoint exists purely for
+            // the UX contract ("I chose not to take it") and to keep
+            // the API symmetric for mobile clients.
+        });
     }
 
     /**
@@ -319,28 +341,56 @@ class LootCrateService
                 throw CannotOpenLootCrateException::alreadyOpened($crateId);
             }
 
-            /** @var Player $opener */
-            $opener = Player::query()->lockForUpdate()->findOrFail($playerId);
-            $this->assertPlayerOnCrateTile($opener, $crate);
-
-            // Spec #8: the placer can see their own sabotage crate
-            // but cannot open it (otherwise a sabotager could trigger
-            // their own trap to "test" it). Real crates (null placer)
-            // are not gated — anyone on the tile can open.
-            if ($crate->isSabotage() && (int) $crate->placed_by_player_id === (int) $opener->id) {
+            // Spec #8 short-circuit: the placer can see their own
+            // sabotage crate but cannot open it. Reject early so we
+            // don't even bother locking rows for a doomed call.
+            $placerId = (int) ($crate->placed_by_player_id ?? 0);
+            if ($crate->isSabotage() && $placerId === (int) $playerId) {
                 throw CannotOpenLootCrateException::ownSabotage();
             }
 
-            // Optional move cost (default 0).
+            // Lock the opener AND (for sabotage) the placer up-front.
+            // Locking order matters — without a stable order two
+            // concurrent sabotage opens whose openers/placers are the
+            // mirror of each other (rare but possible) could deadlock.
+            // We sort the player IDs ascending so every transaction
+            // acquires locks in the same direction.
+            $playerIdsToLock = [$playerId];
+            if ($crate->isSabotage() && $placerId > 0) {
+                $playerIdsToLock[] = $placerId;
+            }
+            sort($playerIdsToLock);
+
+            /** @var Collection<int, Player> $lockedPlayers */
+            $lockedPlayers = Player::query()
+                ->whereIn('id', $playerIdsToLock)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            /** @var Player|null $opener */
+            $opener = $lockedPlayers->get($playerId);
+            if ($opener === null) {
+                throw CannotOpenLootCrateException::notFound($crateId);
+            }
+            $this->assertPlayerOnCrateTile($opener, $crate);
+
+            /** @var Player|null $placer */
+            $placer = $crate->isSabotage() ? $lockedPlayers->get($placerId) : null;
+
+            // Optional move cost (default 0). Atomic update so the
+            // in-memory $opener row stays in sync with the DB even
+            // when later branches read $opener->oil_barrels /
+            // akzar_cash for the reward / siphon math.
             $moveCost = (int) $this->config->get('loot.open_move_cost', 0);
             if ($moveCost > 0) {
-                $opener->update([
+                $opener->forceFill([
                     'moves_current' => max(0, (int) $opener->moves_current - $moveCost),
-                ]);
+                ])->save();
             }
 
             if ($crate->isSabotage()) {
-                return $this->resolveSabotage($crate, $opener);
+                return $this->resolveSabotage($crate, $opener, $placer);
             }
 
             return $this->resolveReal($crate, $opener);
@@ -474,9 +524,14 @@ class LootCrateService
         );
 
         if ($barrels > 0) {
-            $opener->update([
+            // forceFill+save instead of update() so the in-memory
+            // $opener model stays in sync with the DB. Any later
+            // branch in the same request (move-cost decrement,
+            // notifications) reading $opener->oil_barrels gets the
+            // post-credit value.
+            $opener->forceFill([
                 'oil_barrels' => (int) $opener->oil_barrels + $barrels,
-            ]);
+            ])->save();
         }
 
         return ['kind' => self::OUTCOME_OIL, 'barrels' => $barrels];
@@ -502,9 +557,9 @@ class LootCrateService
         );
 
         if ($cash > 0) {
-            $opener->update([
+            $opener->forceFill([
                 'akzar_cash' => round((float) $opener->akzar_cash + $cash, 2),
-            ]);
+            ])->save();
         }
 
         return ['kind' => self::OUTCOME_CASH, 'cash' => $cash];
@@ -556,23 +611,15 @@ class LootCrateService
             return ['kind' => self::OUTCOME_NOTHING];
         }
 
-        // Check whether the player already owns this item and whether
-        // the item is single-purchase (unlocks, transport, teleport,
-        // drill tier, stat_add, passive flags). Stackable items like
-        // emergency_ration can always be granted.
-        $alreadyOwned = DB::table('player_items')
-            ->where('player_id', $opener->id)
-            ->where('item_key', $picked->key)
-            ->where('status', 'active')
-            ->where('quantity', '>', 0)
-            ->exists();
-
         $effects = $picked->effects ?? [];
         $isSinglePurchase = $this->itemIsSinglePurchase($effects);
         $isDrillTierUpgrade = isset($effects['set_drill_tier']);
 
-        // Drill-tier items are "upgrade or nothing": if the player
-        // already has a higher tier, treat as a dupe per spec #9.
+        // Drill-tier items are "upgrade or nothing" — if the player
+        // already has the same or a higher tier, the reward fizzles
+        // per spec #9. drill_tier is a Player column, not a
+        // player_items lookup, so we read $opener->drill_tier (which
+        // was loaded under lockForUpdate at the top of open()).
         if ($isDrillTierUpgrade) {
             $newTier = (int) $effects['set_drill_tier'];
             if ($newTier <= (int) $opener->drill_tier) {
@@ -585,22 +632,77 @@ class LootCrateService
             }
         }
 
-        if ($isSinglePurchase && $alreadyOwned) {
-            return [
-                'kind' => self::OUTCOME_ITEM_DUPE,
-                'item_key' => (string) $picked->key,
-                'item_name' => (string) $picked->name,
-                'reason' => 'already_owned',
-            ];
+        // For non-drill-tier items, take a row lock on the player_items
+        // row up front (or reserve a lock-shaped read if the row
+        // doesn't exist yet) so a second concurrent open() against the
+        // same single-purchase item key cannot both observe
+        // $alreadyOwned=false. The lock is released on transaction
+        // commit. We only need this for single-purchase items —
+        // stackable items can race-grant safely because grantItem()
+        // increments quantity.
+        if ($isSinglePurchase && ! $isDrillTierUpgrade) {
+            $existingRow = DB::table('player_items')
+                ->where('player_id', $opener->id)
+                ->where('item_key', $picked->key)
+                ->lockForUpdate()
+                ->first();
+
+            $alreadyOwned = $existingRow !== null
+                && $existingRow->status === 'active'
+                && (int) $existingRow->quantity > 0;
+
+            if ($alreadyOwned) {
+                return [
+                    'kind' => self::OUTCOME_ITEM_DUPE,
+                    'item_key' => (string) $picked->key,
+                    'item_name' => (string) $picked->name,
+                    'reason' => 'already_owned',
+                ];
+            }
         }
 
-        // Grant the item. For drill tiers we also bump the player's
-        // drill_tier column so the reward is actually useful.
+        // Drill-tier upgrades take a special path: bump the Player
+        // column directly and DO NOT insert into player_items. The
+        // shop layer keeps drill-tier items in player_items with
+        // quantity 1 so the toolbox renderer can show the equipped
+        // tier; for parity, we record a single-quantity row but only
+        // if the player doesn't already have one (post-loot upgrade
+        // from a lower tier they did own). Without this guard, a bot
+        // that drills its way through three loot crates could
+        // accumulate a quantity-3 row for a "single owned" upgrade.
         if ($isDrillTierUpgrade) {
-            $opener->update(['drill_tier' => (int) $effects['set_drill_tier']]);
-        }
+            $opener->forceFill([
+                'drill_tier' => (int) $effects['set_drill_tier'],
+            ])->save();
 
-        $this->grantItem($opener->id, $picked->key);
+            // grantItem upserts: if a row exists at any quantity it
+            // increments. For drill-tier we want at most quantity 1.
+            $existingDrill = DB::table('player_items')
+                ->where('player_id', $opener->id)
+                ->where('item_key', $picked->key)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingDrill === null) {
+                DB::table('player_items')->insert([
+                    'player_id' => $opener->id,
+                    'item_key' => (string) $picked->key,
+                    'quantity' => 1,
+                    'status' => 'active',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } elseif ((int) $existingDrill->quantity < 1 || $existingDrill->status !== 'active') {
+                DB::table('player_items')->where('id', $existingDrill->id)->update([
+                    'quantity' => 1,
+                    'status' => 'active',
+                    'updated_at' => now(),
+                ]);
+            }
+            // else: row already at quantity 1 active — leave alone.
+        } else {
+            $this->grantItem($opener->id, $picked->key);
+        }
 
         return [
             'kind' => self::OUTCOME_ITEM,
@@ -694,7 +796,7 @@ class LootCrateService
      *
      * @return array<string,mixed>
      */
-    private function resolveSabotage(TileLootCrate $crate, Player $opener): array
+    private function resolveSabotage(TileLootCrate $crate, Player $opener, ?Player $placer): array
     {
         $deviceKey = (string) $crate->device_key;
         $kind = $this->sabotageKindFor($deviceKey);
@@ -722,11 +824,11 @@ class LootCrateService
         $pct = $this->weighting->uniformFloat('loot.sabotage.pct', $crate->id, $minPct, $maxPct);
         $pct = max(0.0, min(1.0, $pct));
 
-        /** @var Player|null $placer */
-        $placer = Player::query()
-            ->lockForUpdate()
-            ->find((int) $crate->placed_by_player_id);
-
+        // $placer is already locked (or null if the row vanished
+        // between place and trigger — placer account hard-deleted).
+        // Both currency-side branches read the locked row directly,
+        // and writes use forceFill+save so the in-memory model stays
+        // consistent with the DB for any caller that reads it later.
         if ($kind === 'oil') {
             $before = (int) $opener->oil_barrels;
             $amount = (int) floor($before * $pct);
@@ -735,13 +837,13 @@ class LootCrateService
             }
 
             if ($amount > 0) {
-                $opener->update([
+                $opener->forceFill([
                     'oil_barrels' => $before - $amount,
-                ]);
+                ])->save();
                 if ($placer !== null) {
-                    $placer->update([
+                    $placer->forceFill([
                         'oil_barrels' => (int) $placer->oil_barrels + $amount,
-                    ]);
+                    ])->save();
                 }
             }
 
@@ -767,13 +869,13 @@ class LootCrateService
             }
 
             if ($amount > 0) {
-                $opener->update([
+                $opener->forceFill([
                     'akzar_cash' => round($before - $amount, 2),
-                ]);
+                ])->save();
                 if ($placer !== null) {
-                    $placer->update([
+                    $placer->forceFill([
                         'akzar_cash' => round((float) $placer->akzar_cash + $amount, 2),
-                    ]);
+                    ])->save();
                 }
             }
 
@@ -967,9 +1069,8 @@ class LootCrateService
      */
     private function deviceDisplayName(string $deviceKey): string
     {
-        static $localCache = [];
-        if (isset($localCache[$deviceKey])) {
-            return $localCache[$deviceKey];
+        if (isset($this->deviceNameCache[$deviceKey])) {
+            return $this->deviceNameCache[$deviceKey];
         }
 
         $name = DB::table('items_catalog')
@@ -980,7 +1081,7 @@ class LootCrateService
             $name = ucwords(str_replace('_', ' ', $deviceKey));
         }
 
-        $localCache[$deviceKey] = $name;
+        $this->deviceNameCache[$deviceKey] = $name;
 
         return $name;
     }

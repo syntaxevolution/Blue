@@ -4,6 +4,7 @@ namespace App\Domain\Bot;
 
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Items\PassiveBonusService;
+use App\Domain\Loot\LootCrateService;
 use App\Domain\World\FogOfWarService;
 use App\Models\Attack;
 use App\Models\DrillPoint;
@@ -79,6 +80,8 @@ class BotGoalPlanner
 
     public const KIND_SABOTAGE = 'sabotage';
 
+    public const KIND_LOOT_TRAP = 'loot_trap';
+
     public const KIND_DRILL = 'drill';
 
     public const KIND_SHOP = 'shop';
@@ -120,12 +123,26 @@ class BotGoalPlanner
             }
         }
 
-        // Priority 3 — Sabotage. Skipped unless the bot owns a device
-        // AND the tier allows it.
-        if (($tierCfg['can_sabotage'] ?? false) === true) {
+        // Priority 3 — Sabotage (drill point traps + wasteland loot
+        // crate traps). BOTH paths are gated on the strength check:
+        // bots that lose attacks regularly should focus on levelling
+        // up before harassing other players. The check skips the
+        // entire sabotage layer in one shot — a weak bot falls
+        // through to shop/drill/explore so its next planner cycle
+        // builds it up instead.
+        $strongEnoughForSabotage = $this->isStrongEnoughForSabotage($bot);
+
+        if ($strongEnoughForSabotage && ($tierCfg['can_sabotage'] ?? false) === true) {
             $sabotage = $this->pickSabotageGoal($bot);
             if ($sabotage !== null) {
                 return $sabotage;
+            }
+        }
+
+        if ($strongEnoughForSabotage && ($tierCfg['can_place_loot_traps'] ?? false) === true) {
+            $lootTrap = $this->pickLootTrapGoal($bot, $tierCfg);
+            if ($lootTrap !== null) {
+                return $lootTrap;
             }
         }
 
@@ -195,6 +212,205 @@ class BotGoalPlanner
             ->value('attacker_player_id');
 
         return $row !== null ? (int) $row : null;
+    }
+
+    /**
+     * Strength gate for ALL sabotage planner paths. Returns true if
+     * the bot has earned the right to harass other players.
+     *
+     * Two halves combined with OR:
+     *
+     *   1. Recent attack-history check. If the bot has launched at
+     *      least `min_recent_attacks` raids inside the window AND its
+     *      win rate is at or above `min_recent_win_rate`, it has
+     *      proven combat capability and can sabotage freely.
+     *
+     *   2. Stat-baseline fallback. If the bot has fewer than the
+     *      minimum recent attacks (or none — newly spawned, or
+     *      careful play style) we fall back to a raw stat baseline:
+     *      strength + fortification at or above the configured
+     *      threshold. This stops a quiet but well-equipped bot from
+     *      being permanently locked out.
+     *
+     * Bots failing BOTH halves return false and the planner skips
+     * every sabotage layer for that tick, falling through to the
+     * shop / drill / explore ladder. Once they level up enough
+     * (or rack up wins) the gate naturally re-opens.
+     *
+     * Public so BotDecisionService and tests can call it for
+     * diagnostics — the planner uses it internally too.
+     */
+    public function isStrongEnoughForSabotage(Player $bot): bool
+    {
+        $cfg = (array) $this->config->get('bots.sabotage_gate', []);
+        $window = (int) ($cfg['recent_window_hours'] ?? 48);
+        $minAttacks = (int) ($cfg['min_recent_attacks'] ?? 3);
+        $minWinRate = (float) ($cfg['min_recent_win_rate'] ?? 0.5);
+        $minStatTotal = (int) ($cfg['min_stat_total_fallback'] ?? 8);
+
+        // Half 1: combat record. Look at the bot's outgoing raids in
+        // the window and compute the win rate. The `attacks` table
+        // stores `outcome` as a string enum; raids the bot won are
+        // tagged 'success' (matches AttackService — kept loose-coupled
+        // here to avoid a dependency on the combat namespace).
+        $rows = Attack::query()
+            ->where('attacker_player_id', $bot->id)
+            ->where('created_at', '>=', now()->subHours($window))
+            ->get(['outcome']);
+
+        $total = $rows->count();
+        if ($total >= $minAttacks) {
+            $wins = $rows->filter(fn ($r) => (string) $r->outcome === 'success')->count();
+            $rate = $total > 0 ? $wins / $total : 0.0;
+
+            return $rate >= $minWinRate;
+        }
+
+        // Half 2: stat baseline fallback. Strength + fortification
+        // captures both offensive and defensive readiness, so a bot
+        // that has dumped barrels into either side gets credit. We
+        // intentionally exclude stealth/security so a pure scout
+        // bot can't unlock sabotage without ever fighting.
+        $statTotal = (int) $bot->strength + (int) $bot->fortification;
+
+        return $statTotal >= $minStatTotal;
+    }
+
+    /**
+     * Pick a wasteland tile within the bot's travel range to plant
+     * a sabotage loot crate on. Requires:
+     *
+     *   - At least one owned `crate_siphon_oil` or `crate_siphon_cash`
+     *     (deployable_loot_crate effect).
+     *   - At least `loot_trap.min_free_slots` free deployment-cap
+     *     slots so the bot doesn't fill its allowance with one
+     *     plant and starve the next tick.
+     *   - A discovered wasteland tile within
+     *     `loot_trap.travel_range_tiles` of the bot's current
+     *     position that does NOT already have an unopened crate.
+     *
+     * Bots prefer wasteland tiles closer to enemy bases (raid bait)
+     * but if none is in fog-of-war range, they fall back to any
+     * eligible wasteland.
+     *
+     * @param  array<string,mixed>  $tierCfg
+     * @return array<string,mixed>|null
+     */
+    private function pickLootTrapGoal(Player $bot, array $tierCfg): ?array
+    {
+        $deviceKey = $this->firstOwnedDeployableLootCrate($bot->id);
+        if ($deviceKey === null) {
+            return null;
+        }
+
+        // Free-slot check via the same service the human-facing
+        // deploy guard uses. Resolved inline rather than injected to
+        // avoid bloating the planner constructor; this only fires for
+        // sabotage-eligible bots so the call cost is negligible.
+        /** @var LootCrateService $lootCrates */
+        $lootCrates = app(LootCrateService::class);
+        $cap = $lootCrates->deploymentCap();
+        $current = $lootCrates->currentlyDeployedCount((int) $bot->id);
+        $minFree = (int) $this->config->get('bots.loot_trap.min_free_slots', 2);
+        if ($cap - $current < $minFree) {
+            return null;
+        }
+
+        $discovered = $this->fogOfWar->getDiscoveredTileIds($bot->id);
+        if ($discovered === []) {
+            return null;
+        }
+
+        /** @var Tile|null $currentTile */
+        $currentTile = Tile::query()->find($bot->current_tile_id);
+        if ($currentTile === null) {
+            return null;
+        }
+
+        $range = (int) $this->config->get('bots.loot_trap.travel_range_tiles', 12);
+
+        // Eligible wasteland tiles: discovered, within range, no
+        // already-deployed crate. We exclude the bot's current tile
+        // explicitly — placing a trap and immediately walking off
+        // is fine, but the executor handles arrival-then-place in
+        // one step so we don't need a special-case.
+        $candidateTiles = Tile::query()
+            ->whereIn('id', $discovered)
+            ->where('type', 'wasteland')
+            ->get(['id', 'x', 'y']);
+
+        if ($candidateTiles->isEmpty()) {
+            return null;
+        }
+
+        // Drop tiles already holding a crate (real or sabotage —
+        // one slot per tile). Single query keyed by (x,y) to avoid
+        // N+1.
+        $tileKeysWithCrate = DB::table('tile_loot_crates')
+            ->whereNull('opened_at')
+            ->whereIn('tile_x', $candidateTiles->pluck('x')->all())
+            ->whereIn('tile_y', $candidateTiles->pluck('y')->all())
+            ->select('tile_x', 'tile_y')
+            ->get()
+            ->map(fn ($r) => $r->tile_x.':'.$r->tile_y)
+            ->all();
+        $occupied = array_flip($tileKeysWithCrate);
+
+        $eligible = $candidateTiles->filter(function (Tile $t) use ($currentTile, $range, $occupied) {
+            $dist = abs($t->x - $currentTile->x) + abs($t->y - $currentTile->y);
+            if ($dist > $range) {
+                return false;
+            }
+
+            return ! isset($occupied[$t->x.':'.$t->y]);
+        });
+
+        if ($eligible->isEmpty()) {
+            return null;
+        }
+
+        // Closest first — same heuristic as nearestDiscoveredPostOfType,
+        // and stops a bot from marching across the map for one trap.
+        /** @var Tile|null $chosen */
+        $chosen = $eligible
+            ->sortBy(fn (Tile $t) => abs($t->x - $currentTile->x) + abs($t->y - $currentTile->y))
+            ->first();
+
+        if ($chosen === null) {
+            return null;
+        }
+
+        return [
+            'kind' => self::KIND_LOOT_TRAP,
+            'tile_id' => (int) $chosen->id,
+            'item_key' => $deviceKey,
+        ];
+    }
+
+    /**
+     * First deployable_loot_crate item in the bot's active inventory,
+     * or null. Mirrors firstOwnedDeployable but keys on the
+     * loot-crate effect rather than the drill-sabotage effect.
+     */
+    private function firstOwnedDeployableLootCrate(int $playerId): ?string
+    {
+        $rows = DB::table('player_items')
+            ->join('items_catalog', 'items_catalog.key', '=', 'player_items.item_key')
+            ->where('player_items.player_id', $playerId)
+            ->where('player_items.status', 'active')
+            ->where('player_items.quantity', '>', 0)
+            ->whereNotNull('items_catalog.effects')
+            ->select('items_catalog.key', 'items_catalog.effects')
+            ->get();
+
+        foreach ($rows as $row) {
+            $effects = is_string($row->effects) ? json_decode($row->effects, true) : (array) $row->effects;
+            if (is_array($effects) && isset($effects['deployable_loot_crate'])) {
+                return (string) $row->key;
+            }
+        }
+
+        return null;
     }
 
     // ------------------------------------------------------------------
@@ -605,12 +821,20 @@ class BotGoalPlanner
         //   > 0.6 → offensive (tech → strength)
         //   < 0.4 → defensive (fort → security)
         //   mid  → balanced (tech → fort → strength → security → stealth)
+        //
+        // The 'general' post slot is appended at the end of every
+        // ordering — sabotage gear and loot crate deployables are
+        // expensive sundries and should be the LAST thing a bot
+        // saves up for, not displace stat or drill upgrades. Bots
+        // only consider general-store sabotage gear when they're
+        // already strong enough (gated upstream) AND have nothing
+        // better to spend barrels on at the priority post types.
         $risk = (float) ($tierCfg['risk_tolerance'] ?? 0.5);
         $priority = match (true) {
-            $defensiveMode => ['fort', 'security', 'tech', 'strength', 'stealth'],
-            $risk > 0.6 => ['tech', 'strength', 'stealth', 'fort', 'security'],
-            $risk < 0.4 => ['fort', 'security', 'tech', 'stealth', 'strength'],
-            default => ['tech', 'fort', 'strength', 'security', 'stealth'],
+            $defensiveMode => ['fort', 'security', 'tech', 'strength', 'stealth', 'general'],
+            $risk > 0.6 => ['tech', 'strength', 'stealth', 'fort', 'security', 'general'],
+            $risk < 0.4 => ['fort', 'security', 'tech', 'stealth', 'strength', 'general'],
+            default => ['tech', 'fort', 'strength', 'security', 'stealth', 'general'],
         };
 
         $current = Tile::query()->find($bot->current_tile_id);
@@ -719,6 +943,13 @@ class BotGoalPlanner
      * already own AND qualifies as an upgrade (stat_add, set_drill_tier,
      * unlocks_transport, or daily_drill_limit_bonus). Sorted descending
      * by price so bots save up for the biggest upgrade they can swing.
+     *
+     * General-store special case: when the post type is 'general',
+     * sabotage deployables (`deployable_sabotage`, `deployable_loot_crate`)
+     * also count as upgrade-worthy IF the bot is strong enough for
+     * sabotage AND doesn't already have a healthy stockpile. The
+     * stockpile cap stops bots from converting their entire barrel
+     * reserve into traps.
      */
     private function firstAffordableUpgradeFor(Player $bot, string $postType): ?string
     {
@@ -727,16 +958,56 @@ class BotGoalPlanner
             ->orderByDesc('price_barrels')
             ->get();
 
-        $ownedKeys = DB::table('player_items')
+        $ownedRows = DB::table('player_items')
             ->where('player_id', $bot->id)
             ->where('status', 'active')
-            ->pluck('item_key')
-            ->all();
+            ->get(['item_key', 'quantity']);
+        $ownedKeys = $ownedRows->pluck('item_key')->all();
+        $ownedQuantities = $ownedRows->pluck('quantity', 'item_key')->all();
+
+        // Sabotage stockpile soft cap — bots stop buying once they
+        // hold this many of any given deployable, so a hard bot
+        // doesn't convert its entire reserve into traps. 3 is plenty
+        // for one round of harassment without strangling the rest of
+        // the economy. Both deployable kinds share the cap.
+        $sabotageStockpileCap = 3;
+
+        $strongEnough = $this->isStrongEnoughForSabotage($bot);
 
         foreach ($items as $item) {
-            if (in_array($item->key, $ownedKeys, true)) {
+            $effects = is_array($item->effects) ? $item->effects : [];
+
+            $isStat = isset($effects['stat_add']);
+            $isDrillTier = isset($effects['set_drill_tier']);
+            $isTransport = isset($effects['unlocks_transport']);
+            $isDailyLimit = isset($effects['daily_drill_limit_bonus']);
+            $isDeployableSabotage = isset($effects['deployable_sabotage']);
+            $isDeployableLootCrate = isset($effects['deployable_loot_crate']);
+
+            $isUpgrade = $isStat || $isDrillTier || $isTransport || $isDailyLimit;
+            $isSabotageGear = $isDeployableSabotage || $isDeployableLootCrate;
+
+            if (! $isUpgrade && ! $isSabotageGear) {
                 continue;
             }
+
+            // Sabotage gear is only purchase-eligible when the bot
+            // is strong enough AND under the per-deployable stockpile
+            // cap. Both checks bypass the "in_array ownedKeys" skip
+            // below because deployables are stackable consumables.
+            if ($isSabotageGear) {
+                if (! $strongEnough) {
+                    continue;
+                }
+                $owned = (int) ($ownedQuantities[$item->key] ?? 0);
+                if ($owned >= $sabotageStockpileCap) {
+                    continue;
+                }
+            } elseif (in_array($item->key, $ownedKeys, true)) {
+                // Non-stackable upgrades: never re-purchase.
+                continue;
+            }
+
             if ((int) $bot->oil_barrels < (int) $item->price_barrels) {
                 continue;
             }
@@ -747,21 +1018,11 @@ class BotGoalPlanner
                 continue;
             }
 
-            $effects = is_array($item->effects) ? $item->effects : [];
-            $isUpgrade = isset($effects['stat_add'])
-                || isset($effects['set_drill_tier'])
-                || isset($effects['unlocks_transport'])
-                || isset($effects['daily_drill_limit_bonus']);
-
-            if (! $isUpgrade) {
-                continue;
-            }
-
             // set_drill_tier: never let a bot "upgrade" to a lower tier
             // (can happen because orderByDesc on price_barrels doesn't
             // strictly correlate with drill_tier across overlapping
             // catalogs).
-            if (isset($effects['set_drill_tier'])
+            if ($isDrillTier
                 && (int) $effects['set_drill_tier'] <= (int) $bot->drill_tier) {
                 continue;
             }

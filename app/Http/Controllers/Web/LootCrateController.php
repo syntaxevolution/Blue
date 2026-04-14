@@ -10,6 +10,7 @@ use App\Http\Requests\DeployLootCrateRequest;
 use App\Models\TileLootCrate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Inertia controller for loot crate actions. Stays thin — every
@@ -40,8 +41,18 @@ class LootCrateController extends Controller
         } catch (CannotOpenLootCrateException $e) {
             return redirect()->route('map.show')->withErrors(['loot_crate' => $e->getMessage()]);
         } catch (\Throwable $e) {
+            // Log the real exception server-side, but never leak the
+            // message to the client — it can contain DB or stack
+            // context that's useless to a player and a footgun for
+            // information disclosure.
+            Log::error('Loot crate open failed', [
+                'player_id' => $player->id,
+                'crate_id' => (int) $crate->id,
+                'exception' => $e,
+            ]);
+
             return redirect()->route('map.show')->withErrors([
-                'loot_crate' => 'Open failed: '.$e->getMessage(),
+                'loot_crate' => 'Could not open the crate. Please try again.',
             ]);
         }
 
@@ -81,8 +92,14 @@ class LootCrateController extends Controller
         } catch (CannotOpenLootCrateException $e) {
             return redirect()->route('map.show')->withErrors(['loot_deploy' => $e->getMessage()]);
         } catch (\Throwable $e) {
+            Log::error('Loot crate deploy failed', [
+                'player_id' => $player->id,
+                'item_key' => (string) $request->validated('item_key'),
+                'exception' => $e,
+            ]);
+
             return redirect()->route('map.show')->withErrors([
-                'loot_deploy' => 'Deploy failed: '.$e->getMessage(),
+                'loot_deploy' => 'Could not deploy the crate. Please try again.',
             ]);
         }
 

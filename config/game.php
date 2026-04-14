@@ -123,7 +123,7 @@ return [
     */
     'actions' => [
         'travel' => ['move_cost' => 1],
-        'drill' => ['move_cost' => 2],
+        'drill' => ['move_cost' => 0],
         'spy' => ['move_cost' => 3],
         'attack' => ['move_cost' => 5],
         'tile_combat' => ['move_cost' => 5],
@@ -630,6 +630,45 @@ return [
             'min_rival_hits' => 2,
         ],
 
+        // Strength gate for ALL sabotage activities (drill point
+        // sabotage AND wasteland loot-crate trapping). The intent
+        // (per user spec): bots that lose attacks regularly should
+        // focus on levelling up before harassing other players.
+        //
+        // The check has two halves combined with OR — a bot is
+        // "strong enough" if EITHER:
+        //   - It has a recent attack history showing at least
+        //     `min_recent_attacks` rolls in the window AND its win
+        //     rate is at or above `min_recent_win_rate`, OR
+        //   - It has no recent attack history but its raw stat
+        //     baseline (strength + fortification) is at or above
+        //     `min_stat_total_fallback` so quiet new bots don't get
+        //     stuck waiting forever for a fight.
+        //
+        // Bots that fail BOTH halves skip every sabotage planner
+        // path and let the shop/explore/drill ladder build them up.
+        'sabotage_gate' => [
+            'recent_window_hours' => 48,
+            'min_recent_attacks' => 3,
+            'min_recent_win_rate' => 0.5,
+            'min_stat_total_fallback' => 8,
+        ],
+
+        // Loot crate trap planting (wasteland deployment) — separate
+        // from drill point sabotage. Per-tier flag so easy bots stay
+        // off the trap economy entirely. Hard bots only by default.
+        'loot_trap' => [
+            // Bot picks a wasteland tile within travel_range_tiles of
+            // its current position to plant a sabotage loot crate.
+            // Falls back gracefully when no eligible wasteland is
+            // discovered yet.
+            'travel_range_tiles' => 12,
+            // Minimum free deployment slots (cap minus current count)
+            // before a bot considers planting. Stops bots from
+            // greedily filling the cap and starving each other out.
+            'min_free_slots' => 2,
+        ],
+
         // Opportunistic tile combat. Bots never PLAN to fight on the
         // wasteland — they fight whoever they happen to bump into.
         // Resolution happens in BotDecisionService::maybeOpportunistic
@@ -683,6 +722,7 @@ return [
                 'travel_range_tiles' => 6,
                 'can_raid' => false,
                 'can_sabotage' => false,
+                'can_place_loot_traps' => false,
                 // Easy bots never initiate wasteland duels — new
                 // players bumping into one on the road stay safe.
                 'tile_combat_engagement_prob' => 0.0,
@@ -695,7 +735,12 @@ return [
                 'risk_tolerance' => 0.55,
                 'travel_range_tiles' => 12,
                 'can_raid' => true,
-                'can_sabotage' => false,
+                'can_sabotage' => true,
+                // Normal bots can lay loot traps — but only after
+                // the strength gate passes (so newly-spawned normal
+                // bots stay focused on shop/drill until they have a
+                // proven combat record).
+                'can_place_loot_traps' => true,
                 'tile_combat_engagement_prob' => 0.40,
                 'tile_combat_min_win_chance' => 0.65,
             ],
@@ -707,6 +752,7 @@ return [
                 'travel_range_tiles' => 20,
                 'can_raid' => true,
                 'can_sabotage' => true,
+                'can_place_loot_traps' => true,
                 'tile_combat_engagement_prob' => 0.70,
                 'tile_combat_min_win_chance' => 0.55,
             ],

@@ -80,6 +80,7 @@ class BotGoalExecutor
             BotGoalPlanner::KIND_SPY => $this->stepSpy($bot, $goal),
             BotGoalPlanner::KIND_RAID => $this->stepRaid($bot, $goal),
             BotGoalPlanner::KIND_SABOTAGE => $this->stepSabotage($bot, $goal),
+            BotGoalPlanner::KIND_LOOT_TRAP => $this->stepLootTrap($bot, $goal),
             BotGoalPlanner::KIND_EXPLORE => $this->stepExplore($bot, $goal),
             default => [
                 'status' => self::STATUS_INVALIDATED,
@@ -277,6 +278,52 @@ class BotGoalExecutor
         return [
             'status' => self::STATUS_COMPLETED,
             'log' => ['kind' => 'sabotage', 'detail' => "{$gridX},{$gridY}:{$deviceKey}"],
+        ];
+    }
+
+    /**
+     * Walk to the chosen wasteland tile and deploy a sabotage loot
+     * crate. Mirrors stepSabotage but routes through LootCrateService
+     * instead of SabotageService, and uses the wasteland tile as the
+     * deployment target (not a drill point sub-grid).
+     *
+     * Race-tolerant: if a human or another bot dropped a crate on
+     * the same tile between planning and execution, the place() call
+     * throws and we invalidate the goal so the planner picks a new
+     * tile next tick.
+     *
+     * @param  array<string,mixed>  $goal
+     * @return array{status:string, log:array<string,mixed>}
+     */
+    private function stepLootTrap(Player $bot, array $goal): array
+    {
+        $targetTileId = (int) ($goal['tile_id'] ?? 0);
+        $target = Tile::query()->find($targetTileId);
+        if ($target === null || $target->type !== 'wasteland') {
+            return $this->invalidated('loot_trap', 'target_tile_gone');
+        }
+
+        if ((int) $bot->current_tile_id !== $targetTileId) {
+            return $this->travelStep($bot, $target, 'loot_trap_travel');
+        }
+
+        $itemKey = (string) ($goal['item_key'] ?? '');
+        if ($itemKey === '') {
+            return $this->invalidated('loot_trap', 'no_device');
+        }
+
+        try {
+            $this->lootCrates->place($bot->id, $itemKey);
+        } catch (Throwable $e) {
+            // Tile already has a crate, deployment cap reached
+            // mid-tick, or the bot lost the inventory item to a
+            // race — invalidate so the planner picks a fresh tile.
+            return $this->invalidated('loot_trap', $e->getMessage());
+        }
+
+        return [
+            'status' => self::STATUS_COMPLETED,
+            'log' => ['kind' => 'loot_trap', 'detail' => $itemKey],
         ];
     }
 

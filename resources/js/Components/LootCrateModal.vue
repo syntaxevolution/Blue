@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { router } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 /**
  * Discovered vs Resolved modal states.
@@ -14,8 +14,6 @@ import { computed, ref } from 'vue';
  *  resolved   — open() succeeded, we're showing what was inside.
  *               Single "Continue" button.
  */
-
-type CrateKind = 'real' | 'sabotage';
 
 interface LootResult {
     kind: string;
@@ -127,27 +125,34 @@ function open() {
 }
 
 function leave() {
-    if (inFlight.value) {
-        return;
-    }
-    inFlight.value = true;
-    router.post(
-        route('map.loot_crates.decline', { crate: props.crateId }),
-        {},
-        {
-            preserveScroll: true,
-            preserveState: true,
-            onFinish: () => {
-                inFlight.value = false;
-                emit('close');
-            },
-        },
-    );
+    // "Leave it" is a purely client-side dismissal: the crate
+    // persists on the server until someone explicitly opens it
+    // (per spec — both real and sabotage crates stay on the tile),
+    // so there is nothing to POST. The decline endpoint exists
+    // for API symmetry / future analytics, but the web/mobile UX
+    // doesn't need to call it on the happy path. Skipping the
+    // round-trip avoids a wasted request and the "wait for the
+    // server to roundtrip before the modal closes" stutter.
+    emit('close');
 }
 
 function dismiss() {
+    if (inFlight.value) {
+        return;
+    }
     emit('close');
 }
+
+// Escape-to-close: matches the existing Modal.vue convention so
+// every modal in the app responds to the same shortcut.
+function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && !inFlight.value) {
+        e.preventDefault();
+        emit('close');
+    }
+}
+onMounted(() => document.addEventListener('keydown', handleKeydown));
+onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown));
 
 const isHostileOutcome = computed<boolean>(() => {
     if (!props.resolved) {
@@ -171,6 +176,9 @@ const isPositiveOutcome = computed<boolean>(() => {
             @click.self="dismiss"
         >
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="loot-crate-modal-title"
                 class="w-full max-w-md rounded-lg border-2 bg-zinc-900 p-5 sm:p-6 font-mono shadow-2xl"
                 :class="[
                     resolved && isHostileOutcome
@@ -194,7 +202,7 @@ const isPositiveOutcome = computed<boolean>(() => {
                 >
                     Loot crate
                 </div>
-                <h2 class="text-zinc-100 text-2xl font-bold mb-3 break-words">
+                <h2 id="loot-crate-modal-title" class="text-zinc-100 text-2xl font-bold mb-3 break-words">
                     {{ title }}
                 </h2>
                 <p class="text-zinc-300 text-sm leading-relaxed mb-5">
