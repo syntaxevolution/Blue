@@ -54,18 +54,42 @@ class AttackLogService
         $tileCombatsQuery = DB::table('tile_combats')
             ->where(function ($q) use ($player) {
                 $q->where('attacker_player_id', $player->id)
-                  ->orWhere('defender_player_id', $player->id);
+                    ->orWhere('defender_player_id', $player->id);
             });
+
+        // Loot-crate hostility:
+        //   - Player opened a sabotage crate placed by someone else
+        //     → counts as an incoming hostile event for the opener.
+        //   - Player IS the placer and someone else triggered their
+        //     crate → counts as a hostile event to log (they'll see
+        //     "your crate fired" in the feed).
+        //
+        // In both cases we explicitly exclude the placer-opening-
+        // their-own-crate path (rejected upstream by the service, but
+        // the query guards against stale test data or legacy rows).
+        $lootCrateVictimQuery = DB::table('tile_loot_crates')
+            ->where('opened_by_player_id', $player->id)
+            ->whereNotNull('placed_by_player_id')
+            ->whereNotNull('opened_at')
+            ->whereColumn('opened_by_player_id', '!=', 'placed_by_player_id');
+        $lootCratePlacerQuery = DB::table('tile_loot_crates')
+            ->where('placed_by_player_id', $player->id)
+            ->whereNotNull('opened_at')
+            ->whereColumn('opened_by_player_id', '!=', 'placed_by_player_id');
 
         if ($since !== null) {
             $attacksQuery->where('created_at', '>', $since);
             $sabotagesQuery->where('triggered_at', '>', $since);
             $tileCombatsQuery->where('created_at', '>', $since);
+            $lootCrateVictimQuery->where('opened_at', '>', $since);
+            $lootCratePlacerQuery->where('opened_at', '>', $since);
         }
 
         return $attacksQuery->count()
             + $sabotagesQuery->count()
-            + $tileCombatsQuery->count();
+            + $tileCombatsQuery->count()
+            + $lootCrateVictimQuery->count()
+            + $lootCratePlacerQuery->count();
     }
 
     /**
@@ -197,7 +221,7 @@ class AttackLogService
         $tileCombats = DB::table('tile_combats')
             ->where(function ($q) use ($player) {
                 $q->where('attacker_player_id', $player->id)
-                  ->orWhere('defender_player_id', $player->id);
+                    ->orWhere('defender_player_id', $player->id);
             })
             ->join('tiles', 'tiles.id', '=', 'tile_combats.tile_id')
             ->leftJoin('players as atk', 'atk.id', '=', 'tile_combats.attacker_player_id')
@@ -257,8 +281,109 @@ class AttackLogService
             })
             ->all();
 
+        // Loot crate hostility rows — two sources:
+        //   kind=loot_crate_victim — the viewing player opened a
+        //     sabotage crate someone else planted on a wasteland
+        //     tile. Role=victim, attacker_username surfaces the
+        //     planter (with the usual LEFT JOIN for deleted users).
+        //   kind=loot_crate_placer — the viewing player placed a
+        //     sabotage crate and someone else triggered it. Role=
+        //     placer, attacker_username is the *opener* (who the
+        //     crate hit), so the feed reads "You got X with your
+        //     crate".
+        //
+        // Real crates (placed_by_player_id IS NULL) never appear in
+        // this feed — opening a free loot crate isn't hostile and
+        // doesn't belong in the Hostility Log.
+        $lootCrateVictim = DB::table('tile_loot_crates')
+            ->whereNotNull('tile_loot_crates.placed_by_player_id')
+            ->whereNotNull('tile_loot_crates.opened_at')
+            ->where('tile_loot_crates.opened_by_player_id', $player->id)
+            ->whereColumn('tile_loot_crates.opened_by_player_id', '!=', 'tile_loot_crates.placed_by_player_id')
+            ->leftJoin('players as placer', 'placer.id', '=', 'tile_loot_crates.placed_by_player_id')
+            ->leftJoin('users as placer_user', 'placer_user.id', '=', 'placer.user_id')
+            ->orderByDesc('tile_loot_crates.opened_at')
+            ->limit($limit)
+            ->get([
+                'tile_loot_crates.id',
+                'tile_loot_crates.device_key',
+                'tile_loot_crates.outcome',
+                'tile_loot_crates.opened_at as created_at',
+                'tile_loot_crates.tile_x',
+                'tile_loot_crates.tile_y',
+                'placer.id as placer_player_id',
+                'placer_user.name as placer_username',
+            ])
+            ->map(function ($row) {
+                $outcome = is_string($row->outcome) ? (array) json_decode($row->outcome, true) : (array) $row->outcome;
+                $kind = (string) ($outcome['kind'] ?? '');
+                $amount = (float) ($outcome['amount'] ?? 0);
+
+                return [
+                    'kind' => 'loot_crate_victim',
+                    'id' => 'loot-v-'.(int) $row->id,
+                    'source_id' => (int) $row->id,
+                    'outcome' => $kind,
+                    'cash_stolen' => $kind === 'sabotage_cash' ? $amount : 0.0,
+                    'created_at' => $row->created_at,
+                    'attacker_username' => (string) ($row->placer_username ?? '[deleted]'),
+                    'attacker_player_id' => (int) ($row->placer_player_id ?? 0),
+                    'device_key' => (string) $row->device_key,
+                    'siphoned_barrels' => $kind === 'sabotage_oil' ? (int) $amount : 0,
+                    'rig_broken' => false,
+                    'role' => 'victim',
+                    'oil_stolen' => $kind === 'sabotage_oil' ? (int) $amount : 0,
+                    'tile_x' => (int) $row->tile_x,
+                    'tile_y' => (int) $row->tile_y,
+                ];
+            })
+            ->all();
+
+        $lootCratePlacer = DB::table('tile_loot_crates')
+            ->where('tile_loot_crates.placed_by_player_id', $player->id)
+            ->whereNotNull('tile_loot_crates.opened_at')
+            ->whereColumn('tile_loot_crates.opened_by_player_id', '!=', 'tile_loot_crates.placed_by_player_id')
+            ->leftJoin('players as opener', 'opener.id', '=', 'tile_loot_crates.opened_by_player_id')
+            ->leftJoin('users as opener_user', 'opener_user.id', '=', 'opener.user_id')
+            ->orderByDesc('tile_loot_crates.opened_at')
+            ->limit($limit)
+            ->get([
+                'tile_loot_crates.id',
+                'tile_loot_crates.device_key',
+                'tile_loot_crates.outcome',
+                'tile_loot_crates.opened_at as created_at',
+                'tile_loot_crates.tile_x',
+                'tile_loot_crates.tile_y',
+                'opener.id as opener_player_id',
+                'opener_user.name as opener_username',
+            ])
+            ->map(function ($row) {
+                $outcome = is_string($row->outcome) ? (array) json_decode($row->outcome, true) : (array) $row->outcome;
+                $kind = (string) ($outcome['kind'] ?? '');
+                $amount = (float) ($outcome['amount'] ?? 0);
+
+                return [
+                    'kind' => 'loot_crate_placer',
+                    'id' => 'loot-p-'.(int) $row->id,
+                    'source_id' => (int) $row->id,
+                    'outcome' => $kind,
+                    'cash_stolen' => $kind === 'sabotage_cash' ? $amount : 0.0,
+                    'created_at' => $row->created_at,
+                    'attacker_username' => (string) ($row->opener_username ?? '[deleted]'),
+                    'attacker_player_id' => (int) ($row->opener_player_id ?? 0),
+                    'device_key' => (string) $row->device_key,
+                    'siphoned_barrels' => $kind === 'sabotage_oil' ? (int) $amount : 0,
+                    'rig_broken' => false,
+                    'role' => 'placer',
+                    'oil_stolen' => $kind === 'sabotage_oil' ? (int) $amount : 0,
+                    'tile_x' => (int) $row->tile_x,
+                    'tile_y' => (int) $row->tile_y,
+                ];
+            })
+            ->all();
+
         // Merge chronologically and slice to the overall limit.
-        $merged = array_merge($attacks, $sabotages, $tileCombats);
+        $merged = array_merge($attacks, $sabotages, $tileCombats, $lootCrateVictim, $lootCratePlacer);
         usort($merged, function (array $a, array $b) {
             $ta = is_string($a['created_at']) ? strtotime($a['created_at']) : (int) ($a['created_at']?->timestamp ?? 0);
             $tb = is_string($b['created_at']) ? strtotime($b['created_at']) : (int) ($b['created_at']?->timestamp ?? 0);

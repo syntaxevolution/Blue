@@ -14,6 +14,7 @@ use App\Domain\Exceptions\CannotSabotageException;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\Loot\LootCrateService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
 use App\Domain\Sabotage\SabotageService;
@@ -24,6 +25,7 @@ use App\Http\Requests\PlaceDeviceRequest;
 use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use App\Http\Resources\MapStateResource;
+use App\Models\Tile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -51,6 +53,7 @@ class MapController extends Controller
         private readonly MapStateBuilder $mapState,
         private readonly SabotageService $sabotage,
         private readonly TileCombatService $tileCombatSvc,
+        private readonly LootCrateService $lootCrates,
     ) {}
 
     public function show(Request $request): MapStateResource
@@ -74,7 +77,33 @@ class MapController extends Controller
             return response()->json(['errors' => ['travel' => $e->getMessage()]], 422);
         }
 
-        return new MapStateResource($this->mapState->build($player->fresh()));
+        $player = $player->fresh();
+
+        // Loot crate spawn/fetch hook — see Web\MapController::move for
+        // the full rationale. onArrival is a no-op on non-wasteland
+        // tiles so it's safe to call unconditionally. The returned
+        // crate (if any) is merged into the MapStateResource payload
+        // under `loot_event`, which the mobile client reads to pop a
+        // one-shot modal.
+        $lootEvent = null;
+        /** @var Tile|null $destination */
+        $destination = Tile::query()->find($player->current_tile_id);
+        if ($destination !== null) {
+            $crate = $this->lootCrates->onArrival($player, $destination);
+            if ($crate !== null) {
+                $lootEvent = [
+                    'crate_id' => (int) $crate->id,
+                    'placed_by_me' => (int) ($crate->placed_by_player_id ?? 0) === (int) $player->id,
+                ];
+            }
+        }
+
+        $state = $this->mapState->build($player);
+        if ($lootEvent !== null) {
+            $state['loot_event'] = $lootEvent;
+        }
+
+        return new MapStateResource($state);
     }
 
     public function drill(DrillRequest $request): MapStateResource|JsonResponse

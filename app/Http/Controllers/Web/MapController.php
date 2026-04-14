@@ -14,6 +14,7 @@ use App\Domain\Exceptions\CannotSabotageException;
 use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\Loot\LootCrateService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
 use App\Domain\Sabotage\SabotageService;
@@ -25,6 +26,7 @@ use App\Http\Requests\PurchaseRequest;
 use App\Http\Requests\TravelRequest;
 use App\Models\Item;
 use App\Models\Player;
+use App\Models\Tile;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -51,6 +53,7 @@ class MapController extends Controller
         private readonly MapStateBuilder $mapState,
         private readonly SabotageService $sabotage,
         private readonly TileCombatService $tileCombatSvc,
+        private readonly LootCrateService $lootCrates,
     ) {}
 
     public function show(Request $request): Response
@@ -91,6 +94,27 @@ class MapController extends Controller
             return redirect()->route('map.show')->withErrors([
                 'travel' => 'Travel did not persist — player is still on tile #'.$beforeTileId.'. Check server logs.',
             ]);
+        }
+
+        // Loot crate spawn/fetch hook. Runs AFTER the move commits —
+        // onArrival is a no-op on non-wasteland tiles so this is safe
+        // to call unconditionally on every move. If a crate is
+        // returned (either freshly spawned by the spawn_chance roll
+        // or already-present from a previous visitor) we flash a
+        // one-shot `loot_event` so the frontend auto-pops the modal.
+        // The crate ALSO appears in the wasteland tile_detail on the
+        // next map load, so dismissing without opening still leaves
+        // the crate accessible via a manual "Open crate" button.
+        /** @var Tile|null $destination */
+        $destination = Tile::query()->find($player->current_tile_id);
+        if ($destination !== null) {
+            $crate = $this->lootCrates->onArrival($player, $destination);
+            if ($crate !== null) {
+                return redirect()->route('map.show')->with('loot_event', [
+                    'crate_id' => (int) $crate->id,
+                    'placed_by_me' => (int) ($crate->placed_by_player_id ?? 0) === (int) $player->id,
+                ]);
+            }
         }
 
         return redirect()->route('map.show');

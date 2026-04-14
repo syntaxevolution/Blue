@@ -7,6 +7,7 @@ use App\Domain\Config\GameConfigResolver;
 use App\Domain\Drilling\OilFieldRegenService;
 use App\Domain\Economy\TransportService;
 use App\Domain\Items\StatOverflowService;
+use App\Domain\Loot\LootCrateService;
 use App\Domain\Notifications\ActivityLogService;
 use App\Domain\Sabotage\SabotageService;
 use App\Domain\World\FogOfWarService;
@@ -39,6 +40,7 @@ class MapStateBuilder
         private readonly ActivityLogService $activityLog,
         private readonly OilFieldRegenService $fieldRegen,
         private readonly TileCombatEligibilityService $tileCombatEligibility,
+        private readonly LootCrateService $lootCrates,
     ) {}
 
     /**
@@ -299,13 +301,57 @@ class MapStateBuilder
             ];
         }
 
+        // Loot crate on this tile (if any). Always included in the
+        // wasteland detail so a player re-visiting a tile they left
+        // a crate on sees a manual "Open crate" button — the auto
+        // pop-up modal only fires once (on arrival via the travel
+        // hook), but the crate itself stays visible in the panel.
+        // `placed_by_me` flags the placer so the frontend can show
+        // "Your deployed trap" and block the open button per spec #8.
+        $crate = $this->lootCrates->activeCrateForTile((int) $tile->x, (int) $tile->y);
+        $lootCrate = null;
+        if ($crate !== null) {
+            $lootCrate = [
+                'id' => (int) $crate->id,
+                'placed_by_me' => (int) ($crate->placed_by_player_id ?? 0) === (int) $player->id,
+            ];
+        }
+
         return [
             'kind' => 'wasteland',
             'occupants' => $occupants,
             'cooldown_hours' => $cooldownHours,
             'move_cost' => $moveCost,
             'max_oil_loot_pct' => $maxLootPct,
+            'loot_crate' => $lootCrate,
+            // Toolbox-facing metadata so the Deploy action on the
+            // wasteland panel can disable itself when the player is
+            // at their per-world deployment cap. `owned_*` counts
+            // feed the Deploy button's "you have N in the toolbox"
+            // hint without a separate API call.
+            'loot_deploy' => [
+                'cap' => $this->lootCrates->deploymentCap(),
+                'currently_deployed' => $this->lootCrates->currentlyDeployedCount((int) $player->id),
+                'owned_oil_crates' => $this->ownedCrateCount($player, (string) $this->config->get('loot.items.siphon_oil.item_key', 'crate_siphon_oil')),
+                'owned_cash_crates' => $this->ownedCrateCount($player, (string) $this->config->get('loot.items.siphon_cash.item_key', 'crate_siphon_cash')),
+                'oil_item_key' => (string) $this->config->get('loot.items.siphon_oil.item_key', 'crate_siphon_oil'),
+                'cash_item_key' => (string) $this->config->get('loot.items.siphon_cash.item_key', 'crate_siphon_cash'),
+            ],
         ];
+    }
+
+    /**
+     * Count how many of a specific loot-crate deployable the player
+     * holds in their active toolbox. Used by the wasteland tile panel
+     * to show "you have 3 oil crates, 1 cash crate" before deploying.
+     */
+    private function ownedCrateCount(Player $player, string $itemKey): int
+    {
+        return (int) (DB::table('player_items')
+            ->where('player_id', $player->id)
+            ->where('item_key', $itemKey)
+            ->where('status', 'active')
+            ->value('quantity') ?? 0);
     }
 
     /**

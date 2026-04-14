@@ -3,19 +3,20 @@
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AtlasController;
 use App\Http\Controllers\Api\V1\AuthController;
-use App\Http\Controllers\Api\V1\ItemBreakController;
-use App\Http\Controllers\Api\V1\MapController;
-use App\Http\Controllers\Api\V1\MdnAllianceController;
-use App\Http\Controllers\Api\V1\MdnController;
-use App\Http\Controllers\Api\V1\MdnJournalController;
-use App\Http\Controllers\Api\V1\TeleportController;
-use App\Http\Controllers\Api\V1\TransportController;
 use App\Http\Controllers\Api\V1\Casino\BlackjackController as ApiBlackjackController;
 use App\Http\Controllers\Api\V1\Casino\CasinoController as ApiCasinoController;
 use App\Http\Controllers\Api\V1\Casino\ChatController as ApiCasinoChatController;
 use App\Http\Controllers\Api\V1\Casino\HoldemController as ApiHoldemController;
 use App\Http\Controllers\Api\V1\Casino\RouletteController as ApiRouletteController;
 use App\Http\Controllers\Api\V1\Casino\SlotsController as ApiSlotsController;
+use App\Http\Controllers\Api\V1\ItemBreakController;
+use App\Http\Controllers\Api\V1\LootCrateController;
+use App\Http\Controllers\Api\V1\MapController;
+use App\Http\Controllers\Api\V1\MdnAllianceController;
+use App\Http\Controllers\Api\V1\MdnController;
+use App\Http\Controllers\Api\V1\MdnJournalController;
+use App\Http\Controllers\Api\V1\TeleportController;
+use App\Http\Controllers\Api\V1\TransportController;
 use App\Http\Controllers\Api\V1\UsernameController;
 use App\Http\Controllers\Api\V1\WorldController;
 use Illuminate\Support\Facades\Route;
@@ -75,6 +76,15 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('/map/spy', [MapController::class, 'spy'])->name('map.spy');
                 Route::post('/map/attack', [MapController::class, 'attack'])->name('map.attack');
                 Route::post('/map/tile-combat', [MapController::class, 'tileCombat'])->name('map.tile_combat');
+
+                // Loot crates — open / decline / deploy. Deploy
+                // acts on the player's current tile; open and
+                // decline target a specific crate row via route-
+                // model binding so a stale reference in a mobile
+                // client returns a clean 404 instead of a bad state.
+                Route::post('/map/loot-crates/{crate}/open', [LootCrateController::class, 'open'])->name('map.loot_crates.open');
+                Route::post('/map/loot-crates/{crate}/decline', [LootCrateController::class, 'decline'])->name('map.loot_crates.decline');
+                Route::post('/map/loot-crates/deploy', [LootCrateController::class, 'deploy'])->name('map.loot_crates.deploy');
 
                 Route::post('/map/transport', [TransportController::class, 'switch'])->name('map.transport');
 

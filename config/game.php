@@ -265,6 +265,130 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Loot Crates — real and sabotage variants (wasteland-only)
+    |--------------------------------------------------------------------------
+    | Two systems sharing the same tile slot:
+    |
+    |   Real crates    — spawn on arrival to a wasteland tile with
+    |                    spawn_chance probability. One slot per tile,
+    |                    persistent until opened. Contents rolled at
+    |                    open time from the outcomes weights.
+    |
+    |   Sabotage crates — player-deployed via toolbox items
+    |                    crate_siphon_oil / crate_siphon_cash. Look
+    |                    identical to real crates. On open by any
+    |                    non-immune non-placer, siphon a random
+    |                    percentage of the opener's oil/cash and
+    |                    credit the placer instantly. Immune openers
+    |                    consume the crate with no effect but the
+    |                    placer is still notified via Hostility Log.
+    |
+    | Every knob lives here. Tune in the admin panel; never hardcode.
+    */
+    'loot' => [
+        'real_crate' => [
+            // Chance to spawn a real crate on arrival to a wasteland
+            // tile that has no existing crate. Rolled via RngService.
+            'spawn_chance' => 0.01,
+
+            // Outcome weights rolled at open time. Sum normalised
+            // internally, but the user spec uses 25/10/5/60 = 100.
+            'outcomes' => [
+                'nothing' => 25,
+                'oil' => 10,
+                'cash' => 5,
+                'item' => 60,
+            ],
+
+            // Oil reward range. weight_exponent >= 1 biases the roll
+            // toward the low end (x^exp against a uniform roll).
+            // exp=2.5 gives a heavy tail: ~80% of rolls below 40% of
+            // the range, ~5% above 85%.
+            'oil' => [
+                'min' => 100,
+                'max' => 10000,
+                'weight_exponent' => 2.5,
+            ],
+
+            // Cash reward range. Same shape as oil — low-weighted.
+            'cash' => [
+                'min' => 1.00,
+                'max' => 10.00,
+                'weight_exponent' => 2.5,
+            ],
+
+            // Item reward pool. 'inverse_price' weights each catalog
+            // item by 1 / price_in_barrel_equivalent so cheap items
+            // dominate the roll. 'uniform' = flat distribution.
+            // exclude_keys filters specific keys out of the pool
+            // regardless of weighting (leave empty for "all items").
+            'item' => [
+                'weighting' => 'inverse_price',
+                'exclude_keys' => [],
+                // 1 cash = N barrels for the inverse-price weight math
+                // when items are priced in cash instead of barrels. Keep
+                // roughly in line with the shop-tuning rule of thumb.
+                'cash_to_barrels_factor' => 100,
+                // Intel has its own price dimension; convert to the
+                // same barrel scale for weighting purposes.
+                'intel_to_barrels_factor' => 5,
+            ],
+        ],
+
+        'sabotage' => [
+            // Steal percentage range on a successful sabotage trigger
+            // (non-immune victim). Uniformly rolled between min and max.
+            'steal_pct' => [
+                'min' => 0.05,
+                'max' => 0.20,
+            ],
+
+            // Per-player deployment cap math:
+            //   max_deployed = max(base, floor(world_tile_count / tiles_per_cap_step) * base)
+            // Default: base 5 crates per 2000 world tiles. Unlimited
+            // storage in the toolbox; cap only applies to currently
+            // deployed (unopened) crates on the map.
+            'max_deployed_base' => 5,
+            'tiles_per_cap_step' => 2000,
+        ],
+
+        // Move cost of opening a crate. Spec: zero, but tunable.
+        'open_move_cost' => 0,
+
+        // Per-difficulty probability that a bot opens a discovered
+        // crate. Spec: 75% across all tiers, tunable per-tier. Easy
+        // bots can be dialled down to protect new players.
+        'bots' => [
+            'open_chance' => [
+                'easy' => 0.75,
+                'normal' => 0.75,
+                'hard' => 0.75,
+            ],
+            // Bots never place sabotage crates in v1 — keeps their
+            // behaviour predictable. Flip to true once the heuristics
+            // are in place.
+            'place_sabotage' => false,
+        ],
+
+        // Item keys for the two sabotage crate variants. Referenced
+        // by LootCrateService when resolving the deployable effect
+        // and mirrored by ItemsCatalogSeeder.
+        'items' => [
+            'siphon_oil' => [
+                'item_key' => 'crate_siphon_oil',
+                'price_barrels' => 500,
+                'device_kind' => 'oil',
+            ],
+            'siphon_cash' => [
+                'item_key' => 'crate_siphon_cash',
+                'price_barrels' => 10000,
+                'device_kind' => 'cash',
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | World — initial size, density, auto-growth, abandonment decay
     |--------------------------------------------------------------------------
     */

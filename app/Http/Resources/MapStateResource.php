@@ -48,6 +48,18 @@ class MapStateResource extends JsonResource
             'immunity_hours' => $state['immunity_hours'] ?? null,
             'owned_items' => $state['owned_items'] ?? [],
             'unread_activity_count' => $state['unread_activity_count'] ?? 0,
+            // One-shot loot crate event: set by the move endpoint
+            // when the player's arrival spawned (or landed on) a
+            // crate, so the mobile client can auto-pop the modal.
+            // Null on show() and on moves that didn't touch a crate.
+            'loot_event' => $state['loot_event'] ?? null,
+            // Post-open outcome payload so mobile clients can render
+            // the "you found X" reveal without a second request.
+            // Null unless the response is from LootCrateController::open.
+            'loot_result' => $state['loot_result'] ?? null,
+            // Post-deploy receipt so mobile clients can render the
+            // toolbox toast and refresh the deploy-button state.
+            'loot_deploy_result' => $state['loot_deploy_result'] ?? null,
         ];
     }
 }

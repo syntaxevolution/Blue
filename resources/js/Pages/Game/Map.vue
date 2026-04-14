@@ -3,6 +3,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import TileIcon from '@/Components/TileIcon.vue';
 import TransportSwitcher from '@/Components/TransportSwitcher.vue';
 import TeleportModal from '@/Components/TeleportModal.vue';
+import LootCrateModal from '@/Components/LootCrateModal.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useToolbox } from '@/Composables/useToolbox';
@@ -178,12 +179,28 @@ interface WastelandOccupant {
     block_reason_label: string;
 }
 
+interface LootCratePresence {
+    id: number;
+    placed_by_me: boolean;
+}
+
+interface LootDeployInfo {
+    cap: number;
+    currently_deployed: number;
+    owned_oil_crates: number;
+    owned_cash_crates: number;
+    oil_item_key: string;
+    cash_item_key: string;
+}
+
 interface WastelandDetail {
     kind: 'wasteland';
     occupants: WastelandOccupant[];
     cooldown_hours: number;
     move_cost: number;
     max_oil_loot_pct: number;
+    loot_crate: LootCratePresence | null;
+    loot_deploy: LootDeployInfo;
 }
 
 type TileDetail = OilFieldDetail | PostDetail | OwnBaseDetail | EnemyBaseDetail | CasinoDetail | WastelandDetail | null;
@@ -303,6 +320,107 @@ const placeResultText = computed<string | null>(() => {
 const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
 const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
 const attackResult = computed(() => (flash.value.attack_result as string | undefined) ?? null);
+
+// ---- Loot crate modal ----
+// The modal has three sources of truth:
+//   1. flash.loot_event — server flashed after a successful move
+//      because the arrival hook found (or spawned) a crate. Auto-
+//      pops the "discovered" state of the modal.
+//   2. lootCratePanelOpen — player manually clicked the "Check crate"
+//      button on the wasteland tile detail panel (for re-visits).
+//   3. flash.loot_result — server flashed after a successful open,
+//      carrying the outcome payload. Swaps the modal into "resolved"
+//      state and shows the reveal.
+//
+// The modal stays open across navigations for case 3 by mirroring
+// the flash into a local ref on first sight, matching the existing
+// tile_combat_result pattern.
+interface LootEventPayload {
+    crate_id: number;
+    placed_by_me: boolean;
+}
+interface LootResultPayload {
+    kind: string;
+    barrels?: number;
+    cash?: number;
+    item_key?: string;
+    item_name?: string;
+    reason?: string;
+    sabotage_device_key?: string;
+    sabotage_kind?: string;
+    amount?: number;
+    steal_pct?: number;
+    victim_before?: number;
+}
+const lootEventFromFlash = computed<LootEventPayload | null>(
+    () => (flash.value.loot_event as LootEventPayload | undefined) ?? null,
+);
+const lootCratePanelOpen = ref(false);
+const lootResultMirror = ref<LootResultPayload | null>(null);
+watch(
+    () => flash.value.loot_result,
+    (incoming) => {
+        if (incoming && typeof incoming === 'object') {
+            lootResultMirror.value = incoming as LootResultPayload;
+        }
+    },
+    { immediate: true },
+);
+// Current crate on the wasteland tile detail panel — used by the
+// modal payload when the player opens via the manual button.
+const currentTileLootCrate = computed<LootCratePresence | null>(() => {
+    const detail = props.state.tile_detail;
+    if (detail && detail.kind === 'wasteland') {
+        return detail.loot_crate;
+    }
+    return null;
+});
+// Which crate should the modal be bound to? Priority: result mirror
+// → fresh flash event → manual panel open. The modal auto-closes
+// when the player navigates away from a tile and nothing references
+// a crate any more.
+const activeLootCrateBinding = computed<LootEventPayload | null>(() => {
+    // When a result is being shown we keep the same crate id bound
+    // so the modal can render the "resolved" state over top of the
+    // discovery prompt.
+    if (lootResultMirror.value && lootEventFromFlash.value) {
+        return lootEventFromFlash.value;
+    }
+    if (lootResultMirror.value && currentTileLootCrate.value) {
+        return {
+            crate_id: currentTileLootCrate.value.id,
+            placed_by_me: currentTileLootCrate.value.placed_by_me,
+        };
+    }
+    if (lootResultMirror.value && !lootEventFromFlash.value && !currentTileLootCrate.value) {
+        // Opened a crate and the tile no longer has one on refresh —
+        // still need to render the resolved reveal. Stub the binding
+        // with a dummy id so the modal stays mounted; the only
+        // branches it uses are the resolved-state fields.
+        return { crate_id: 0, placed_by_me: false };
+    }
+    if (lootEventFromFlash.value) {
+        return lootEventFromFlash.value;
+    }
+    if (lootCratePanelOpen.value && currentTileLootCrate.value) {
+        return {
+            crate_id: currentTileLootCrate.value.id,
+            placed_by_me: currentTileLootCrate.value.placed_by_me,
+        };
+    }
+    return null;
+});
+
+function openLootCratePanel(): void {
+    if (currentTileLootCrate.value) {
+        lootCratePanelOpen.value = true;
+    }
+}
+
+function dismissLootCrateModal(): void {
+    lootCratePanelOpen.value = false;
+    lootResultMirror.value = null;
+}
 
 interface TileCombatResultPayload {
     attacker_won: boolean;
@@ -490,6 +608,13 @@ watch(
         if (newType !== 'wasteland' && fightConfirmTarget.value !== null) {
             fightConfirmTarget.value = null;
         }
+        // Same rule for the loot-crate manual-open panel: leaving
+        // a wasteland tile clears any "Check crate" click state.
+        // The result mirror stays so the reveal can finish even if
+        // the player walks off mid-animation.
+        if (newType !== 'wasteland' && lootCratePanelOpen.value) {
+            lootCratePanelOpen.value = false;
+        }
     },
 );
 
@@ -497,6 +622,33 @@ function buy(item: ShopItem) {
     if (!item.can_purchase) return;
     router.post(route('map.purchase'), { item_key: item.key }, { preserveScroll: true, preserveState: true });
 }
+
+function deployLootCrate(itemKey: string): void {
+    router.post(
+        route('map.loot_crates.deploy'),
+        { item_key: itemKey },
+        { preserveScroll: true, preserveState: true },
+    );
+}
+
+const lootDeployError = computed(() => errors.value.loot_deploy ?? null);
+const lootCrateError = computed(() => errors.value.loot_crate ?? null);
+interface LootDeployReceipt {
+    crate_id: number;
+    remaining_quantity: number;
+    item_key: string;
+}
+const lootDeployReceipt = computed<LootDeployReceipt | null>(
+    () => (flash.value.loot_deploy_result as LootDeployReceipt | undefined) ?? null,
+);
+const lootDeployReceiptText = computed<string | null>(() => {
+    const r = lootDeployReceipt.value;
+    if (!r) {
+        return null;
+    }
+    const label = r.item_key === 'crate_siphon_cash' ? 'Cash Siphon Crate' : 'Oil Siphon Crate';
+    return `${label} deployed. ${r.remaining_quantity} remaining in your toolbox.`;
+});
 
 function spy() {
     router.post(route('map.spy'), {}, { preserveScroll: true, preserveState: true });
@@ -809,6 +961,9 @@ function formatIntelPct(range: SpyIntelRange): string {
                 <div v-if="spyError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ spyError }}</div>
                 <div v-if="attackError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ attackError }}</div>
                 <div v-if="tileCombatError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ tileCombatError }}</div>
+                <div v-if="lootCrateError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ lootCrateError }}</div>
+                <div v-if="lootDeployError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ lootDeployError }}</div>
+                <div v-if="lootDeployReceiptText" class="bg-amber-950/50 border border-amber-700/50 rounded-lg p-3 text-amber-300 text-sm font-mono">{{ lootDeployReceiptText }}</div>
 
                 <!-- MAIN MAP PANEL -->
                 <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-3 sm:p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
@@ -1140,6 +1295,72 @@ function formatIntelPct(range: SpyIntelRange): string {
 
                                 <!-- Wasteland — with opportunistic tile combat -->
                                 <div v-else-if="state.tile_detail?.kind === 'wasteland'" class="text-left">
+                                    <!-- Loot crate card — visible when a crate is on this tile.
+                                         Covers both re-visit access ("Check the crate") and
+                                         placer introspection ("Your deployed trap"). The auto
+                                         pop-up modal uses the flash path and is separate. -->
+                                    <div
+                                        v-if="state.tile_detail.loot_crate"
+                                        class="mb-3 rounded border border-amber-700/60 bg-amber-950/30 p-3 flex items-start justify-between gap-2"
+                                    >
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-amber-400 text-xs uppercase tracking-widest mb-1">Loot crate</div>
+                                            <div class="text-zinc-100 text-sm break-words">
+                                                <template v-if="state.tile_detail.loot_crate.placed_by_me">
+                                                    Your sabotage crate is sitting here. You can see it, but you can't open it.
+                                                </template>
+                                                <template v-else>
+                                                    A sealed crate. Could be a stash — could be a trap.
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="tap-target shrink-0 rounded border border-amber-500 bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-950 transition hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                                            :disabled="state.tile_detail.loot_crate.placed_by_me"
+                                            @click="openLootCratePanel"
+                                        >
+                                            {{ state.tile_detail.loot_crate.placed_by_me ? 'Your trap' : 'Check it' }}
+                                        </button>
+                                    </div>
+
+                                    <!-- Deploy-from-toolbox panel — only shown when the player
+                                         owns at least one sabotage crate deployable AND no crate
+                                         is already on this tile. Disabled on the cap wall with a
+                                         tooltip explaining why. -->
+                                    <div
+                                        v-if="!state.tile_detail.loot_crate
+                                            && (state.tile_detail.loot_deploy.owned_oil_crates > 0
+                                                || state.tile_detail.loot_deploy.owned_cash_crates > 0)"
+                                        class="mb-3 rounded border border-zinc-700 bg-zinc-950/60 p-3"
+                                    >
+                                        <div class="text-zinc-500 text-xs uppercase tracking-widest mb-2">Toolbox — deploy sabotage crate</div>
+                                        <div class="text-[11px] text-zinc-500 mb-3">
+                                            Deployed: {{ state.tile_detail.loot_deploy.currently_deployed }}/{{ state.tile_detail.loot_deploy.cap }}
+                                            <span v-if="state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap" class="ml-1 text-rose-400">· cap reached</span>
+                                        </div>
+                                        <div class="flex flex-col gap-2 sm:flex-row">
+                                            <button
+                                                v-if="state.tile_detail.loot_deploy.owned_oil_crates > 0"
+                                                type="button"
+                                                class="tap-target flex-1 rounded border border-amber-700 bg-amber-950/60 px-3 py-2 text-xs font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-900/60 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                :disabled="state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
+                                                @click="deployLootCrate(state.tile_detail.loot_deploy.oil_item_key)"
+                                            >
+                                                Deploy oil siphon ({{ state.tile_detail.loot_deploy.owned_oil_crates }} owned)
+                                            </button>
+                                            <button
+                                                v-if="state.tile_detail.loot_deploy.owned_cash_crates > 0"
+                                                type="button"
+                                                class="tap-target flex-1 rounded border border-amber-700 bg-amber-950/60 px-3 py-2 text-xs font-bold uppercase tracking-wider text-amber-300 transition hover:bg-amber-900/60 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                :disabled="state.tile_detail.loot_deploy.currently_deployed >= state.tile_detail.loot_deploy.cap"
+                                                @click="deployLootCrate(state.tile_detail.loot_deploy.cash_item_key)"
+                                            >
+                                                Deploy cash siphon ({{ state.tile_detail.loot_deploy.owned_cash_crates }} owned)
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     <div v-if="state.tile_detail.occupants.length === 0" class="text-zinc-600 text-sm italic text-center">
                                         Empty wasteland. Just you and the dust — keep walking.
                                     </div>
@@ -1254,6 +1475,20 @@ function formatIntelPct(range: SpyIntelRange): string {
             :cost-barrels="teleportCost"
             :owns-teleporter="state.player.owns_teleporter ?? false"
             @close="showTeleportModal = false"
+        />
+
+        <!-- Loot crate modal. Bound to a crate via activeLootCrateBinding
+             which folds the three triggers (fresh arrival flash, manual
+             panel click, resolved-outcome mirror) into one source of
+             truth. `resolved` drives the template between the discovery
+             prompt and the reveal. -->
+        <LootCrateModal
+            v-if="activeLootCrateBinding"
+            :key="`loot-crate-${activeLootCrateBinding.crate_id}-${lootResultMirror?.kind ?? 'discovered'}`"
+            :crate-id="activeLootCrateBinding.crate_id"
+            :placed-by-me="activeLootCrateBinding.placed_by_me"
+            :resolved="lootResultMirror"
+            @close="dismissLootCrateModal"
         />
 
         <!-- Tile combat RESULT modal — appears after a duel resolves so

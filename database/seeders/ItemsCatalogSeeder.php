@@ -41,9 +41,15 @@ class ItemsCatalogSeeder extends Seeder
         $tripwireWardCost = (int) $config->get('items.tripwire_ward.price_barrels');
         $deepScannerCost = (int) $config->get('items.deep_scanner.price_barrels');
 
+        // Loot crate deployables — sabotage variants disguised as real
+        // loot crates. Priced under loot.items.* so admins can tune the
+        // cost in the Filament panel without re-running the seeder.
+        $crateSiphonOilCost = (int) $config->get('loot.items.siphon_oil.price_barrels');
+        $crateSiphonCashCost = (int) $config->get('loot.items.siphon_cash.price_barrels');
+
         $items = [
             /* ------------------------------------------------------------ */
-            /* Strength post — melee weapons, +strength                      */
+            /* Strength post — melee weapons, +strength */
             /* ------------------------------------------------------------ */
             ['key' => 'small_rock',       'post_type' => 'strength', 'name' => 'Small Rock',       'description' => 'A fist-sized chunk of granite. Better than nothing.',                       'price_barrels' => 5,    'effects' => ['stat_add' => ['strength' => 1]],  'sort_order' => 10],
             ['key' => 'boulder',          'post_type' => 'strength', 'name' => 'Boulder',          'description' => 'Two-handed, bone-crushing, inelegant.',                                      'price_barrels' => 15,   'effects' => ['stat_add' => ['strength' => 2]],  'sort_order' => 20],
@@ -63,7 +69,7 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'sovereign_fist',   'post_type' => 'strength', 'name' => "Sovereign's Fist", 'description' => 'A ceremonial gauntlet. Whoever wears it gets listened to.',                   'price_barrels' => 65000, 'effects' => ['stat_add' => ['strength' => 15]], 'sort_order' => 140],
 
             /* ------------------------------------------------------------ */
-            /* Stealth post — +stealth                                        */
+            /* Stealth post — +stealth */
             /* ------------------------------------------------------------ */
             ['key' => 'boots',            'post_type' => 'stealth',  'name' => 'Boots',             'description' => 'Soft soles. Muffled steps.',                                              'price_barrels' => 5,    'effects' => ['stat_add' => ['stealth' => 1]],  'sort_order' => 10],
             ['key' => 'sneakers',         'post_type' => 'stealth',  'name' => 'Dust Sneakers',     'description' => 'Rubber tread, wrapped in cloth to kill the sound.',                       'price_barrels' => 15,   'effects' => ['stat_add' => ['stealth' => 2]],  'sort_order' => 20],
@@ -100,7 +106,7 @@ class ItemsCatalogSeeder extends Seeder
             // Batch 1 additions (5 — mix of fort + security)
             ['key' => 'sandbag_wall',       'post_type' => 'fort', 'name' => 'Sandbag Wall',            'description' => 'Pre-filled. Mostly with sand.',                                      'price_barrels' => 140,  'effects' => ['stat_add' => ['fortification' => 5]], 'sort_order' => 80],
             ['key' => 'concrete_moat',      'post_type' => 'fort', 'name' => 'Concrete Moat',           'description' => 'Water optional.',                                                    'price_barrels' => 250,  'effects' => ['stat_add' => ['fortification' => 6]], 'sort_order' => 90],
-            ['key' => 'motion_sensor_array','post_type' => 'fort', 'name' => 'Motion Sensor Array',     'description' => 'Triggers on squirrels. And wind. And squirrels.',                    'price_barrels' => 180,  'effects' => ['stat_add' => ['security' => 4]],      'sort_order' => 100],
+            ['key' => 'motion_sensor_array', 'post_type' => 'fort', 'name' => 'Motion Sensor Array',     'description' => 'Triggers on squirrels. And wind. And squirrels.',                    'price_barrels' => 180,  'effects' => ['stat_add' => ['security' => 4]],      'sort_order' => 100],
             ['key' => 'laser_grid',         'post_type' => 'fort', 'name' => 'Laser Grid',              'description' => 'Illegally upgraded from a supermarket produce mister.',              'price_barrels' => 420,  'effects' => ['stat_add' => ['fortification' => 7]], 'sort_order' => 110],
             ['key' => 'autocannon_turret',  'post_type' => 'fort', 'name' => 'Autocannon Turret',       'description' => 'Has a customer-service hotline. Do not call it.',                    'price_barrels' => 900,  'effects' => ['stat_add' => ['fortification' => 8]], 'sort_order' => 120],
             // Batch 2 — high-end fort (3 fortification + 2 security)
@@ -108,10 +114,10 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'bastion_gate',       'post_type' => 'fort', 'name' => 'Bastion Gate',            'description' => 'Two tonnes of slabbed steel. Hinges grease themselves.',              'price_barrels' => 6000,  'effects' => ['stat_add' => ['fortification' => 10]], 'sort_order' => 140],
             ['key' => 'fortress_protocol',  'post_type' => 'fort', 'name' => 'Fortress Protocol',       'description' => 'Automated lockdown system. Traps raiders in your kitchen for hours.', 'price_barrels' => 18000, 'effects' => ['stat_add' => ['fortification' => 12]], 'sort_order' => 150],
             ['key' => 'signal_disruptor',   'post_type' => 'fort', 'name' => 'Signal Disruptor',        'description' => 'Broadcasts elevator music on every reconnaissance frequency.',        'price_barrels' => 3000,  'effects' => ['stat_add' => ['security' => 5]],       'sort_order' => 160],
-            ['key' => 'counter_intel_array','post_type' => 'fort', 'name' => 'Counter-Intel Array',     'description' => 'Feeds spies a plausible but wrong inventory. Includes a decoy gerbil.', 'price_barrels' => 9000,  'effects' => ['stat_add' => ['security' => 6]],       'sort_order' => 170],
+            ['key' => 'counter_intel_array', 'post_type' => 'fort', 'name' => 'Counter-Intel Array',     'description' => 'Feeds spies a plausible but wrong inventory. Includes a decoy gerbil.', 'price_barrels' => 9000,  'effects' => ['stat_add' => ['security' => 6]],       'sort_order' => 170],
 
             /* ------------------------------------------------------------ */
-            /* Tech post — drill tier upgrades + utility                      */
+            /* Tech post — drill tier upgrades + utility */
             /* ------------------------------------------------------------ */
             ['key' => 'shovel_rig',           'post_type' => 'tech', 'name' => 'Shovel Rig',          'description' => 'A step up from the Dentist Drill. Fewer dry holes.',                                'price_barrels' => 200,   'effects' => ['set_drill_tier' => 2], 'sort_order' => 10],
             ['key' => 'medium_drill',         'post_type' => 'tech', 'name' => 'Medium Drill',        'description' => 'Tracked, gas-powered. Noisy, effective.',                                           'price_barrels' => 900,   'effects' => ['set_drill_tier' => 3], 'sort_order' => 20],
@@ -129,7 +135,7 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'dual_shaft_mount',     'post_type' => 'tech', 'name' => 'Dual Shaft Mount',    'description' => 'Runs two bits off one engine. +1 daily drill per oil field.',                       'price_barrels' => 7500,  'effects' => ['daily_drill_limit_bonus' => 1],        'sort_order' => 120],
             ['key' => 'harmonic_dampener',    'post_type' => 'tech', 'name' => 'Harmonic Dampener',   'description' => '−0.6% drill break chance. Cancels the bad vibrations. Literally.',                 'price_barrels' => 12000, 'effects' => ['break_chance_reduction_pct' => 0.006], 'sort_order' => 130],
             ['key' => 'tungsten_core_bit',    'post_type' => 'tech', 'name' => 'Tungsten Core Bit',   'description' => '−0.8% drill break chance. Costs a fortune. Outlasts your grandchildren.',           'price_barrels' => 20000, 'effects' => ['break_chance_reduction_pct' => 0.008], 'sort_order' => 140],
-            ['key' => 'prospectors_almanac',  'post_type' => 'tech', 'name' => "Prospector's Almanac",'description' => '+4% drill yield. Hand-written by someone who died rich and paranoid.',             'price_barrels' => 35000, 'effects' => ['drill_yield_bonus_pct' => 0.04],       'sort_order' => 150],
+            ['key' => 'prospectors_almanac',  'post_type' => 'tech', 'name' => "Prospector's Almanac", 'description' => '+4% drill yield. Hand-written by someone who died rich and paranoid.',             'price_barrels' => 35000, 'effects' => ['drill_yield_bonus_pct' => 0.04],       'sort_order' => 150],
 
             /* ------------------------------------------------------------ */
             /* General store — utility + transport + teleporter + extra moves */
@@ -152,7 +158,7 @@ class ItemsCatalogSeeder extends Seeder
             // Transport modes — one-time purchase each, switchable any time
             ['key' => 'bicycle',           'post_type' => 'general', 'name' => 'Bicycle',             'description' => 'Rusted, squeaky, two wheels, zero fuel. Travels 2 tiles per press.',                                              'price_barrels' => $transportCost('bicycle'),    'effects' => ['unlocks_transport' => 'bicycle'],    'sort_order' => 200],
             ['key' => 'motorcycle',        'post_type' => 'general', 'name' => 'Motorcycle',          'description' => 'Held together with wire and prayer. 5 tiles per press, 1 barrel per trip.',                                       'price_barrels' => $transportCost('motorcycle'), 'effects' => ['unlocks_transport' => 'motorcycle'], 'sort_order' => 210],
-            ['key' => 'sand_runner',       'post_type' => 'general', 'name' => 'Sand Runner',         'description' => 'Half dune buggy, half filing cabinet. 10 tiles per press, reveals the neighbours of wherever it parks.',        'price_barrels' => $transportCost('sand_runner'),'effects' => ['unlocks_transport' => 'sand_runner'],'sort_order' => 220],
+            ['key' => 'sand_runner',       'post_type' => 'general', 'name' => 'Sand Runner',         'description' => 'Half dune buggy, half filing cabinet. 10 tiles per press, reveals the neighbours of wherever it parks.',        'price_barrels' => $transportCost('sand_runner'), 'effects' => ['unlocks_transport' => 'sand_runner'], 'sort_order' => 220],
             ['key' => 'helicopter',        'post_type' => 'general', 'name' => 'Helicopter',          'description' => 'Loud, thirsty, terrifying. 25 tiles per press.',                                                                 'price_barrels' => $transportCost('helicopter'), 'effects' => ['unlocks_transport' => 'helicopter'], 'sort_order' => 230],
             ['key' => 'airplane',          'post_type' => 'general', 'name' => 'Airplane',            'description' => 'Paint peeling but the engine still turns. 50 tiles per press — reveals every tile in the flight path.',        'price_barrels' => $transportCost('airplane'),   'effects' => ['unlocks_transport' => 'airplane'],   'sort_order' => 240],
 
@@ -160,7 +166,7 @@ class ItemsCatalogSeeder extends Seeder
             ['key' => 'teleporter',        'post_type' => 'general', 'name' => 'Teleporter',          'description' => 'Brass, filigree, vaguely biblical. Pay a small oil tribute each use.',                                             'price_barrels' => $teleporterCost, 'effects' => ['unlocks_teleport' => true], 'sort_order' => 300],
 
             /* ------------------------------------------------------------ */
-            /* General store — sabotage deployables + counter measures       */
+            /* General store — sabotage deployables + counter measures */
             /* ------------------------------------------------------------ */
             // Stackable deployable consumables. Each plant decrements quantity
             // by 1 via SabotageService::place(); when quantity hits 0 the
@@ -183,6 +189,19 @@ class ItemsCatalogSeeder extends Seeder
             // single-purchase via `unlocks` (it lives in ShopService's
             // SINGLE_PURCHASE_EFFECT_KEYS list already).
             ['key' => 'deep_scanner',      'post_type' => 'general', 'name' => 'Deep Scanner',        'description' => 'Seismic imaging rig strapped to your belt. Shows you which drill points on the current field are rigged to blow. Once owned, always on.',                           'price_barrels' => $deepScannerCost,  'effects' => ['unlocks' => ['sabotage_scanner']],      'sort_order' => 430],
+
+            /* ------------------------------------------------------------ */
+            /* General store — loot-crate sabotage deployables */
+            /* ------------------------------------------------------------ */
+            // Toolbox deployables that look identical to real loot
+            // crates from the outside. Place on a wasteland tile from
+            // the toolbox. On open by a non-immune non-placer, siphons
+            // a random % of the opener's oil/cash directly to the
+            // placer. Stackable (buy as many as you can afford); the
+            // in-field deployment cap is enforced by LootCrateService
+            // at place time, not here.
+            ['key' => 'crate_siphon_oil',  'post_type' => 'general', 'name' => 'Oil Siphon Crate',   'description' => 'A sealed crate rigged to siphon barrels from whoever cracks it open. Plant it on a wasteland tile and hope a rival gets curious. Does nothing to the player who placed it.',    'price_barrels' => $crateSiphonOilCost,  'effects' => ['deployable_loot_crate' => ['kind' => 'oil']],  'sort_order' => 440],
+            ['key' => 'crate_siphon_cash', 'post_type' => 'general', 'name' => 'Cash Siphon Crate',  'description' => 'A sealed crate wired to skim cash from whoever cracks it open. Heavier bait, deeper pockets. Costs more, steals more.',                                                              'price_barrels' => $crateSiphonCashCost, 'effects' => ['deployable_loot_crate' => ['kind' => 'cash']], 'sort_order' => 450],
         ];
 
         foreach ($items as $data) {

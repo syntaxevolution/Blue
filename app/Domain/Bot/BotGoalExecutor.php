@@ -5,8 +5,10 @@ namespace App\Domain\Bot;
 use App\Domain\Combat\AttackService;
 use App\Domain\Combat\SpyService;
 use App\Domain\Config\GameConfigResolver;
+use App\Domain\Config\RngService;
 use App\Domain\Drilling\DrillService;
 use App\Domain\Economy\ShopService;
+use App\Domain\Loot\LootCrateService;
 use App\Domain\Player\TravelService;
 use App\Domain\Sabotage\SabotageService;
 use App\Models\DrillPoint;
@@ -57,6 +59,8 @@ class BotGoalExecutor
         private readonly SpyService $spySvc,
         private readonly AttackService $attackSvc,
         private readonly SabotageService $sabotageSvc,
+        private readonly LootCrateService $lootCrates,
+        private readonly RngService $rng,
     ) {}
 
     /**
@@ -71,12 +75,12 @@ class BotGoalExecutor
         $kind = (string) ($goal['kind'] ?? '');
 
         return match ($kind) {
-            BotGoalPlanner::KIND_DRILL    => $this->stepDrill($bot, $goal),
-            BotGoalPlanner::KIND_SHOP     => $this->stepShop($bot, $goal),
-            BotGoalPlanner::KIND_SPY      => $this->stepSpy($bot, $goal),
-            BotGoalPlanner::KIND_RAID     => $this->stepRaid($bot, $goal),
+            BotGoalPlanner::KIND_DRILL => $this->stepDrill($bot, $goal),
+            BotGoalPlanner::KIND_SHOP => $this->stepShop($bot, $goal),
+            BotGoalPlanner::KIND_SPY => $this->stepSpy($bot, $goal),
+            BotGoalPlanner::KIND_RAID => $this->stepRaid($bot, $goal),
             BotGoalPlanner::KIND_SABOTAGE => $this->stepSabotage($bot, $goal),
-            BotGoalPlanner::KIND_EXPLORE  => $this->stepExplore($bot, $goal),
+            BotGoalPlanner::KIND_EXPLORE => $this->stepExplore($bot, $goal),
             default => [
                 'status' => self::STATUS_INVALIDATED,
                 'log' => ['kind' => 'noop', 'detail' => "unknown_goal({$kind})"],
@@ -327,11 +331,15 @@ class BotGoalExecutor
         $goal['heading'] = $stepped;
         $goal['tiles_remaining'] = $remaining - 1;
 
+        // Loot crate arrival hook — same path as travelStep() so a
+        // bot in explore mode also rolls for crates on each step.
+        $bot->refresh();
+        $this->maybeEngageLootCrate($bot);
+
         // If we stepped onto anything interesting (oil field, post,
         // base, auction, ruin, landmark) complete the goal so the
         // planner picks a real target instead of burning more explore
         // budget.
-        $bot->refresh();
         $newTile = Tile::query()->find($bot->current_tile_id);
         $interesting = $newTile !== null && in_array(
             $newTile->type,
@@ -386,6 +394,16 @@ class BotGoalExecutor
             try {
                 $this->travel->travel($bot->id, $dir);
 
+                // Loot crate arrival hook for bots. Mirrors the
+                // human post-travel call from Map controllers. The
+                // onArrival call is a no-op on non-wasteland tiles
+                // and transactional, so it's safe to always invoke.
+                // If a crate is present or spawned, roll the bot's
+                // per-difficulty open chance; on hit, call open()
+                // via the same service path a human uses.
+                $bot->refresh();
+                $this->maybeEngageLootCrate($bot);
+
                 return [
                     'status' => self::STATUS_PROGRESSED,
                     'log' => ['kind' => $logKind, 'detail' => $dir],
@@ -396,6 +414,55 @@ class BotGoalExecutor
         }
 
         return $this->invalidated($logKind, 'path_blocked');
+    }
+
+    /**
+     * Run the loot-crate onArrival hook for a bot and, if a crate
+     * surfaces, roll the per-difficulty open chance to decide whether
+     * the bot opens it or walks past. Bots never place sabotage
+     * crates in v1 (config flag `loot.bots.place_sabotage`) and
+     * never open their own (rejected by the service anyway). Any
+     * exception from open() is swallowed and logged — a race with
+     * another bot racing for the same crate must never kill the tick.
+     */
+    private function maybeEngageLootCrate(Player $bot): void
+    {
+        /** @var Tile|null $tile */
+        $tile = Tile::query()->find($bot->current_tile_id);
+        if ($tile === null) {
+            return;
+        }
+
+        $crate = $this->lootCrates->onArrival($bot, $tile);
+        if ($crate === null) {
+            return;
+        }
+
+        // Bots never open their own sabotage crate (service would
+        // reject) — skip the roll and continue the tick.
+        if ($crate->placed_by_player_id !== null
+            && (int) $crate->placed_by_player_id === (int) $bot->id) {
+            return;
+        }
+
+        $difficulty = (string) ($bot->bot_difficulty ?? 'normal');
+        $chanceKey = 'loot.bots.open_chance.'.$difficulty;
+        $chance = (float) $this->config->get($chanceKey, 0.75);
+
+        // Deterministic roll keyed on bot+crate so replay-mode tests
+        // can force the outcome without stubbing the whole service.
+        $eventKey = 'bot-loot-'.$bot->id.'-c'.$crate->id;
+        if (! $this->rng->rollBool('loot.bots.open', $eventKey, max(0.0, min(1.0, $chance)))) {
+            return;
+        }
+
+        try {
+            $this->lootCrates->open($bot->id, (int) $crate->id);
+        } catch (Throwable) {
+            // Race or state-drift (another visitor opened it first,
+            // bot walked off-tile mid-call, etc.). Swallow — the bot's
+            // primary goal continues unaffected.
+        }
     }
 
     /**
