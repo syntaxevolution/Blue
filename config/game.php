@@ -74,7 +74,7 @@ return [
         // and loots oil barrels instead of cash. Upset-reward curve:
         // weaker winner → larger cut, stronger winner → smaller cut.
         'tile_duel' => [
-            'max_oil_loot_pct' => 0.05,   // 5% ceiling of loser's oil
+            'max_oil_loot_pct' => 0.50,   // 50% ceiling of loser's oil; tapered by upset curve
             'cooldown_hours' => 24,       // per-participant per-tile lockout
         ],
         'spy' => [
