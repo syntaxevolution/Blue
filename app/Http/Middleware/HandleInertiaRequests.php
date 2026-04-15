@@ -126,6 +126,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'flash' => [
                 'drill_result' => fn () => $request->session()->get('drill_result'),
+                'place_result' => fn () => $request->session()->get('place_result'),
                 'purchase_result' => fn () => $request->session()->get('purchase_result'),
                 'spy_result' => fn () => $request->session()->get('spy_result'),
                 'attack_result' => fn () => $request->session()->get('attack_result'),

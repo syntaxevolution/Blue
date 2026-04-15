@@ -4,6 +4,7 @@ import TileIcon from '@/Components/TileIcon.vue';
 import TransportSwitcher from '@/Components/TransportSwitcher.vue';
 import TeleportModal from '@/Components/TeleportModal.vue';
 import LootCrateModal from '@/Components/LootCrateModal.vue';
+import GameEventModal from '@/Components/GameEventModal.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useToolbox } from '@/Composables/useToolbox';
@@ -229,13 +230,10 @@ const teleportCost = computed<number>(
     () => Number((page.props.game as { teleport_cost_barrels?: number } | undefined)?.teleport_cost_barrels ?? 5000),
 );
 const errors = computed(() => (page.props.errors as Record<string, string>) ?? {});
-const travelError = computed(() => errors.value.travel ?? null);
-const drillError = computed(() => errors.value.drill ?? null);
-const purchaseError = computed(() => errors.value.purchase ?? null);
-const spyError = computed(() => errors.value.spy ?? null);
-const attackError = computed(() => errors.value.attack ?? null);
+// tile_combat errors stay as a direct computed because the fight-confirm
+// modal renders them inline — piping this one through the shared
+// popup queue would duplicate the message.
 const tileCombatError = computed(() => errors.value.tile_combat ?? null);
-const placeError = computed(() => errors.value.place_device ?? null);
 const flash = computed(() => (page.props.flash as Record<string, unknown>) ?? {});
 interface DrillResult {
     barrels: number;
@@ -248,59 +246,17 @@ interface DrillResult {
     sabotage_device_key: string | null;
     siphoned_barrels: number;
 }
+// drillResult is STILL needed for the cell-level popup animation
+// (the +N barrels bubble that floats off the drilled cell). We no
+// longer render a text banner for the barrel count — that was
+// redundant with the bubble and shifted the layout. Sabotage and
+// drill-break outcomes ARE surfaced, via a modal push (see below).
 const drillResult = computed<DrillResult | null>(
     () => (flash.value.drill_result as DrillResult | undefined) ?? null,
 );
-const drillResultText = computed<string | null>(() => {
-    const r = drillResult.value;
-    if (!r) return null;
-    // Sabotage outcomes take priority over the ordinary drill message —
-    // they describe what actually happened to the player. Where the
-    // normal random break roll ALSO fired on top of a sabotage outcome
-    // that didn't itself break the rig (fizzle/siphoned_tier_one), we
-    // still need to tell the player to go to a Tech post, so append
-    // the break instruction below.
-    if (r.sabotage_outcome) {
-        let msg: string;
-        switch (r.sabotage_outcome) {
-            case 'drill_broken_and_siphoned':
-                msg = `A planted device triggered: your rig was wrecked and ${r.siphoned_barrels} barrels were siphoned straight out of your stash. Head to a Tech post to replace your rig.`;
-                break;
-            case 'drill_broken':
-                msg = 'A planted device triggered: your rig was wrecked. Head to a Tech post to replace it.';
-                break;
-            case 'siphoned_tier_one':
-                msg = `A siphon charge triggered: your starter rig held together, but ${r.siphoned_barrels} barrels vanished down the pipe.`;
-                break;
-            case 'fizzled_tier_one':
-                msg = 'A booby-trap triggered on your drill, but the starter rig shrugged it off. You still lost the move.';
-                break;
-            case 'fizzled_immune':
-                msg = 'A planted device triggered on you — but you got lucky this time. New-player immunity held.';
-                break;
-            case 'detected':
-                msg = 'A Tripwire Ward saved your rig from a planted device. One ward consumed.';
-                break;
-            default:
-                msg = 'A planted device triggered on your drill.';
-                break;
-        }
-        // Catch the case where the normal random break roll also
-        // wrecked the rig AFTER a non-breaking sabotage outcome.
-        // (drill_broken* already cover break instructions.)
-        const sabotageBroke = r.sabotage_outcome === 'drill_broken' || r.sabotage_outcome === 'drill_broken_and_siphoned';
-        if (r.drill_broke && !sabotageBroke) {
-            msg += ' Your drill also broke from wear — head to a Tech post to repair or replace it.';
-        }
-        return msg;
-    }
-    const core = `Drilled a ${r.quality} point: +${r.barrels} barrels.`;
-    if (r.drill_broke) {
-        return `${core} Your drill broke — head to a Tech post to repair or replace it.`;
-    }
-    return core;
-});
 
+// PlaceResult is kept as a type definition for the watcher below —
+// no computed ref because nothing in the template reads it directly.
 interface PlaceResult {
     device_key: string;
     device_name: string;
@@ -308,18 +264,199 @@ interface PlaceResult {
     grid_y: number;
     remaining_quantity: number;
 }
-const placeResult = computed<PlaceResult | null>(
-    () => (flash.value.place_result as PlaceResult | undefined) ?? null,
+
+// ---- Popup event queue ----
+// Replaces the old stack of inline flash banners. Watchers below
+// funnel every flash/error source into a single queue that one
+// GameEventModal consumes, one at a time. FIFO order so an action
+// that produces multiple events (e.g. a drill that both triggered
+// a sabotage AND broke the rig) shows them in sequence.
+//
+// Why a queue rather than "only the latest": two flash keys can
+// land in the same response (rare but possible), and swallowing
+// one would be a silent data loss.
+type PopupKind = 'success' | 'error' | 'warning' | 'info' | 'neutral';
+interface PopupEvent {
+    kind: PopupKind;
+    title: string;
+    body: string;
+}
+const popupQueue = ref<PopupEvent[]>([]);
+const currentPopup = computed<PopupEvent | null>(() => popupQueue.value[0] ?? null);
+
+function enqueuePopup(ev: PopupEvent): void {
+    popupQueue.value.push(ev);
+}
+function dismissCurrentPopup(): void {
+    popupQueue.value.shift();
+}
+
+// --- Success flashes → modal ---
+watch(
+    () => flash.value.attack_result,
+    (incoming) => {
+        if (typeof incoming === 'string' && incoming.length > 0) {
+            const won = incoming.toLowerCase().includes('successful');
+            enqueuePopup({
+                kind: won ? 'success' : 'error',
+                title: won ? 'Raid successful' : 'Raid failed',
+                body: incoming,
+            });
+        }
+    },
+    { immediate: true },
 );
-const placeResultText = computed<string | null>(() => {
-    const r = placeResult.value;
-    if (!r) return null;
-    const name = r.device_name || r.device_key;
-    return `Planted ${name} at (${r.grid_x}, ${r.grid_y}). ${r.remaining_quantity} remaining in your toolbox.`;
-});
-const purchaseResult = computed(() => (flash.value.purchase_result as string | undefined) ?? null);
-const spyResult = computed(() => (flash.value.spy_result as string | undefined) ?? null);
-const attackResult = computed(() => (flash.value.attack_result as string | undefined) ?? null);
+watch(
+    () => flash.value.spy_result,
+    (incoming) => {
+        if (typeof incoming === 'string' && incoming.length > 0) {
+            const won = incoming.toLowerCase().includes('successful');
+            enqueuePopup({
+                kind: won ? 'success' : 'error',
+                title: won ? 'Spy successful' : 'Spy failed',
+                body: incoming,
+            });
+        }
+    },
+    { immediate: true },
+);
+watch(
+    () => flash.value.purchase_result,
+    (incoming) => {
+        if (typeof incoming === 'string' && incoming.length > 0) {
+            enqueuePopup({
+                kind: 'success',
+                title: 'Purchase complete',
+                body: incoming,
+            });
+        }
+    },
+    { immediate: true },
+);
+watch(
+    () => flash.value.place_result,
+    (incoming) => {
+        if (incoming && typeof incoming === 'object') {
+            const r = incoming as PlaceResult;
+            const name = r.device_name || r.device_key;
+            enqueuePopup({
+                kind: 'warning',
+                title: `${name} planted`,
+                body: `Planted at (${r.grid_x}, ${r.grid_y}). ${r.remaining_quantity} remaining in your toolbox.`,
+            });
+        }
+    },
+    { immediate: true },
+);
+watch(
+    () => flash.value.loot_deploy_result,
+    (incoming) => {
+        if (incoming && typeof incoming === 'object') {
+            const r = incoming as { crate_id: number; remaining_quantity: number; item_key: string };
+            const label = r.item_key === 'crate_siphon_cash' ? 'Cash Siphon Crate' : 'Oil Siphon Crate';
+            enqueuePopup({
+                kind: 'warning',
+                title: `${label} deployed`,
+                body: `${r.remaining_quantity} remaining in your toolbox.`,
+            });
+        }
+    },
+    { immediate: true },
+);
+
+// --- Drill result → modal only for sabotage or break events ---
+// Normal drill outcomes (the plain +N barrels line) are deliberately
+// NOT shown as a modal — the cell-level .drill-popup animation
+// already surfaces the barrel count directly on the clicked cell.
+// Sabotage outcomes and drill breaks ARE significant enough to warrant
+// a full-screen interrupt so the player can't miss them.
+watch(
+    () => flash.value.drill_result,
+    (incoming) => {
+        if (!incoming || typeof incoming !== 'object') {
+            return;
+        }
+        const r = incoming as DrillResult;
+
+        if (r.sabotage_outcome) {
+            const messages: Record<string, string> = {
+                drill_broken_and_siphoned: `A planted device triggered: your rig was wrecked and ${r.siphoned_barrels} barrels were siphoned straight out of your stash. Head to a Tech post to replace your rig.`,
+                drill_broken: 'A planted device triggered: your rig was wrecked. Head to a Tech post to replace it.',
+                siphoned_tier_one: `A siphon charge triggered: your starter rig held together, but ${r.siphoned_barrels} barrels vanished down the pipe.`,
+                fizzled_tier_one: 'A booby-trap triggered on your drill, but the starter rig shrugged it off. You still lost the move.',
+                fizzled_immune: 'A planted device triggered on you — but you got lucky this time. New-player immunity held.',
+                detected: 'A Tripwire Ward saved your rig from a planted device. One ward consumed.',
+            };
+            let body = messages[r.sabotage_outcome] ?? 'A planted device triggered on your drill.';
+            const sabotageBroke = r.sabotage_outcome === 'drill_broken' || r.sabotage_outcome === 'drill_broken_and_siphoned';
+            if (r.drill_broke && !sabotageBroke) {
+                body += ' Your drill also broke from wear — head to a Tech post to repair or replace it.';
+            }
+            enqueuePopup({
+                kind: 'error',
+                title: 'Sabotage triggered',
+                body,
+            });
+
+            return;
+        }
+
+        if (r.drill_broke) {
+            enqueuePopup({
+                kind: 'error',
+                title: 'Drill broke',
+                body: 'Your drill broke — head to a Tech post to repair or replace it.',
+            });
+        }
+    },
+    { immediate: true },
+);
+
+// --- Validation / domain errors → modal ---
+// One watcher over the whole errors bag so any new error key the
+// backend surfaces in the future is picked up without a frontend
+// change.
+//
+// DELIBERATELY EXCLUDED: 'tile_combat'. That error is rendered
+// inline inside the fight-confirm modal (which stays mounted on
+// 422 so the player can retry without losing their target
+// selection). Piping it through the popup queue would double it.
+const errorKeys = [
+    'travel',
+    'drill',
+    'place_device',
+    'purchase',
+    'spy',
+    'attack',
+    'loot_crate',
+    'loot_deploy',
+] as const;
+const errorLabels: Record<(typeof errorKeys)[number], string> = {
+    travel: 'Travel blocked',
+    drill: 'Drill failed',
+    place_device: 'Placement failed',
+    purchase: 'Purchase failed',
+    spy: 'Spy failed',
+    attack: 'Raid failed',
+    loot_crate: 'Loot crate error',
+    loot_deploy: 'Deploy failed',
+};
+watch(
+    errors,
+    (e) => {
+        for (const key of errorKeys) {
+            const msg = e[key];
+            if (typeof msg === 'string' && msg.length > 0) {
+                enqueuePopup({
+                    kind: 'error',
+                    title: errorLabels[key],
+                    body: msg,
+                });
+            }
+        }
+    },
+    { immediate: true, deep: true },
+);
 
 // ---- Loot crate modal ----
 // The modal has three sources of truth:
@@ -672,24 +809,8 @@ function deployLootCrate(itemKey: string): void {
     );
 }
 
-const lootDeployError = computed(() => errors.value.loot_deploy ?? null);
-const lootCrateError = computed(() => errors.value.loot_crate ?? null);
-interface LootDeployReceipt {
-    crate_id: number;
-    remaining_quantity: number;
-    item_key: string;
-}
-const lootDeployReceipt = computed<LootDeployReceipt | null>(
-    () => (flash.value.loot_deploy_result as LootDeployReceipt | undefined) ?? null,
-);
-const lootDeployReceiptText = computed<string | null>(() => {
-    const r = lootDeployReceipt.value;
-    if (!r) {
-        return null;
-    }
-    const label = r.item_key === 'crate_siphon_cash' ? 'Cash Siphon Crate' : 'Oil Siphon Crate';
-    return `${label} deployed. ${r.remaining_quantity} remaining in your toolbox.`;
-});
+// Loot deploy and loot crate errors surface via the shared
+// GameEventModal popup queue above. No dedicated computeds here.
 
 function spy() {
     router.post(route('map.spy'), {}, { preserveScroll: true, preserveState: true });
@@ -989,22 +1110,12 @@ function formatIntelPct(range: SpyIntelRange): string {
                     </button>
                 </div>
 
-                <!-- Flash messages -->
-                <div v-if="drillResultText" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ drillResultText }}</div>
-                <div v-if="placeResultText" class="bg-amber-950/50 border border-amber-700/50 rounded-lg p-3 text-amber-300 text-sm font-mono">{{ placeResultText }}</div>
-                <div v-if="purchaseResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ purchaseResult }}</div>
-                <div v-if="spyResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ spyResult }}</div>
-                <div v-if="attackResult" class="bg-emerald-950/50 border border-emerald-700/50 rounded-lg p-3 text-emerald-300 text-sm font-mono">{{ attackResult }}</div>
-                <div v-if="travelError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ travelError }}</div>
-                <div v-if="drillError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ drillError }}</div>
-                <div v-if="placeError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ placeError }}</div>
-                <div v-if="purchaseError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ purchaseError }}</div>
-                <div v-if="spyError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ spyError }}</div>
-                <div v-if="attackError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ attackError }}</div>
-                <div v-if="tileCombatError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ tileCombatError }}</div>
-                <div v-if="lootCrateError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ lootCrateError }}</div>
-                <div v-if="lootDeployError" class="bg-rose-950/50 border border-rose-700/50 rounded-lg p-3 text-rose-300 text-sm font-mono">{{ lootDeployError }}</div>
-                <div v-if="lootDeployReceiptText" class="bg-amber-950/50 border border-amber-700/50 rounded-lg p-3 text-amber-300 text-sm font-mono">{{ lootDeployReceiptText }}</div>
+                <!-- Flash banners removed: every action result and error
+                     now surfaces as a <GameEventModal> popup at the bottom
+                     of this template. The stacked banners used to shift
+                     the drill grid under the player's finger on every
+                     action (bad on mobile). The cell-level drill popup
+                     animation below still shows the barrel count inline. -->
 
                 <!-- MAIN MAP PANEL -->
                 <div class="bg-zinc-900 border-2 border-amber-500/40 rounded-lg p-3 sm:p-4 md:p-6 font-mono shadow-xl shadow-amber-900/10">
@@ -1400,12 +1511,8 @@ function formatIntelPct(range: SpyIntelRange): string {
                                                 {{ lootDeployInFlight ? 'Deploying…' : `Deploy cash siphon (${state.tile_detail.loot_deploy.owned_cash_crates} owned)` }}
                                             </button>
                                         </div>
-                                        <div
-                                            v-if="lootDeployError"
-                                            class="mt-2 rounded border border-rose-800 bg-rose-950/60 p-2 text-rose-300 text-xs"
-                                        >
-                                            {{ lootDeployError }}
-                                        </div>
+                                        <!-- Deploy errors surface via the shared GameEventModal
+                                             popup queue, not an inline banner here. -->
                                     </div>
 
                                     <div v-if="state.tile_detail.occupants.length === 0" class="text-zinc-600 text-sm italic text-center">
@@ -1543,6 +1650,20 @@ function formatIntelPct(range: SpyIntelRange): string {
             :placed-by-me="activeLootCrateBinding.placed_by_me"
             :resolved="lootResultPayloadForModal"
             @close="dismissLootCrateModal"
+        />
+
+        <!-- Generic popup for every action result / error that used to
+             live in the flash-banner box above the map. Reads from a
+             FIFO queue so overlapping events (e.g. drill triggers a
+             sabotage AND a drill break in the same response) show in
+             sequence instead of stomping on each other. -->
+        <GameEventModal
+            v-if="currentPopup"
+            :key="`popup-${popupQueue.length}-${currentPopup.title}`"
+            :kind="currentPopup.kind"
+            :title="currentPopup.title"
+            :body="currentPopup.body"
+            @close="dismissCurrentPopup"
         />
 
         <!-- Tile combat RESULT modal — appears after a duel resolves so
