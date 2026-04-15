@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AtlasController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BaseTeleportController;
 use App\Http\Controllers\Api\V1\Casino\BlackjackController as ApiBlackjackController;
 use App\Http\Controllers\Api\V1\Casino\CasinoController as ApiCasinoController;
 use App\Http\Controllers\Api\V1\Casino\ChatController as ApiCasinoChatController;
@@ -90,6 +91,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
                 Route::get('/map/tile-exists', [TeleportController::class, 'tileExists'])->name('map.tile_exists');
                 Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
+
+                // Base teleport toolbox items (see routes/web.php).
+                Route::post('/toolbox/homing-flare', [BaseTeleportController::class, 'homingFlare'])->name('toolbox.homing_flare');
+                Route::post('/toolbox/foundation-charge', [BaseTeleportController::class, 'foundationCharge'])->name('toolbox.foundation_charge');
+                Route::post('/toolbox/abduction-anchor', [BaseTeleportController::class, 'abductionAnchor'])->name('toolbox.abduction_anchor');
+                Route::get('/toolbox/abduction-targets', [BaseTeleportController::class, 'abductionTargets'])->name('toolbox.abduction_targets');
 
                 Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
 

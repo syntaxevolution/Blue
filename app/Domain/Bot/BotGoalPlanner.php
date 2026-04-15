@@ -965,7 +965,7 @@ class BotGoalPlanner
                 continue;
             }
 
-            $wantItem = $this->firstAffordableUpgradeFor($bot, $postType);
+            $wantItem = $this->firstAffordableUpgradeFor($bot, $postType, $defensiveMode);
             if ($wantItem === null) {
                 continue;
             }
@@ -1065,7 +1065,7 @@ class BotGoalPlanner
      * stockpile cap stops bots from converting their entire barrel
      * reserve into traps.
      */
-    private function firstAffordableUpgradeFor(Player $bot, string $postType): ?string
+    private function firstAffordableUpgradeFor(Player $bot, string $postType, bool $defensiveMode = false): ?string
     {
         $items = Item::query()
             ->where('post_type', $postType)
@@ -1086,6 +1086,12 @@ class BotGoalPlanner
         // the economy. Both deployable kinds share the cap.
         $sabotageStockpileCap = 3;
 
+        // Cap on stackable panic-buys (Foundation Charge). One is
+        // usually enough to relocate a base out of a bad spot; a
+        // stock of 2 covers back-to-back sieges without letting a
+        // bot hoard charges during quiet periods.
+        $foundationChargeStockpileCap = 2;
+
         $strongEnough = $this->isStrongEnoughForSabotage($bot);
 
         foreach ($items as $item) {
@@ -1098,10 +1104,27 @@ class BotGoalPlanner
             $isDeployableSabotage = isset($effects['deployable_sabotage']);
             $isDeployableLootCrate = isset($effects['deployable_loot_crate']);
 
-            $isUpgrade = $isStat || $isDrillTier || $isTransport || $isDailyLimit;
-            $isSabotageGear = $isDeployableSabotage || $isDeployableLootCrate;
+            // Base teleport items. Homing Flare is a cheap,
+            // always-useful tool — grab it the moment a bot can
+            // afford it. Deadbolt Plinth and Foundation Charge are
+            // panic-buys: only consider them when the bot has taken
+            // recent hits (defensive mode). Abduction Anchor is
+            // deliberately excluded from v1 bot AI — the spy
+            // prerequisite + target selection is noisy enough that
+            // teaching the planner to use it correctly is a phase 2
+            // job. Left commented so it's obvious we skipped on
+            // purpose rather than forgot.
+            $isHomingFlare = ($effects['unlocks_base_teleport'] ?? false) === true;
+            $isDeadboltPlinth = ($effects['grant_base_move_protection'] ?? false) === true;
+            $baseMoveKind = (string) ($effects['deployable_base_move'] ?? '');
+            $isFoundationCharge = $baseMoveKind === 'self';
+            // $isAbductionAnchor = $baseMoveKind === 'enemy'; // skipped for v1
 
-            if (! $isUpgrade && ! $isSabotageGear) {
+            $isUpgrade = $isStat || $isDrillTier || $isTransport || $isDailyLimit || $isHomingFlare;
+            $isSabotageGear = $isDeployableSabotage || $isDeployableLootCrate;
+            $isDefensiveBuy = ($isDeadboltPlinth || $isFoundationCharge) && $defensiveMode;
+
+            if (! $isUpgrade && ! $isSabotageGear && ! $isDefensiveBuy) {
                 continue;
             }
 
@@ -1115,6 +1138,14 @@ class BotGoalPlanner
                 }
                 $owned = (int) ($ownedQuantities[$item->key] ?? 0);
                 if ($owned >= $sabotageStockpileCap) {
+                    continue;
+                }
+            } elseif ($isFoundationCharge) {
+                // Stackable panic-buy: separate cap from sabotage
+                // stockpile so a defensive bot can still grab a
+                // charge even while sitting on 3 Gremlin Coils.
+                $owned = (int) ($ownedQuantities[$item->key] ?? 0);
+                if ($owned >= $foundationChargeStockpileCap) {
                     continue;
                 }
             } elseif (in_array($item->key, $ownedKeys, true)) {

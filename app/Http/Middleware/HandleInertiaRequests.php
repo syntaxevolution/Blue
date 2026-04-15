@@ -149,6 +149,11 @@ class HandleInertiaRequests extends Middleware
                 'loot_event' => fn () => $request->session()->get('loot_event'),
                 'loot_result' => fn () => $request->session()->get('loot_result'),
                 'loot_deploy_result' => fn () => $request->session()->get('loot_deploy_result'),
+                // Base teleport toolbox items (Homing Flare / Foundation
+                // Charge / Abduction Anchor). Single flash key covers
+                // all three since the flavour text already names the
+                // item — the toolbox just surfaces the returned string.
+                'base_teleport_result' => fn () => $request->session()->get('base_teleport_result'),
             ],
             // Broadcast connection details for the Echo JS client.
             'reverb' => [

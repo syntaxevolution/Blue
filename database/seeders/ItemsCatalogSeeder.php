@@ -47,6 +47,14 @@ class ItemsCatalogSeeder extends Seeder
         $crateSiphonOilCost = (int) $config->get('loot.items.siphon_oil.price_barrels');
         $crateSiphonCashCost = (int) $config->get('loot.items.siphon_cash.price_barrels');
 
+        // Base-teleport items — see config/game.php `teleport_items.*`.
+        // Costs sourced the same way transport/teleporter costs are, so
+        // admin tuning in Filament flows to the catalog without a reseed.
+        $homingFlareCost = (int) $config->get('teleport_items.homing_flare.price_barrels');
+        $foundationChargeCost = (int) $config->get('teleport_items.foundation_charge.price_barrels');
+        $abductionAnchorCost = (int) $config->get('teleport_items.abduction_anchor.price_barrels');
+        $deadboltPlinthCost = (int) $config->get('teleport_items.deadbolt_plinth.price_barrels');
+
         $items = [
             /* ------------------------------------------------------------ */
             /* Strength post — melee weapons, +strength */
@@ -202,6 +210,41 @@ class ItemsCatalogSeeder extends Seeder
             // at place time, not here.
             ['key' => 'crate_siphon_oil',  'post_type' => 'general', 'name' => 'Oil Siphon Crate',   'description' => 'A sealed crate rigged to siphon barrels from whoever cracks it open. Plant it on a wasteland tile and hope a rival gets curious. Does nothing to the player who placed it.',    'price_barrels' => $crateSiphonOilCost,  'effects' => ['deployable_loot_crate' => ['kind' => 'oil']],  'sort_order' => 440],
             ['key' => 'crate_siphon_cash', 'post_type' => 'general', 'name' => 'Cash Siphon Crate',  'description' => 'A sealed crate wired to skim cash from whoever cracks it open. Heavier bait, deeper pockets. Costs more, steals more.',                                                              'price_barrels' => $crateSiphonCashCost, 'effects' => ['deployable_loot_crate' => ['kind' => 'cash']], 'sort_order' => 450],
+
+            /* ------------------------------------------------------------ */
+            /* General store — base teleport items */
+            /* ------------------------------------------------------------ */
+            // Homing Flare: single-purchase reusable tool. Owning ONE
+            // in player_items grants unlimited uses of "teleport back
+            // to base" via the toolbox, at a per-use cost of moves and
+            // barrels. Quantity never decrements. Effect key
+            // `unlocks_base_teleport` lives in ShopService's
+            // SINGLE_PURCHASE_EFFECT_KEYS list so a second buy is
+            // rejected with a friendly error.
+            ['key' => 'homing_flare',      'post_type' => 'general', 'name' => 'Homing Flare',       'description' => 'Wrist-mounted beacon that yanks you home by the spine. Each flare burns 5 moves and 50 barrels — the shortcut is not free, it is just shorter. Owning one grants unlimited use.', 'price_barrels' => $homingFlareCost,      'effects' => ['unlocks_base_teleport' => true],                 'sort_order' => 500],
+
+            // Foundation Charge: stackable one-shot consumable. Use
+            // from the toolbox while standing on a wasteland tile to
+            // relocate your OWN base to that tile. Each use decrements
+            // quantity by 1 via BaseTeleportService::moveOwnBase().
+            // Not in SINGLE_PURCHASE_EFFECT_KEYS — stack freely.
+            ['key' => 'foundation_charge', 'post_type' => 'general', 'name' => 'Foundation Charge',  'description' => 'A crate of demolition glyphs that unbolts your base from the ground and bolts it down wherever you are. One-shot. Only works on honest wasteland.',                                 'price_barrels' => $foundationChargeCost, 'effects' => ['deployable_base_move' => 'self'],                'sort_order' => 510],
+
+            // Abduction Anchor: stackable one-shot consumable. Use
+            // from the toolbox while on a wasteland tile AND with a
+            // successful spy on the target inside the freshness
+            // window. Relocates the target's base to your current
+            // tile. Guarded against same-MDN, immunity, and the
+            // target's Deadbolt Plinth. Consumes one on success only.
+            ['key' => 'abduction_anchor',  'post_type' => 'general', 'name' => 'Abduction Anchor',   'description' => "A harpoon of surveyed coordinates. Drags a rival's base to your feet — provided your intel on them is fresh. Loud, expensive, unforgettable.",                                         'price_barrels' => $abductionAnchorCost,  'effects' => ['deployable_base_move' => 'enemy'],               'sort_order' => 520],
+
+            // Deadbolt Plinth: single-purchase permanent passive.
+            // Applied via ShopService::applyEffects → sets
+            // players.base_move_protected = true. Deliberately NOT
+            // recorded in player_items (recordOwnership is bypassed)
+            // so the toolbox HUD stays lean — it's a set-and-forget
+            // shield, not a tool the player needs to fiddle with.
+            ['key' => 'deadbolt_plinth',   'post_type' => 'general', 'name' => 'Deadbolt Plinth',    'description' => 'A chunk of counter-harmonic granite wedged under your base. Makes your foundation refuse to move for anyone but you. Forever.',                                                      'price_barrels' => $deadboltPlinthCost,   'effects' => ['grant_base_move_protection' => true],            'sort_order' => 530],
         ];
 
         foreach ($items as $data) {

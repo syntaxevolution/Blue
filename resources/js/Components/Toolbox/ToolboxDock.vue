@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { useToolbox } from '@/Composables/useToolbox';
 
 /**
@@ -55,6 +55,7 @@ const currentTileType = computed<string | null>(() => {
 });
 
 const onOilField = computed(() => currentTileType.value === 'oil_field');
+const onWasteland = computed(() => currentTileType.value === 'wasteland');
 
 const toolbox = useToolbox();
 
@@ -62,14 +63,24 @@ const toolbox = useToolbox();
 // their effects blob — this classifier is *client-side* so the dock
 // stays self-contained and we don't have to ship a second mapping
 // from the server.
-type ToolboxCategory = 'Sabotage' | 'Counter Measures' | 'Utility';
+type ToolboxCategory = 'Sabotage' | 'Counter Measures' | 'Teleport' | 'Utility';
+
+// Action kinds drive which button renders next to each row. 'place'
+// is the existing sabotage drill-grid placement flow. 'teleport' kinds
+// POST directly to their route from the dock — there's no grid step.
+type ToolboxAction =
+    | 'place'
+    | 'teleport_home'
+    | 'teleport_base_here'
+    | 'teleport_enemy_base_here'
+    | 'passive';
 
 interface ToolboxGroupItem {
     key: string;
     name: string;
     description: string | null;
     quantity: number;
-    deployable: boolean;
+    action: ToolboxAction;
     category: ToolboxCategory;
 }
 
@@ -81,15 +92,27 @@ function classify(item: OwnedItem): ToolboxCategory | null {
     if (Array.isArray(unlocks) && unlocks.includes('sabotage_scanner')) {
         return 'Counter Measures';
     }
+    if (effects['unlocks_base_teleport'] === true) return 'Teleport';
+    if (typeof effects['deployable_base_move'] === 'string') return 'Teleport';
     // Reserved for future toolbox citizens (paper maps, seismic reading, fuel cans).
     // Nothing in that bucket today — items land here once they exist.
     return null;
+}
+
+function resolveAction(item: OwnedItem): ToolboxAction {
+    const effects = item.effects ?? {};
+    if (typeof effects['deployable_sabotage'] === 'string') return 'place';
+    if (effects['unlocks_base_teleport'] === true) return 'teleport_home';
+    if (effects['deployable_base_move'] === 'self') return 'teleport_base_here';
+    if (effects['deployable_base_move'] === 'enemy') return 'teleport_enemy_base_here';
+    return 'passive';
 }
 
 const groups = computed<Record<ToolboxCategory, ToolboxGroupItem[]>>(() => {
     const out: Record<ToolboxCategory, ToolboxGroupItem[]> = {
         'Sabotage': [],
         'Counter Measures': [],
+        'Teleport': [],
         'Utility': [],
     };
 
@@ -98,13 +121,12 @@ const groups = computed<Record<ToolboxCategory, ToolboxGroupItem[]>>(() => {
         if (item.quantity <= 0) continue;
         const category = classify(item);
         if (category === null) continue;
-        const effects = item.effects ?? {};
         out[category].push({
             key: item.key,
             name: item.name,
             description: item.description,
             quantity: item.quantity,
-            deployable: typeof effects['deployable_sabotage'] === 'string',
+            action: resolveAction(item),
             category,
         });
     }
@@ -121,7 +143,7 @@ const totalItems = computed(() => {
 const open = ref(false);
 
 function handlePlace(item: ToolboxGroupItem): void {
-    if (!item.deployable) return;
+    if (item.action !== 'place') return;
     if (!onOilField.value) {
         // Soft fail — no alert, just visible disabled state. The button
         // is disabled when not on an oil field so this branch is only
@@ -135,6 +157,117 @@ function handlePlace(item: ToolboxGroupItem): void {
 
 function cancelPlacement(): void {
     toolbox.exit();
+}
+
+// ------------------------------------------------------------
+// Base teleport actions — Homing Flare / Foundation Charge /
+// Abduction Anchor. Each posts directly from the dock. On
+// success Inertia rerenders the page and the dock state updates
+// naturally from the fresh props.
+// ------------------------------------------------------------
+const busyActionKey = ref<string | null>(null);
+
+function fireHomingFlare(item: ToolboxGroupItem): void {
+    if (busyActionKey.value !== null) return;
+    busyActionKey.value = item.key;
+    router.post(
+        route('toolbox.homing_flare'),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                busyActionKey.value = null;
+            },
+        },
+    );
+}
+
+function fireFoundationCharge(item: ToolboxGroupItem): void {
+    if (busyActionKey.value !== null) return;
+    if (!onWasteland.value) return;
+    busyActionKey.value = item.key;
+    router.post(
+        route('toolbox.foundation_charge'),
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                busyActionKey.value = null;
+            },
+        },
+    );
+}
+
+// ------------------------------------------------------------
+// Abduction Anchor — target picker
+// ------------------------------------------------------------
+interface AbductionTarget {
+    id: number;
+    username: string;
+    base_x: number;
+    base_y: number;
+    spied_at: string;
+    eligible: boolean;
+    reason: string | null;
+}
+
+const pickerOpen = ref(false);
+const pickerLoading = ref(false);
+const pickerError = ref<string | null>(null);
+const pickerTargets = ref<AbductionTarget[]>([]);
+
+function openAbductionPicker(): void {
+    if (!onWasteland.value) return;
+    pickerOpen.value = true;
+    pickerError.value = null;
+    loadAbductionTargets();
+}
+
+function closeAbductionPicker(): void {
+    pickerOpen.value = false;
+    pickerTargets.value = [];
+    pickerError.value = null;
+}
+
+async function loadAbductionTargets(): Promise<void> {
+    pickerLoading.value = true;
+    try {
+        const response = await fetch(route('toolbox.abduction_targets'), {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        });
+        if (!response.ok) {
+            pickerError.value = 'Could not load target list.';
+            pickerTargets.value = [];
+            return;
+        }
+        const data = (await response.json()) as { targets: AbductionTarget[] };
+        pickerTargets.value = Array.isArray(data.targets) ? data.targets : [];
+    } catch (_err) {
+        pickerError.value = 'Network error — try again in a moment.';
+        pickerTargets.value = [];
+    } finally {
+        pickerLoading.value = false;
+    }
+}
+
+function fireAbductionAnchor(target: AbductionTarget): void {
+    if (!target.eligible) return;
+    if (busyActionKey.value !== null) return;
+    busyActionKey.value = `abduction:${target.id}`;
+    router.post(
+        route('toolbox.abduction_anchor'),
+        { target_player_id: target.id },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                closeAbductionPicker();
+            },
+            onFinish: () => {
+                busyActionKey.value = null;
+            },
+        },
+    );
 }
 </script>
 
@@ -180,7 +313,7 @@ function cancelPlacement(): void {
             </div>
 
             <div v-if="totalItems === 0" class="px-4 py-8 text-center text-xs text-zinc-500 italic">
-                Your toolbox is empty. Buy sabotage or counter-measure items at the General Store.
+                Your toolbox is empty. Pick up sabotage, counter-measures, or teleport gear at the General Store.
             </div>
 
             <div v-else class="divide-y divide-zinc-800">
@@ -202,7 +335,7 @@ function cancelPlacement(): void {
                                 </div>
                             </div>
                             <button
-                                v-if="item.deployable"
+                                v-if="item.action === 'place'"
                                 type="button"
                                 class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                 :disabled="!onOilField"
@@ -210,6 +343,36 @@ function cancelPlacement(): void {
                                 @click="handlePlace(item)"
                             >
                                 Place
+                            </button>
+                            <button
+                                v-else-if="item.action === 'teleport_home'"
+                                type="button"
+                                class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                :disabled="busyActionKey !== null"
+                                title="Burn a flare and snap back to your base"
+                                @click="fireHomingFlare(item)"
+                            >
+                                Use
+                            </button>
+                            <button
+                                v-else-if="item.action === 'teleport_base_here'"
+                                type="button"
+                                class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                :disabled="!onWasteland || busyActionKey !== null"
+                                :title="onWasteland ? 'Bolt your base to this tile (one-shot)' : 'Travel to a wasteland tile to use this'"
+                                @click="fireFoundationCharge(item)"
+                            >
+                                Use Here
+                            </button>
+                            <button
+                                v-else-if="item.action === 'teleport_enemy_base_here'"
+                                type="button"
+                                class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                :disabled="!onWasteland || busyActionKey !== null"
+                                :title="onWasteland ? 'Pick a rival to drag to this tile' : 'Travel to a wasteland tile to use this'"
+                                @click="openAbductionPicker"
+                            >
+                                Target…
                             </button>
                             <div
                                 v-else
@@ -297,7 +460,7 @@ function cancelPlacement(): void {
                     </div>
 
                     <div v-if="totalItems === 0" class="px-4 py-8 text-center text-sm text-zinc-500 italic">
-                        Your toolbox is empty. Buy sabotage or counter-measure items at the General Store.
+                        Your toolbox is empty. Pick up sabotage, counter-measures, or teleport gear at the General Store.
                     </div>
 
                     <div v-else class="divide-y divide-zinc-800">
@@ -319,13 +482,40 @@ function cancelPlacement(): void {
                                         </div>
                                     </div>
                                     <button
-                                        v-if="item.deployable"
+                                        v-if="item.action === 'place'"
                                         type="button"
                                         class="tap-target shrink-0 rounded bg-amber-500 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                         :disabled="!onOilField"
                                         @click="handlePlace(item)"
                                     >
                                         Place
+                                    </button>
+                                    <button
+                                        v-else-if="item.action === 'teleport_home'"
+                                        type="button"
+                                        class="tap-target shrink-0 rounded bg-amber-500 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                        :disabled="busyActionKey !== null"
+                                        @click="fireHomingFlare(item)"
+                                    >
+                                        Use
+                                    </button>
+                                    <button
+                                        v-else-if="item.action === 'teleport_base_here'"
+                                        type="button"
+                                        class="tap-target shrink-0 rounded bg-amber-500 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                        :disabled="!onWasteland || busyActionKey !== null"
+                                        @click="fireFoundationCharge(item)"
+                                    >
+                                        Use Here
+                                    </button>
+                                    <button
+                                        v-else-if="item.action === 'teleport_enemy_base_here'"
+                                        type="button"
+                                        class="tap-target shrink-0 rounded bg-amber-500 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                        :disabled="!onWasteland || busyActionKey !== null"
+                                        @click="openAbductionPicker"
+                                    >
+                                        Target…
                                     </button>
                                     <div
                                         v-else
@@ -336,6 +526,86 @@ function cancelPlacement(): void {
                                 </div>
                             </div>
                         </template>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- Abduction Anchor target picker — modal overlay listing
+             every rival the player has a successful spy on inside
+             the freshness window. Ineligible rows (same-MDN,
+             immunity, Deadbolt Plinth) render greyed out with the
+             reason so the player understands why they can't fire. -->
+        <Transition
+            enter-active-class="transition-opacity duration-150"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition-opacity duration-100"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div
+                v-if="pickerOpen"
+                class="fixed inset-0 z-[70] flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pick an Abduction Anchor target"
+                @click.self="closeAbductionPicker"
+            >
+                <div class="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg border-2 border-amber-500/50 bg-zinc-900 shadow-2xl font-mono">
+                    <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+                        <div class="text-amber-400 text-xs uppercase tracking-[0.25em] font-bold">Abduction Anchor</div>
+                        <button
+                            type="button"
+                            class="text-zinc-500 hover:text-amber-400 transition"
+                            @click="closeAbductionPicker"
+                            aria-label="Close target picker"
+                        >
+                            ✕
+                        </button>
+                    </div>
+
+                    <div class="px-4 py-2 text-[11px] text-zinc-500 border-b border-zinc-800">
+                        Rivals you've successfully spied on recently. Firing the anchor drags their base to your current wasteland tile.
+                    </div>
+
+                    <div v-if="pickerLoading" class="px-4 py-8 text-center text-xs text-zinc-500 italic">
+                        Pulling survey data…
+                    </div>
+                    <div v-else-if="pickerError" class="px-4 py-8 text-center text-xs text-red-400">
+                        {{ pickerError }}
+                    </div>
+                    <div v-else-if="pickerTargets.length === 0" class="px-4 py-8 text-center text-xs text-zinc-500 italic">
+                        No fresh intel. Spy on a rival first, then come back.
+                    </div>
+                    <div v-else class="divide-y divide-zinc-800">
+                        <div
+                            v-for="target in pickerTargets"
+                            :key="target.id"
+                            class="px-4 py-3 flex items-start gap-3"
+                            :class="{ 'opacity-50': !target.eligible }"
+                        >
+                            <div class="flex-1 min-w-0">
+                                <div class="text-zinc-100 text-sm font-bold truncate">{{ target.username }}</div>
+                                <div class="text-[11px] text-zinc-500">
+                                    Base ({{ target.base_x }}, {{ target.base_y }})
+                                </div>
+                                <div
+                                    v-if="target.reason"
+                                    class="text-[11px] text-amber-300/80 mt-0.5"
+                                >
+                                    {{ target.reason }}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                :disabled="!target.eligible || busyActionKey !== null"
+                                @click="fireAbductionAnchor(target)"
+                            >
+                                Fire
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

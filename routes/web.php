@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Web\ActivityLogController;
 use App\Http\Controllers\Web\AtlasController;
 use App\Http\Controllers\Web\AttackLogController;
+use App\Http\Controllers\Web\BaseTeleportController;
 use App\Http\Controllers\Web\Casino\BlackjackController;
 use App\Http\Controllers\Web\Casino\CasinoController;
 use App\Http\Controllers\Web\Casino\ChatController as CasinoChatController;
@@ -96,6 +97,15 @@ Route::middleware(['auth', 'verified', 'require.claimed_username'])->group(funct
 
         Route::get('/map/tile-exists', [TeleportController::class, 'tileExists'])->name('map.tile_exists');
         Route::post('/map/teleport', [TeleportController::class, 'teleport'])->name('map.teleport');
+
+        // Base teleport toolbox items: Homing Flare (self→base),
+        // Foundation Charge (own base→here), Abduction Anchor
+        // (rival base→here). Targets endpoint powers the picker
+        // modal for the Anchor. Guards live in BaseTeleportService.
+        Route::post('/toolbox/homing-flare', [BaseTeleportController::class, 'homingFlare'])->name('toolbox.homing_flare');
+        Route::post('/toolbox/foundation-charge', [BaseTeleportController::class, 'foundationCharge'])->name('toolbox.foundation_charge');
+        Route::post('/toolbox/abduction-anchor', [BaseTeleportController::class, 'abductionAnchor'])->name('toolbox.abduction_anchor');
+        Route::get('/toolbox/abduction-targets', [BaseTeleportController::class, 'abductionTargets'])->name('toolbox.abduction_targets');
 
         Route::get('/atlas', [AtlasController::class, 'show'])->name('atlas.show');
 

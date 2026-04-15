@@ -34,12 +34,15 @@ use Illuminate\Support\Facades\DB;
  *     so the owned-gear list reflects the purchase.
  *
  * Recognized effect keys (from items_catalog.effects JSON):
- *   stat_add           : {strength?, fortification?, stealth?, security?}
- *   set_drill_tier     : int
- *   unlocks            : list<string>  (feature unlocks like 'atlas')
- *   grant_moves        : int           (add to moves_current, can overflow)
- *   unlocks_transport  : string        (transport item — listed in config)
- *   unlocks_teleport   : bool          (purchase teleporter)
+ *   stat_add                    : {strength?, fortification?, stealth?, security?}
+ *   set_drill_tier              : int
+ *   unlocks                     : list<string>  (feature unlocks like 'atlas')
+ *   grant_moves                 : int            (add to moves_current, can overflow)
+ *   unlocks_transport           : string         (transport item — listed in config)
+ *   unlocks_teleport            : bool           (purchase teleporter)
+ *   unlocks_base_teleport       : bool           (purchase Homing Flare)
+ *   deployable_base_move        : 'self'|'enemy' (stackable: Foundation Charge / Abduction Anchor)
+ *   grant_base_move_protection  : bool           (Deadbolt Plinth — flag on Player row)
  *
  * Everything runs inside a DB::transaction with lockForUpdate on the
  * Player row so simultaneous purchases cannot double-spend or race the
@@ -142,6 +145,8 @@ class ShopService
         'unlocks',
         'unlocks_transport',
         'unlocks_teleport',
+        'unlocks_base_teleport',
+        'grant_base_move_protection',
         'drill_yield_bonus_pct',
         'daily_drill_limit_bonus',
         'break_chance_reduction_pct',
@@ -307,6 +312,19 @@ class ShopService
         // Transport / teleporter / feature unlocks have no direct
         // Player row mutation — they're gated by player_items ownership
         // lookups in TransportService / TeleportService / MapStateBuilder.
+
+        // Deadbolt Plinth: single-purchase permanent shield against
+        // rival Abduction Anchor use. The canonical state lives on
+        // the Player row; player_items still records ownership so
+        // assertSinglePurchaseRules rejects a second purchase.
+        if (isset($effects['grant_base_move_protection']) && $effects['grant_base_move_protection'] === true) {
+            $player->base_move_protected = true;
+        }
+
+        // unlocks_base_teleport and deployable_base_move have no
+        // Player row mutation — they're gated by player_items lookups
+        // in BaseTeleportService (single-purchase / stackable-consumable
+        // respectively).
 
         $player->save();
     }

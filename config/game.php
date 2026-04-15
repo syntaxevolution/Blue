@@ -521,6 +521,56 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Base Teleport Items — Homing Flare / Foundation Charge / Abduction
+    | Anchor / Deadbolt Plinth
+    |--------------------------------------------------------------------------
+    | Four general-store items that move either the player or a base.
+    |
+    |   homing_flare       — single-purchase reusable tool. Use from the
+    |                        toolbox to snap back to your own base, at a
+    |                        per-use cost of moves + barrels. Unlimited
+    |                        uses for as long as you own it.
+    |   foundation_charge  — stackable consumable. Relocates your OWN
+    |                        base to the wasteland tile you're standing
+    |                        on. One charge = one move.
+    |   abduction_anchor   — stackable consumable. Relocates a RIVAL's
+    |                        base to your current wasteland tile. Requires
+    |                        a successful spy on the target within the
+    |                        configured freshness window. Blocked by
+    |                        same-MDN, newbie immunity, and the target's
+    |                        Deadbolt Plinth.
+    |   deadbolt_plinth    — single-purchase permanent passive. Flags
+    |                        the owner's base as move-protected so no
+    |                        rival can drag it away. Kept OUT of the
+    |                        toolbox UI — it's a set-and-forget shield,
+    |                        not a tool.
+    */
+    'teleport_items' => [
+        'homing_flare' => [
+            'price_barrels' => 2000,
+            'move_cost' => 5,
+            'oil_cost_per_use' => 50,
+        ],
+        'foundation_charge' => [
+            'price_barrels' => 5000,
+            'move_cost' => 1,
+        ],
+        'abduction_anchor' => [
+            'price_barrels' => 10000,
+            'move_cost' => 1,
+            // A successful spy on the target must have landed within
+            // this many hours or the anchor refuses to fire. Tuned to
+            // match the standard intel decay window but kept separate
+            // so admins can divorce the two if combat balance shifts.
+            'spy_freshness_hours' => 24,
+        ],
+        'deadbolt_plinth' => [
+            'price_barrels' => 20000,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Notifications — Reverb broadcasting + activity log
     |--------------------------------------------------------------------------
     */
