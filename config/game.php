@@ -680,6 +680,16 @@ return [
             'min_rival_hits' => 2,
         ],
 
+        // Per-item stockpile caps for stackable consumables the bot
+        // planner will buy from the general store. Keeps bots from
+        // converting their whole barrel reserve into a single class
+        // of item. Two separate caps so the Foundation Charge
+        // panic-buy can't displace a healthy Gremlin Coil stockpile.
+        'stockpile_caps' => [
+            'sabotage_deployables' => 3,
+            'foundation_charge' => 2,
+        ],
+
         // Strength gate for ALL sabotage activities (drill point
         // sabotage AND wasteland loot-crate trapping). The intent
         // (per user spec): bots that lose attacks regularly should

@@ -68,7 +68,12 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Order mirrors routes/web.php: verified → claimed_username → broken-item.
         Route::middleware(['verified', 'require.claimed_username'])->group(function () {
 
-            Route::middleware('block.broken_item')->group(function () {
+            // Throttle parity with routes/web.php — web uses
+            // throttle:120,1 inside the broken-item guard; without the
+            // explicit declaration here the API group only gets the
+            // default api throttle (60/min), which is tighter and
+            // silently inconsistent with the web rate limit.
+            Route::middleware(['block.broken_item', 'throttle:120,1'])->group(function () {
                 Route::get('/map', [MapController::class, 'show'])->name('map.show');
                 Route::post('/map/move', [MapController::class, 'move'])->name('map.move');
                 Route::post('/map/drill', [MapController::class, 'drill'])->name('map.drill');

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import { useToolbox } from '@/Composables/useToolbox';
 
@@ -86,6 +86,13 @@ interface ToolboxGroupItem {
 
 function classify(item: OwnedItem): ToolboxCategory | null {
     const effects = item.effects ?? {};
+    // Deny-list first: any item flagged as a passive set-and-forget
+    // protection never surfaces in the toolbox HUD, regardless of
+    // what other effect keys it happens to carry. Deadbolt Plinth is
+    // recorded in player_items (so the single-purchase guard works)
+    // but must not leak into the visible dock.
+    if (effects['grant_base_move_protection'] === true) return null;
+
     if (typeof effects['deployable_sabotage'] === 'string') return 'Sabotage';
     if (typeof effects['counter_measure'] === 'string') return 'Counter Measures';
     const unlocks = effects['unlocks'];
@@ -150,6 +157,9 @@ function handlePlace(item: ToolboxGroupItem): void {
         // reached if a rogue keybind triggers it.
         return;
     }
+    // Mutual exclusion with the Abduction Anchor picker so the two
+    // modal-ish states can't both be live at once on mobile.
+    closeAbductionPicker();
     toolbox.enter(item.key, item.name);
     // Collapse the dock so the drill grid is fully visible for clicking.
     open.value = false;
@@ -216,18 +226,71 @@ const pickerLoading = ref(false);
 const pickerError = ref<string | null>(null);
 const pickerTargets = ref<AbductionTarget[]>([]);
 
-function openAbductionPicker(): void {
+// Refs for focus management. `pickerCloseButtonRef` receives focus
+// when the picker opens (first focusable element in the dialog).
+// `pickerTriggerRef` points to the "Target…" button the user clicked
+// to open the picker, so focus returns there on close.
+const pickerCloseButtonRef = ref<HTMLButtonElement | null>(null);
+const pickerTriggerRef = ref<HTMLElement | null>(null);
+
+function openAbductionPicker(event?: Event): void {
     if (!onWasteland.value) return;
+    // Record the button that triggered the open so we can restore
+    // focus on close. Fall back to document.activeElement if the
+    // handler was called programmatically without an event.
+    const trigger = (event?.currentTarget as HTMLElement | null)
+        ?? (document.activeElement as HTMLElement | null);
+    pickerTriggerRef.value = trigger;
+    // Mutual exclusion with sabotage placement mode — closing the
+    // picker and exiting placement mode would both be surprising if
+    // triggered at once, so clear placement first.
+    if (toolbox.state.placementActive) {
+        toolbox.exit();
+    }
     pickerOpen.value = true;
     pickerError.value = null;
     loadAbductionTargets();
+    nextTick(() => {
+        pickerCloseButtonRef.value?.focus();
+    });
 }
 
 function closeAbductionPicker(): void {
+    if (!pickerOpen.value) return;
     pickerOpen.value = false;
     pickerTargets.value = [];
     pickerError.value = null;
+    // Restore focus to the trigger button. Guarded: if the trigger
+    // has been unmounted (e.g., the player now owns zero anchors and
+    // the button vanished), fall back silently.
+    const trigger = pickerTriggerRef.value;
+    pickerTriggerRef.value = null;
+    if (trigger && typeof trigger.focus === 'function' && document.contains(trigger)) {
+        nextTick(() => trigger.focus());
+    }
 }
+
+// Auto-close if the player leaves the wasteland tile while the
+// picker is open (e.g., a partial reload from another event
+// changed `current_tile.type`). Without this, the Fire button
+// would silently POST and the backend would 422.
+watch(onWasteland, (isWasteland) => {
+    if (!isWasteland && pickerOpen.value) {
+        closeAbductionPicker();
+    }
+});
+
+// Esc key dismisses the picker. Listener is registered only while
+// the picker is open so it doesn't intercept global keys when the
+// dock is idle.
+function onPickerKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && pickerOpen.value) {
+        e.stopPropagation();
+        closeAbductionPicker();
+    }
+}
+onMounted(() => window.addEventListener('keydown', onPickerKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onPickerKeydown));
 
 async function loadAbductionTargets(): Promise<void> {
     pickerLoading.value = true;
@@ -254,6 +317,14 @@ async function loadAbductionTargets(): Promise<void> {
 function fireAbductionAnchor(target: AbductionTarget): void {
     if (!target.eligible) return;
     if (busyActionKey.value !== null) return;
+    // Defensive re-check: if the player's current tile stopped being
+    // wasteland between opening the picker and clicking Fire (e.g.,
+    // another player's movement triggered a partial reload), abort
+    // locally instead of letting the server 422.
+    if (!onWasteland.value) {
+        closeAbductionPicker();
+        return;
+    }
     busyActionKey.value = `abduction:${target.id}`;
     router.post(
         route('toolbox.abduction_anchor'),
@@ -370,7 +441,7 @@ function fireAbductionAnchor(target: AbductionTarget): void {
                                 class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                 :disabled="!onWasteland || busyActionKey !== null"
                                 :title="onWasteland ? 'Pick a rival to drag to this tile' : 'Travel to a wasteland tile to use this'"
-                                @click="openAbductionPicker"
+                                @click="openAbductionPicker($event)"
                             >
                                 Target…
                             </button>
@@ -513,7 +584,7 @@ function fireAbductionAnchor(target: AbductionTarget): void {
                                         type="button"
                                         class="tap-target shrink-0 rounded bg-amber-500 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                         :disabled="!onWasteland || busyActionKey !== null"
-                                        @click="openAbductionPicker"
+                                        @click="openAbductionPicker($event)"
                                     >
                                         Target…
                                     </button>
@@ -546,18 +617,19 @@ function fireAbductionAnchor(target: AbductionTarget): void {
         >
             <div
                 v-if="pickerOpen"
-                class="fixed inset-0 z-[70] flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm p-4"
+                class="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm p-4"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Pick an Abduction Anchor target"
                 @click.self="closeAbductionPicker"
             >
-                <div class="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg border-2 border-amber-500/50 bg-zinc-900 shadow-2xl font-mono">
+                <div class="w-full max-w-md max-h-[80vh] overflow-y-auto overscroll-contain rounded-lg border-2 border-amber-500/50 bg-zinc-900 shadow-2xl safe-bottom font-mono">
                     <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
                         <div class="text-amber-400 text-xs uppercase tracking-[0.25em] font-bold">Abduction Anchor</div>
                         <button
+                            ref="pickerCloseButtonRef"
                             type="button"
-                            class="text-zinc-500 hover:text-amber-400 transition"
+                            class="tap-target text-zinc-500 hover:text-amber-400 transition"
                             @click="closeAbductionPicker"
                             aria-label="Close target picker"
                         >
@@ -599,8 +671,9 @@ function fireAbductionAnchor(target: AbductionTarget): void {
                             </div>
                             <button
                                 type="button"
-                                class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
+                                class="tap-target shrink-0 rounded bg-amber-500 hover:bg-amber-400 active:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                 :disabled="!target.eligible || busyActionKey !== null"
+                                :aria-label="`Fire Abduction Anchor at ${target.username}`"
                                 @click="fireAbductionAnchor(target)"
                             >
                                 Fire

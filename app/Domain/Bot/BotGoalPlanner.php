@@ -1079,18 +1079,11 @@ class BotGoalPlanner
         $ownedKeys = $ownedRows->pluck('item_key')->all();
         $ownedQuantities = $ownedRows->pluck('quantity', 'item_key')->all();
 
-        // Sabotage stockpile soft cap — bots stop buying once they
-        // hold this many of any given deployable, so a hard bot
-        // doesn't convert its entire reserve into traps. 3 is plenty
-        // for one round of harassment without strangling the rest of
-        // the economy. Both deployable kinds share the cap.
-        $sabotageStockpileCap = 3;
-
-        // Cap on stackable panic-buys (Foundation Charge). One is
-        // usually enough to relocate a base out of a bad spot; a
-        // stock of 2 covers back-to-back sieges without letting a
-        // bot hoard charges during quiet periods.
-        $foundationChargeStockpileCap = 2;
+        // Stockpile caps for stackable consumables, sourced from
+        // config so admins can tune bot hoarding without a deploy.
+        // Defaults kept matching the original inline constants.
+        $sabotageStockpileCap = (int) $this->config->get('bots.stockpile_caps.sabotage_deployables', 3);
+        $foundationChargeStockpileCap = (int) $this->config->get('bots.stockpile_caps.foundation_charge', 2);
 
         $strongEnough = $this->isStrongEnoughForSabotage($bot);
 
@@ -1105,26 +1098,28 @@ class BotGoalPlanner
             $isDeployableLootCrate = isset($effects['deployable_loot_crate']);
 
             // Base teleport items. Homing Flare is a cheap,
-            // always-useful tool — grab it the moment a bot can
-            // afford it. Deadbolt Plinth and Foundation Charge are
-            // panic-buys: only consider them when the bot has taken
-            // recent hits (defensive mode). Abduction Anchor is
-            // deliberately excluded from v1 bot AI — the spy
-            // prerequisite + target selection is noisy enough that
-            // teaching the planner to use it correctly is a phase 2
-            // job. Left commented so it's obvious we skipped on
-            // purpose rather than forgot.
+            // always-useful tool — grab it once the bot can afford
+            // it BUT kept out of $isUpgrade so the ordering sort
+            // doesn't accidentally rank it above Deep Scanner or
+            // other general-store passives. Deadbolt Plinth and
+            // Foundation Charge are panic-buys: only considered in
+            // defensive mode. Abduction Anchor is deliberately
+            // excluded from v1 bot AI — the spy prerequisite +
+            // target selection is noisy enough that teaching the
+            // planner to use it correctly is a phase 2 job. Left
+            // commented so it's obvious we skipped on purpose
+            // rather than forgot.
             $isHomingFlare = ($effects['unlocks_base_teleport'] ?? false) === true;
             $isDeadboltPlinth = ($effects['grant_base_move_protection'] ?? false) === true;
             $baseMoveKind = (string) ($effects['deployable_base_move'] ?? '');
             $isFoundationCharge = $baseMoveKind === 'self';
             // $isAbductionAnchor = $baseMoveKind === 'enemy'; // skipped for v1
 
-            $isUpgrade = $isStat || $isDrillTier || $isTransport || $isDailyLimit || $isHomingFlare;
+            $isUpgrade = $isStat || $isDrillTier || $isTransport || $isDailyLimit;
             $isSabotageGear = $isDeployableSabotage || $isDeployableLootCrate;
             $isDefensiveBuy = ($isDeadboltPlinth || $isFoundationCharge) && $defensiveMode;
 
-            if (! $isUpgrade && ! $isSabotageGear && ! $isDefensiveBuy) {
+            if (! $isUpgrade && ! $isSabotageGear && ! $isDefensiveBuy && ! $isHomingFlare) {
                 continue;
             }
 
@@ -1149,7 +1144,8 @@ class BotGoalPlanner
                     continue;
                 }
             } elseif (in_array($item->key, $ownedKeys, true)) {
-                // Non-stackable upgrades: never re-purchase.
+                // Non-stackable upgrades (including Homing Flare, which
+                // is a single-purchase reusable tool): never re-buy.
                 continue;
             }
 

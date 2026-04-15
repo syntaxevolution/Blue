@@ -5,9 +5,7 @@ namespace App\Domain\Teleport;
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Exceptions\CannotBaseTeleportException;
 use App\Domain\Exceptions\CannotPurchaseException;
-use App\Domain\Exceptions\CannotSpyException;
 use App\Domain\Exceptions\InsufficientMovesException;
-use App\Domain\Mdn\MdnService;
 use App\Domain\Notifications\ActivityLogService;
 use App\Domain\Player\MoveRegenService;
 use App\Domain\World\FogOfWarService;
@@ -15,6 +13,7 @@ use App\Events\BaseRelocated;
 use App\Models\Player;
 use App\Models\SpyAttempt;
 use App\Models\Tile;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,10 +33,15 @@ use Illuminate\Support\Facades\DB;
  *                        successful spy on the target and is blocked
  *                        by same-MDN, immunity, and Deadbolt Plinth.
  *
- * Every write happens inside a DB transaction with lockForUpdate on
- * the acting player (and, where applicable, the target player) so
- * concurrent toolbox clicks cannot double-move, double-consume, or
- * race against a purchase of the Deadbolt Plinth on the target side.
+ * Every write happens inside a DB transaction. Lock acquisition
+ * follows a strict ascending-ID order for both players AND tiles
+ * to eliminate ABBA deadlocks when two players act simultaneously:
+ *   - `moveEnemyBase` locks the caller + target Player rows in
+ *     ascending ID, then the destination + old-base Tile rows in
+ *     ascending ID.
+ *   - `moveOwnBase` has only one player but still sorts the two
+ *     tile locks by ID so concurrent Foundation Charges by two
+ *     players onto each other's former base tiles cannot cycle.
  *
  * All guards run BEFORE any decrement / tile-type mutation so a
  * rejection leaves state untouched — user spec: "not consumed" on
@@ -55,7 +59,6 @@ class BaseTeleportService
         private readonly GameConfigResolver $config,
         private readonly FogOfWarService $fogOfWar,
         private readonly MoveRegenService $moveRegen,
-        private readonly MdnService $mdn,
         private readonly ActivityLogService $activityLog,
     ) {}
 
@@ -135,19 +138,6 @@ class BaseTeleportService
      * Foundation Charge — relocate the caller's OWN base to the
      * wasteland tile they are currently standing on.
      *
-     * Transaction does, in order:
-     *   1. Validate ownership, wasteland tile type, move budget
-     *   2. Flip old base tile → wasteland
-     *   3. Flip new tile → base
-     *   4. Update player.base_tile_id
-     *   5. Decrement player_items.quantity for foundation_charge
-     *
-     * The user spec says "overwrite" if the destination wasteland has
-     * something on it — no guard against occupying loot crates or
-     * standing players. Old base tile becomes plain wasteland with
-     * no preserved state (acceptable because bases currently store
-     * no per-tile metadata beyond the type enum).
-     *
      * @return Tile the new base tile
      */
     public function moveOwnBase(int $playerId): Tile
@@ -168,8 +158,19 @@ class BaseTeleportService
                 throw CannotBaseTeleportException::foundationChargeNotOwned();
             }
 
-            /** @var Tile $destination */
-            $destination = Tile::query()->lockForUpdate()->findOrFail($player->current_tile_id);
+            // Tile locks in ascending ID order: destination + old base.
+            // Two concurrent Foundation Charges by two players onto
+            // each other's former base tiles would otherwise cycle
+            // (ABBA). Sorting eliminates the cycle deterministically.
+            $tiles = $this->lockTilesById([
+                (int) $player->current_tile_id,
+                $player->base_tile_id !== null ? (int) $player->base_tile_id : null,
+            ]);
+
+            $destination = $tiles[(int) $player->current_tile_id] ?? null;
+            if ($destination === null) {
+                throw CannotBaseTeleportException::targetNotFound();
+            }
             if ($destination->type !== 'wasteland') {
                 throw CannotBaseTeleportException::notOnWasteland($destination->type);
             }
@@ -182,9 +183,8 @@ class BaseTeleportService
                 throw InsufficientMovesException::forAction('foundation_charge', (int) $player->moves_current, $moveCost);
             }
 
-            /** @var Tile|null $oldBase */
             $oldBase = $player->base_tile_id !== null
-                ? Tile::query()->lockForUpdate()->find($player->base_tile_id)
+                ? ($tiles[(int) $player->base_tile_id] ?? null)
                 : null;
 
             // Mutate tile types. If oldBase and destination happen to
@@ -200,7 +200,7 @@ class BaseTeleportService
                 'moves_current' => (int) $player->moves_current - $moveCost,
             ]);
 
-            $this->decrementStack($inventoryRow->id, (int) $inventoryRow->quantity);
+            $this->decrementStack((int) $inventoryRow->id);
 
             return $destination->fresh();
         });
@@ -223,6 +223,11 @@ class BaseTeleportService
      *
      * Cooldown is irrelevant here (user spec). Attack cooldown too.
      *
+     * Lock order: both Player rows in ascending ID, then both Tile
+     * rows (destination + target's old base) in ascending ID. This
+     * eliminates the mutual-strike ABBA cycle when two players fire
+     * Abduction Anchors at each other simultaneously.
+     *
      * On success: old target base → wasteland, current tile → base,
      * target.base_tile_id updated, one abduction_anchor consumed, and
      * a BaseRelocated event dispatched to the victim so they see a
@@ -232,12 +237,25 @@ class BaseTeleportService
      */
     public function moveEnemyBase(int $playerId, int $targetPlayerId): array
     {
-        $result = DB::transaction(function () use ($playerId, $targetPlayerId) {
-            /** @var Player $player */
-            $player = Player::query()->lockForUpdate()->findOrFail($playerId);
+        if ($playerId === $targetPlayerId) {
+            throw CannotBaseTeleportException::targetIsSelf();
+        }
 
-            if ((int) $playerId === (int) $targetPlayerId) {
-                throw CannotBaseTeleportException::targetIsSelf();
+        $result = DB::transaction(function () use ($playerId, $targetPlayerId) {
+            // Lock both players in ascending ID order so two players
+            // simultaneously targeting each other cannot form a cycle.
+            $players = $this->lockPlayersById([$playerId, $targetPlayerId]);
+
+            /** @var Player|null $player */
+            $player = $players[$playerId] ?? null;
+            if ($player === null) {
+                throw CannotBaseTeleportException::targetNotFound();
+            }
+
+            /** @var Player|null $target */
+            $target = $players[$targetPlayerId] ?? null;
+            if ($target === null || $target->base_tile_id === null) {
+                throw CannotBaseTeleportException::targetNotFound();
             }
 
             $inventoryRow = DB::table('player_items')
@@ -252,16 +270,14 @@ class BaseTeleportService
                 throw CannotBaseTeleportException::abductionAnchorNotOwned();
             }
 
-            /** @var Tile $destination */
-            $destination = Tile::query()->lockForUpdate()->findOrFail($player->current_tile_id);
-            if ($destination->type !== 'wasteland') {
-                throw CannotBaseTeleportException::notOnWasteland($destination->type);
-            }
-
-            /** @var Player|null $target */
-            $target = Player::query()->lockForUpdate()->find($targetPlayerId);
-            if ($target === null || $target->base_tile_id === null) {
-                throw CannotBaseTeleportException::targetNotFound();
+            // Inline same-MDN guard. Deliberately NOT delegating to
+            // MdnService::assertCanAttackOrSpy because that method
+            // also enforces the MDN-join/leave hop cooldown, which is
+            // irrelevant for base teleport per user spec, and it
+            // throws a sibling exception type we'd then have to
+            // disambiguate via fragile string matching.
+            if ($this->sameMdn($player, $target)) {
+                throw CannotBaseTeleportException::sameMdn();
             }
 
             if ($target->immunity_expires_at !== null && $target->immunity_expires_at->isFuture()) {
@@ -272,20 +288,25 @@ class BaseTeleportService
                 throw CannotBaseTeleportException::targetProtected();
             }
 
-            // Same-MDN check — reuse the shared MDN gate. It throws
-            // CannotSpyException / CannotAttackException on same-MDN,
-            // so we catch and re-throw our own typed exception to keep
-            // controller error handling focused on a single namespace.
-            try {
-                $this->mdn->assertCanAttackOrSpy($player, $target, 'spy');
-            } catch (CannotSpyException $e) {
-                // Strip the MDN-hop cooldown case — that's irrelevant
-                // here per spec. Only same-MDN should bubble up.
-                if (str_contains($e->getMessage(), 'MDN')) {
-                    throw CannotBaseTeleportException::sameMdn();
-                }
-                // Any other MDN-layer rejection is unexpected — rethrow.
-                throw $e;
+            // Tile locks in ascending ID order. Two tiles in scope:
+            // the caller's current tile (destination) and the target's
+            // old base tile.
+            $tiles = $this->lockTilesById([
+                (int) $player->current_tile_id,
+                (int) $target->base_tile_id,
+            ]);
+
+            $destination = $tiles[(int) $player->current_tile_id] ?? null;
+            if ($destination === null) {
+                throw CannotBaseTeleportException::targetNotFound();
+            }
+            if ($destination->type !== 'wasteland') {
+                throw CannotBaseTeleportException::notOnWasteland($destination->type);
+            }
+
+            $oldBase = $tiles[(int) $target->base_tile_id] ?? null;
+            if ($oldBase === null) {
+                throw CannotBaseTeleportException::targetNotFound();
             }
 
             $freshnessHours = (int) $this->config->get('teleport_items.abduction_anchor.spy_freshness_hours');
@@ -308,9 +329,6 @@ class BaseTeleportService
                 throw InsufficientMovesException::forAction('abduction_anchor', (int) $player->moves_current, $moveCost);
             }
 
-            /** @var Tile $oldBase */
-            $oldBase = Tile::query()->lockForUpdate()->findOrFail($target->base_tile_id);
-
             if ($oldBase->id !== $destination->id) {
                 $oldBase->update(['type' => 'wasteland']);
             }
@@ -321,7 +339,7 @@ class BaseTeleportService
                 'moves_current' => (int) $player->moves_current - $moveCost,
             ]);
 
-            $this->decrementStack($inventoryRow->id, (int) $inventoryRow->quantity);
+            $this->decrementStack((int) $inventoryRow->id);
 
             // Victim-side activity log so offline players see the
             // relocation and new coordinates on next login. Broadcast
@@ -366,23 +384,195 @@ class BaseTeleportService
     }
 
     /**
-     * Decrement a stackable consumable. Deletes the row when quantity
-     * hits zero so the Toolbox HUD filters it out and the auth-share
-     * query doesn't waste a render slot on a 0-count ghost.
+     * Build the eligible-target list for the Abduction Anchor picker
+     * modal. Returns every rival the caller has a successful spy on
+     * within the configured freshness window, annotated with a
+     * `reason` string when the rival fails a service-layer guard
+     * (same-MDN, newbie immunity, or Deadbolt Plinth). The UI renders
+     * ineligible rows greyed out with the reason visible so the
+     * player understands why a visible target is unclickable.
+     *
+     * Shared between `Web\BaseTeleportController` and
+     * `Api\V1\BaseTeleportController` per CLAUDE.md's "web + API must
+     * stay in sync" rule — any new guard added to `moveEnemyBase`
+     * should also be reflected here (or both endpoints diverge).
+     *
+     * @return list<array{
+     *   id: int,
+     *   username: string,
+     *   base_x: int,
+     *   base_y: int,
+     *   spied_at: string,
+     *   eligible: bool,
+     *   reason: ?string
+     * }>
      */
-    private function decrementStack(int $rowId, int $currentQuantity): void
+    public function listAbductionTargets(int $playerId): array
     {
-        if ($currentQuantity <= 1) {
-            DB::table('player_items')->where('id', $rowId)->delete();
-
-            return;
+        /** @var Player|null $player */
+        $player = Player::query()->find($playerId);
+        if ($player === null) {
+            return [];
         }
 
+        $freshnessHours = (int) $this->config->get('teleport_items.abduction_anchor.spy_freshness_hours');
+
+        $rows = SpyAttempt::query()
+            ->where('spy_player_id', $player->id)
+            ->where('success', true)
+            ->where('created_at', '>=', now()->subHours($freshnessHours))
+            ->orderByDesc('created_at')
+            ->get(['target_player_id', 'created_at']);
+
+        // Collapse duplicates — the most recent successful spy per
+        // target is the one we care about.
+        /** @var array<int, CarbonInterface> $latestByTarget */
+        $latestByTarget = [];
+        foreach ($rows as $row) {
+            $id = (int) $row->target_player_id;
+            if (! isset($latestByTarget[$id])) {
+                $latestByTarget[$id] = $row->created_at;
+            }
+        }
+
+        if ($latestByTarget === []) {
+            return [];
+        }
+
+        $targetModels = Player::query()
+            ->whereIn('id', array_keys($latestByTarget))
+            ->with(['user:id,name', 'baseTile:id,x,y'])
+            ->get();
+
+        $results = [];
+        foreach ($targetModels as $target) {
+            $reason = $this->ineligibleReason($player, $target);
+
+            $results[] = [
+                'id' => (int) $target->id,
+                'username' => (string) ($target->user?->name ?? 'Unknown'),
+                'base_x' => (int) ($target->baseTile?->x ?? 0),
+                'base_y' => (int) ($target->baseTile?->y ?? 0),
+                'spied_at' => $latestByTarget[(int) $target->id]->toIso8601String(),
+                'eligible' => $reason === null,
+                'reason' => $reason,
+            ];
+        }
+
+        // Sort eligible first, then most recently spied.
+        usort($results, function (array $a, array $b) {
+            if ($a['eligible'] !== $b['eligible']) {
+                return $a['eligible'] ? -1 : 1;
+            }
+
+            return strcmp($b['spied_at'], $a['spied_at']);
+        });
+
+        return $results;
+    }
+
+    /**
+     * Mirrors the guard order in moveEnemyBase() for the picker UI.
+     * Kept in this service (not duplicated across controllers) so a
+     * new guard only needs to be added in one place.
+     */
+    private function ineligibleReason(Player $player, Player $target): ?string
+    {
+        if ((int) $target->id === (int) $player->id) {
+            return 'Cannot target your own base.';
+        }
+        if ($this->sameMdn($player, $target)) {
+            return 'Same MDN — attacks forbidden by charter.';
+        }
+        if ($target->immunity_expires_at !== null && $target->immunity_expires_at->isFuture()) {
+            return 'Target is under new-player immunity.';
+        }
+        if ((bool) $target->base_move_protected) {
+            return 'Target has a Deadbolt Plinth installed.';
+        }
+
+        return null;
+    }
+
+    private function sameMdn(Player $a, Player $b): bool
+    {
+        return $a->mdn_id !== null
+            && $b->mdn_id !== null
+            && (int) $a->mdn_id === (int) $b->mdn_id;
+    }
+
+    /**
+     * Lock a set of Player rows in ascending ID order and return a
+     * map keyed by ID. Any missing IDs are silently omitted from the
+     * result — callers should null-check for rows they expect.
+     *
+     * @param  array<int>  $ids
+     * @return array<int, Player>
+     */
+    private function lockPlayersById(array $ids): array
+    {
+        $unique = array_values(array_unique(array_map('intval', $ids)));
+        sort($unique, SORT_NUMERIC);
+
+        $out = [];
+        foreach ($unique as $id) {
+            /** @var Player|null $row */
+            $row = Player::query()->lockForUpdate()->find($id);
+            if ($row !== null) {
+                $out[$id] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Lock a set of Tile rows in ascending ID order and return a map
+     * keyed by ID. Nulls in the input are filtered out. Missing rows
+     * are silently omitted — callers should null-check.
+     *
+     * @param  array<int|null>  $ids
+     * @return array<int, Tile>
+     */
+    private function lockTilesById(array $ids): array
+    {
+        $filtered = [];
+        foreach ($ids as $id) {
+            if ($id === null) {
+                continue;
+            }
+            $filtered[] = (int) $id;
+        }
+        $unique = array_values(array_unique($filtered));
+        sort($unique, SORT_NUMERIC);
+
+        $out = [];
+        foreach ($unique as $id) {
+            /** @var Tile|null $row */
+            $row = Tile::query()->lockForUpdate()->find($id);
+            if ($row !== null) {
+                $out[$id] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Atomic SQL decrement on a player_items row. The caller has
+     * already locked the row via lockForUpdate, so this could use a
+     * PHP-side `quantity - 1` safely, but the SQL form is more
+     * defensive and removes the need to pass the stale quantity in.
+     */
+    private function decrementStack(int $rowId): void
+    {
+        DB::table('player_items')->where('id', $rowId)->decrement('quantity');
+
+        // Delete zero-quantity rows so the Toolbox HUD filters them
+        // out and the auth-share query doesn't render a ghost entry.
         DB::table('player_items')
             ->where('id', $rowId)
-            ->update([
-                'quantity' => $currentQuantity - 1,
-                'updated_at' => now(),
-            ]);
+            ->where('quantity', '<=', 0)
+            ->delete();
     }
 }

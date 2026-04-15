@@ -363,6 +363,25 @@ watch(
     },
     { immediate: true },
 );
+// Base teleport items (Homing Flare / Foundation Charge /
+// Abduction Anchor) flash a single plain-string result through
+// `base_teleport_result`. The flavour text in the string already
+// names the item that fired, so one watcher covers all three —
+// unlike attack/spy where we pull a success/failure keyword from
+// the payload for the title.
+watch(
+    () => flash.value.base_teleport_result,
+    (incoming) => {
+        if (typeof incoming === 'string' && incoming.length > 0) {
+            enqueuePopup({
+                kind: 'success',
+                title: 'Teleport fired',
+                body: incoming,
+            });
+        }
+    },
+    { immediate: true },
+);
 
 // --- Drill result → modal only for sabotage or break events ---
 // Normal drill outcomes (the plain +N barrels line) are deliberately
@@ -430,6 +449,7 @@ const errorKeys = [
     'attack',
     'loot_crate',
     'loot_deploy',
+    'base_teleport',
 ] as const;
 const errorLabels: Record<(typeof errorKeys)[number], string> = {
     travel: 'Travel blocked',
@@ -440,6 +460,7 @@ const errorLabels: Record<(typeof errorKeys)[number], string> = {
     attack: 'Raid failed',
     loot_crate: 'Loot crate error',
     loot_deploy: 'Deploy failed',
+    base_teleport: 'Teleport blocked',
 };
 watch(
     errors,

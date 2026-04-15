@@ -16,6 +16,17 @@ use Illuminate\Queue\SerializesModels;
  * DB transaction commits. The online victim gets a toast with the
  * new coordinates; the offline victim sees the paired activity log
  * entry on their next login (recorded inside the same transaction).
+ *
+ * Why the attacker username IS revealed here (unlike BaseUnderAttack
+ * which deliberately hides it behind the Counter-Intel Dossier
+ * unlock): the Abduction Anchor requires the attacker to have a
+ * successful spy on the victim within the last 24h, AND consumes a
+ * 10k-barrel item per firing. That intel and opportunity cost is
+ * itself the gate — the attack is loud by design, not by accident.
+ * Keeping identity hidden would make the feature feel broken ("who
+ * did this to me?") without a matching in-game path to answer. If
+ * this needs to change we should redact the username here and in
+ * the matching activity log payload in BaseTeleportService.
  */
 class BaseRelocated implements ShouldBroadcast
 {

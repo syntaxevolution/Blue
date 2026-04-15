@@ -7,6 +7,7 @@ use App\Domain\Exceptions\InsufficientMovesException;
 use App\Domain\Teleport\BaseTeleportService;
 use App\Domain\World\WorldService;
 use App\Events\BaseRelocated;
+use App\Models\Mdn;
 use App\Models\Player;
 use App\Models\Post;
 use App\Models\SpyAttempt;
@@ -76,10 +77,13 @@ it('homing flare teleports the player back to their base', function () {
 
     app(BaseTeleportService::class)->teleportSelfToBase($player->id);
 
+    $oilCost = (int) config('game.teleport_items.homing_flare.oil_cost_per_use');
+    $moveCost = (int) config('game.teleport_items.homing_flare.move_cost');
+
     $player = $player->fresh();
     expect($player->current_tile_id)->toBe($player->base_tile_id);
-    expect($player->oil_barrels)->toBe($startingBarrels - 50);
-    expect($player->moves_current)->toBe($startingMoves - 5);
+    expect($player->oil_barrels)->toBe($startingBarrels - $oilCost);
+    expect($player->moves_current)->toBe($startingMoves - $moveCost);
 });
 
 it('homing flare is reusable and never decrements quantity', function () {
@@ -230,7 +234,15 @@ it('abduction anchor relocates an enemy base to the caller current tile', functi
     expect(Tile::find($destination->id)->type)->toBe('base');
     expect(Tile::find($oldTargetBaseId)->type)->toBe('wasteland');
 
-    Event::assertDispatched(BaseRelocated::class);
+    // Assert event payload routes to the victim's user channel with
+    // the correct destination coordinates. This catches player-id vs
+    // user-id confusion in the service-side dispatch.
+    Event::assertDispatched(
+        BaseRelocated::class,
+        fn (BaseRelocated $event) => $event->defenderUserId === (int) $target->user_id
+            && $event->newX === (int) $destination->x
+            && $event->newY === (int) $destination->y,
+    );
 });
 
 it('abduction anchor is consumed only on success', function () {
@@ -316,6 +328,48 @@ it('abduction anchor rejects when caller is not on a wasteland tile', function (
 
     expect(fn () => app(BaseTeleportService::class)->moveEnemyBase($attacker->id, $target->id))
         ->toThrow(CannotBaseTeleportException::class);
+});
+
+it('abduction anchor rejects a same-MDN target', function () {
+    $attacker = baseTeleportSpawnPlayer();
+    grantItem($attacker, 'abduction_anchor');
+    moveToWasteland($attacker);
+    $target = baseTeleportSpawnTarget($attacker);
+
+    $mdn = Mdn::create([
+        'name' => 'Test MDN',
+        'tag' => 'TST',
+        'leader_player_id' => $attacker->id,
+        'member_count' => 2,
+        'motto' => null,
+    ]);
+    $attacker->update(['mdn_id' => $mdn->id, 'mdn_joined_at' => now()->subDays(10)]);
+    $target->update(['mdn_id' => $mdn->id, 'mdn_joined_at' => now()->subDays(10)]);
+
+    expect(fn () => app(BaseTeleportService::class)->moveEnemyBase($attacker->id, $target->id))
+        ->toThrow(CannotBaseTeleportException::class, 'Same MDN');
+});
+
+it('abduction anchor accepts a target when caller recently hopped MDNs', function () {
+    // Regression guard against the old str_contains('MDN') bug:
+    // a lone attacker who recently joined/left an MDN used to hit
+    // the same-MDN factory via message matching. The new inline
+    // sameMdn() check is keyed purely on mdn_id equality, so this
+    // scenario now succeeds as expected.
+    Event::fake([BaseRelocated::class]);
+
+    $attacker = baseTeleportSpawnPlayer();
+    grantItem($attacker, 'abduction_anchor');
+    moveToWasteland($attacker);
+
+    // Attacker left an MDN very recently; target is unaffiliated.
+    $attacker->update(['mdn_id' => null, 'mdn_left_at' => now()->subMinutes(5)]);
+
+    $target = baseTeleportSpawnTarget($attacker);
+
+    app(BaseTeleportService::class)->moveEnemyBase($attacker->id, $target->id);
+
+    expect($target->fresh()->base_tile_id)->toBe($attacker->fresh()->current_tile_id);
 });
 
 it('deadbolt plinth purchase sets base_move_protected and is not in the toolbox classifier', function () {
