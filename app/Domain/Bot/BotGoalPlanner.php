@@ -496,6 +496,22 @@ class BotGoalPlanner
             return null;
         }
 
+        // Raid cooldown: if we already attacked this target within the
+        // cooldown window, AttackService will reject the attempt.
+        // Filter here so the bot doesn't spin on a doomed goal.
+        $raidCooldownHours = (int) $this->config->get('combat.raid_cooldown_hours', 12);
+        if ($raidCooldownHours > 0) {
+            $onCooldown = Attack::query()
+                ->where('attacker_player_id', $bot->id)
+                ->where('defender_player_id', (int) $forcedTargetId)
+                ->where('created_at', '>=', now()->subHours($raidCooldownHours))
+                ->exists();
+
+            if ($onCooldown) {
+                return null;
+            }
+        }
+
         // Is there a valid in-window spy on this target? If yes,
         // return a raid goal. If no, return a spy goal (the bot
         // will walk to the base and spy, then re-plan and raid on
@@ -568,6 +584,19 @@ class BotGoalPlanner
         $minCash = (float) ($tierCfg['min_target_cash'] ?? 5.0);
         if ((float) $target->akzar_cash < $minCash) {
             return null;
+        }
+
+        $raidCooldownHours = (int) $this->config->get('combat.raid_cooldown_hours', 12);
+        if ($raidCooldownHours > 0) {
+            $onCooldown = Attack::query()
+                ->where('attacker_player_id', $bot->id)
+                ->where('defender_player_id', $target->id)
+                ->where('created_at', '>=', now()->subHours($raidCooldownHours))
+                ->exists();
+
+            if ($onCooldown) {
+                return null;
+            }
         }
 
         $targetTile = Tile::query()->find($target->base_tile_id);
