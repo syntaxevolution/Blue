@@ -6,6 +6,7 @@ use App\Domain\Economy\TeleportService;
 use App\Domain\Exceptions\CannotPurchaseException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\World\FogOfWarService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,6 +17,7 @@ class TeleportController extends Controller
 {
     public function __construct(
         private readonly TeleportService $teleportService,
+        private readonly FogOfWarService $fogOfWar,
     ) {}
 
     /**
@@ -55,8 +57,15 @@ class TeleportController extends Controller
             return Redirect::back()->withErrors(['teleport' => $e->getMessage()]);
         }
 
-        return Redirect::back()->with('flash', [
+        $flash = [
             'teleport_result' => "Teleported to ({$destination->x}, {$destination->y}).",
-        ]);
+        ];
+
+        $fogReward = $this->fogOfWar->awardCompletionIfEligible($player->id);
+        if ($fogReward !== null) {
+            $flash['fog_completion_reward'] = $fogReward;
+        }
+
+        return Redirect::back()->with($flash);
     }
 }

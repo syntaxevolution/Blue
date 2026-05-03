@@ -6,6 +6,7 @@ use App\Domain\Economy\TeleportService;
 use App\Domain\Exceptions\CannotPurchaseException;
 use App\Domain\Exceptions\CannotTravelException;
 use App\Domain\Exceptions\InsufficientMovesException;
+use App\Domain\World\FogOfWarService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ class TeleportController extends Controller
 {
     public function __construct(
         private readonly TeleportService $teleportService,
+        private readonly FogOfWarService $fogOfWar,
     ) {}
 
     public function tileExists(Request $request): JsonResponse
@@ -54,6 +56,7 @@ class TeleportController extends Controller
             'x' => $destination->x,
             'y' => $destination->y,
             'tile_id' => $destination->id,
+            'fog_completion_reward' => $this->fogOfWar->awardCompletionIfEligible($player->id),
         ]);
     }
 }

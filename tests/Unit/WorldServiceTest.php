@@ -2,6 +2,7 @@
 
 use App\Domain\Config\GameConfigResolver;
 use App\Domain\Config\RngService;
+use App\Domain\Notifications\ActivityLogService;
 use App\Domain\World\FogOfWarService;
 use App\Domain\World\WorldService;
 use Illuminate\Config\Repository;
@@ -16,6 +17,7 @@ function makeWorldService(): WorldService
         new GameConfigResolver($config),
         new RngService(),
         new FogOfWarService(),
+        new ActivityLogService(),
     );
 }
 

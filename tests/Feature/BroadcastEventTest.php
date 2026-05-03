@@ -2,6 +2,7 @@
 
 use App\Domain\World\WorldService;
 use App\Events\BaseUnderAttack;
+use App\Events\RaidCompleted;
 use App\Events\SpyDetected;
 use App\Models\ActivityLog;
 use App\Models\SpyAttempt;
@@ -79,4 +80,46 @@ it('SpyDetected event persists to activity log via listener', function () {
     $row = ActivityLog::where('user_id', $target->id)->first();
     expect($row)->not->toBeNull();
     expect($row->type)->toBe('spy.detected');
+});
+
+it('dedupes raid activity when both raid alert handlers receive the same attack', function () {
+    $defender = User::factory()->create();
+    $listener = app(\App\Listeners\RecordActivityLog::class);
+
+    $listener->handleBaseUnderAttack(new BaseUnderAttack(
+        defenderUserId: $defender->id,
+        attackerUsername: 'Attacker1',
+        outcome: 'success',
+        cashStolen: 5.00,
+        attackId: 99,
+    ));
+
+    $listener->handleRaidCompleted(new RaidCompleted(
+        defenderUserId: $defender->id,
+        attackerUsername: 'Attacker1',
+        outcome: 'success',
+        cashStolen: 5.00,
+        attackId: 99,
+    ));
+
+    expect(ActivityLog::where('user_id', $defender->id)->count())->toBe(1);
+    expect(ActivityLog::where('user_id', $defender->id)->first()->dedupe_key)->toBe('raid.alert:99');
+});
+
+it('dedupes repeated spy detected alerts by spy attempt id', function () {
+    $target = User::factory()->create();
+    $listener = app(\App\Listeners\RecordActivityLog::class);
+
+    $event = new SpyDetected(
+        defenderUserId: $target->id,
+        spyUsername: 'Sneaky1',
+        spySucceeded: true,
+        spyAttemptId: 123,
+    );
+
+    $listener->handleSpyDetected($event);
+    $listener->handleSpyDetected($event);
+
+    expect(ActivityLog::where('user_id', $target->id)->count())->toBe(1);
+    expect(ActivityLog::where('user_id', $target->id)->first()->dedupe_key)->toBe('spy.detected:123');
 });

@@ -5,6 +5,7 @@ namespace App\Domain\Notifications;
 use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -19,16 +20,40 @@ use Illuminate\Support\Facades\DB;
  */
 class ActivityLogService
 {
-    public function record(int $userId, string $type, string $title, array $body = []): ActivityLog
+    public function record(int $userId, string $type, string $title, array $body = [], ?string $dedupeKey = null): ActivityLog
     {
-        return ActivityLog::create([
+        $attributes = [
             'user_id' => $userId,
             'type' => $type,
             'title' => $title,
+            'dedupe_key' => $dedupeKey,
             'body' => $body,
             'read_at' => null,
             'created_at' => now(),
-        ]);
+        ];
+
+        if ($dedupeKey === null) {
+            return ActivityLog::create($attributes);
+        }
+
+        try {
+            return ActivityLog::create($attributes);
+        } catch (QueryException $e) {
+            if (! $this->isUniqueConstraintViolation($e)) {
+                throw $e;
+            }
+
+            $existing = ActivityLog::query()
+                ->where('user_id', $userId)
+                ->where('dedupe_key', $dedupeKey)
+                ->first();
+
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            throw $e;
+        }
     }
 
     public function paginate(int $userId, int $perPage = 25): LengthAwarePaginator
@@ -101,5 +126,14 @@ class ActivityLogService
             });
 
         return $inserted;
+    }
+
+    private function isUniqueConstraintViolation(QueryException $e): bool
+    {
+        $message = $e->getMessage();
+
+        return $e->getCode() === '23000'
+            || str_contains($message, 'UNIQUE constraint failed')
+            || str_contains($message, 'Duplicate entry');
     }
 }

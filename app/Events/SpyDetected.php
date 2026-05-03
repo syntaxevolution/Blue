@@ -25,6 +25,7 @@ class SpyDetected implements ShouldBroadcast
         public readonly int $defenderUserId,
         public readonly string $spyUsername,
         public readonly bool $spySucceeded,
+        public readonly ?int $spyAttemptId = null,
     ) {}
 
     public function broadcastOn(): PrivateChannel
@@ -44,6 +45,7 @@ class SpyDetected implements ShouldBroadcast
             'title' => 'Spy detected at your base',
             'body' => [
                 'spy_succeeded' => $this->spySucceeded,
+                'spy_attempt_id' => $this->spyAttemptId,
             ],
             'timestamp' => now()->toIso8601String(),
         ];

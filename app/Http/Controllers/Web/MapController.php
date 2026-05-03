@@ -18,6 +18,7 @@ use App\Domain\Loot\LootCrateService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
 use App\Domain\Sabotage\SabotageService;
+use App\Domain\World\FogOfWarService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DrillRequest;
@@ -54,6 +55,7 @@ class MapController extends Controller
         private readonly SabotageService $sabotage,
         private readonly TileCombatService $tileCombatSvc,
         private readonly LootCrateService $lootCrates,
+        private readonly FogOfWarService $fogOfWar,
     ) {}
 
     public function show(Request $request): Response
@@ -96,6 +98,12 @@ class MapController extends Controller
             ]);
         }
 
+        $flash = [];
+        $fogReward = $this->fogOfWar->awardCompletionIfEligible($player->id);
+        if ($fogReward !== null) {
+            $flash['fog_completion_reward'] = $fogReward;
+        }
+
         // Loot crate spawn/fetch hook. Runs AFTER the move commits —
         // onArrival is a no-op on non-wasteland tiles so this is safe
         // to call unconditionally on every move. If a crate is
@@ -110,14 +118,14 @@ class MapController extends Controller
         if ($destination !== null) {
             $crate = $this->lootCrates->onArrival($player, $destination);
             if ($crate !== null) {
-                return redirect()->route('map.show')->with('loot_event', [
+                $flash['loot_event'] = [
                     'crate_id' => (int) $crate->id,
                     'placed_by_me' => (int) ($crate->placed_by_player_id ?? 0) === (int) $player->id,
-                ]);
+                ];
             }
         }
 
-        return redirect()->route('map.show');
+        return redirect()->route('map.show')->with($flash);
     }
 
     public function drill(DrillRequest $request): RedirectResponse

@@ -18,6 +18,7 @@ class ActivityLog extends Model
         'user_id',
         'type',
         'title',
+        'dedupe_key',
         'body',
         'read_at',
         'created_at',

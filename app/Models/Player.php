@@ -28,6 +28,7 @@ class Player extends Model
         'current_tile_id',
         'akzar_cash',
         'oil_barrels',
+        'fog_completion_awarded_tile_count',
         'intel',
         'moves_current',
         'moves_updated_at',
@@ -64,6 +65,7 @@ class Player extends Model
     protected $casts = [
         'akzar_cash' => 'decimal:2',
         'oil_barrels' => 'integer',
+        'fog_completion_awarded_tile_count' => 'integer',
         'intel' => 'integer',
         'moves_current' => 'integer',
         'moves_updated_at' => 'datetime',

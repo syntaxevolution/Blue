@@ -2,6 +2,8 @@
 
 namespace App\Domain\World;
 
+use App\Domain\Notifications\ActivityLogService;
+use App\Models\Player;
 use App\Models\Tile;
 use Illuminate\Support\Facades\DB;
 
@@ -23,6 +25,8 @@ use Illuminate\Support\Facades\DB;
  */
 class FogOfWarService
 {
+    private const COMPLETION_REWARD_BARRELS = 10_000;
+
     /**
      * Mark a single tile as discovered for a player. Idempotent —
      * re-marking the same tile updates nothing.
@@ -108,5 +112,60 @@ class FogOfWarService
         return DB::table('tile_discoveries')
             ->where('player_id', $playerId)
             ->count();
+    }
+
+    /**
+     * Grant the all-current-tiles fog completion award once per world size.
+     *
+     * If the world later grows, Tile::count() rises above the stored
+     * awarded count and the same player can earn this again after
+     * discovering the new frontier.
+     *
+     * @return array{reward_barrels:int,tile_count:int,discovered_count:int,oil_barrels:int}|null
+     */
+    public function awardCompletionIfEligible(int $playerId): ?array
+    {
+        return DB::transaction(function () use ($playerId) {
+            $tileCount = (int) Tile::query()->count();
+            if ($tileCount <= 0) {
+                return null;
+            }
+
+            $discoveredCount = $this->countDiscovered($playerId);
+            if ($discoveredCount < $tileCount) {
+                return null;
+            }
+
+            /** @var Player $player */
+            $player = Player::query()->lockForUpdate()->findOrFail($playerId);
+            if ((int) $player->fog_completion_awarded_tile_count >= $tileCount) {
+                return null;
+            }
+
+            $newBalance = (int) $player->oil_barrels + self::COMPLETION_REWARD_BARRELS;
+            $player->update([
+                'oil_barrels' => $newBalance,
+                'fog_completion_awarded_tile_count' => $tileCount,
+            ]);
+
+            app(ActivityLogService::class)->record(
+                (int) $player->user_id,
+                'fog.completed',
+                'You mapped the whole frontier - 10,000 barrels awarded',
+                [
+                    'reward_barrels' => self::COMPLETION_REWARD_BARRELS,
+                    'tile_count' => $tileCount,
+                    'discovered_count' => $discoveredCount,
+                ],
+                "fog.completed:{$tileCount}",
+            );
+
+            return [
+                'reward_barrels' => self::COMPLETION_REWARD_BARRELS,
+                'tile_count' => $tileCount,
+                'discovered_count' => $discoveredCount,
+                'oil_barrels' => $newBalance,
+            ];
+        });
     }
 }

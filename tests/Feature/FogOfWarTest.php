@@ -1,7 +1,9 @@
 <?php
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\World\FogOfWarService;
 use App\Domain\World\WorldService;
+use App\Models\ActivityLog;
 use App\Models\Tile;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -111,6 +113,72 @@ it('getDiscoveredTileIds returns the full discovered set ordered by tile_id', fu
 
     expect($ids)->toEqual($sorted);
     expect($ids)->toHaveCount(5);
+});
+
+it('grants the fog completion reward once for the current world size', function () {
+    $user = User::factory()->create();
+    $player = app(WorldService::class)->spawnPlayer($user->id);
+    $fog = app(FogOfWarService::class);
+
+    $fog->markDiscoveredMany($player->id, Tile::query()->pluck('id')->all());
+
+    $reward = $fog->awardCompletionIfEligible($player->id);
+
+    expect($reward)->not->toBeNull();
+    expect($reward['reward_barrels'])->toBe(10_000);
+    expect($player->fresh()->oil_barrels)->toBe(10_000);
+    expect(ActivityLog::query()
+        ->where('user_id', $user->id)
+        ->where('type', 'fog.completed')
+        ->count())->toBe(1);
+
+    expect($fog->awardCompletionIfEligible($player->id))->toBeNull();
+    expect($player->fresh()->oil_barrels)->toBe(10_000);
+    expect(ActivityLog::query()
+        ->where('user_id', $user->id)
+        ->where('type', 'fog.completed')
+        ->count())->toBe(1);
+});
+
+it('grants the fog completion reward again after the world expands and new tiles are discovered', function () {
+    $user = User::factory()->create();
+    $player = app(WorldService::class)->spawnPlayer($user->id);
+    $fog = app(FogOfWarService::class);
+
+    $originalTileIds = Tile::query()->pluck('id')->all();
+    $fog->markDiscoveredMany($player->id, $originalTileIds);
+    expect($fog->awardCompletionIfEligible($player->id))->not->toBeNull();
+
+    config([
+        'game.world.growth.enabled' => true,
+        'game.world.growth.trigger_players_per_tile' => 0.0,
+        'game.world.growth.expansion_ring_width' => 1,
+    ]);
+    app()->forgetInstance(GameConfigResolver::class);
+    app()->forgetInstance(WorldService::class);
+
+    $added = app(WorldService::class)->expandWorld();
+    expect($added)->toBeGreaterThan(0);
+
+    expect($fog->awardCompletionIfEligible($player->id))->toBeNull();
+    expect($player->fresh()->oil_barrels)->toBe(10_000);
+
+    $newTileIds = Tile::query()
+        ->whereNotIn('id', $originalTileIds)
+        ->pluck('id')
+        ->all();
+    expect($newTileIds)->not->toBeEmpty();
+
+    $fog->markDiscoveredMany($player->id, $newTileIds);
+    $secondReward = $fog->awardCompletionIfEligible($player->id);
+
+    expect($secondReward)->not->toBeNull();
+    expect($secondReward['reward_barrels'])->toBe(10_000);
+    expect($player->fresh()->oil_barrels)->toBe(20_000);
+    expect(ActivityLog::query()
+        ->where('user_id', $user->id)
+        ->where('type', 'fog.completed')
+        ->count())->toBe(2);
 });
 
 it('deleting a player cascades and clears their discoveries', function () {

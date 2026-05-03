@@ -214,6 +214,7 @@ class SpyService
                 $result['_target_user_id'],
                 $result['_spy_username'],
                 (bool) $result['_spy_succeeded'],
+                (int) $result['spy_id'],
             );
         }
 

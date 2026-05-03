@@ -31,6 +31,7 @@ class RecordActivityLog
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],
+            $this->dedupeKey('raid.alert', $event->defenderUserId, $payload, $event->attackId),
         );
     }
 
@@ -42,6 +43,7 @@ class RecordActivityLog
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],
+            $this->dedupeKey('spy.detected', $event->defenderUserId, $payload, $event->spyAttemptId),
         );
     }
 
@@ -53,6 +55,7 @@ class RecordActivityLog
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],
+            $this->dedupeKey('raid.alert', $event->defenderUserId, $payload, $event->attackId),
         );
     }
 
@@ -64,6 +67,7 @@ class RecordActivityLog
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],
+            $this->dedupeKey('mdn.alert', $event->recipientUserId, $payload),
         );
     }
 
@@ -75,6 +79,25 @@ class RecordActivityLog
             $payload['type'],
             $payload['title'],
             $payload['body'] ?? [],
+            $this->dedupeKey('tile_combat.alert', $event->defenderUserId, $payload, $event->tileCombatId),
         );
+    }
+
+    private function dedupeKey(string $scope, int $userId, array $payload, int|string|null $naturalId = null): string
+    {
+        if ($naturalId !== null && $naturalId !== '') {
+            return "{$scope}:{$naturalId}";
+        }
+
+        return $scope.':'.sha1(json_encode([
+            'user_id' => $userId,
+            'type' => $payload['type'] ?? null,
+            'title' => $payload['title'] ?? null,
+            'body' => $payload['body'] ?? [],
+            // Fallback dedupe is deliberately short-windowed: it
+            // collapses duplicate handling of the same alert without
+            // suppressing a genuinely identical alert later.
+            'minute' => now()->format('Y-m-d H:i'),
+        ], JSON_UNESCAPED_SLASHES));
     }
 }

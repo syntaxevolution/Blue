@@ -18,6 +18,7 @@ use App\Domain\Loot\LootCrateService;
 use App\Domain\Player\MapStateBuilder;
 use App\Domain\Player\TravelService;
 use App\Domain\Sabotage\SabotageService;
+use App\Domain\World\FogOfWarService;
 use App\Domain\World\WorldService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DrillRequest;
@@ -54,6 +55,7 @@ class MapController extends Controller
         private readonly SabotageService $sabotage,
         private readonly TileCombatService $tileCombatSvc,
         private readonly LootCrateService $lootCrates,
+        private readonly FogOfWarService $fogOfWar,
     ) {}
 
     public function show(Request $request): MapStateResource
@@ -78,6 +80,7 @@ class MapController extends Controller
         }
 
         $player = $player->fresh();
+        $fogReward = $this->fogOfWar->awardCompletionIfEligible($player->id);
 
         // Loot crate spawn/fetch hook — see Web\MapController::move for
         // the full rationale. onArrival is a no-op on non-wasteland
@@ -101,6 +104,9 @@ class MapController extends Controller
         $state = $this->mapState->build($player);
         if ($lootEvent !== null) {
             $state['loot_event'] = $lootEvent;
+        }
+        if ($fogReward !== null) {
+            $state['fog_completion_reward'] = $fogReward;
         }
 
         return new MapStateResource($state);

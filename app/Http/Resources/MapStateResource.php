@@ -60,6 +60,9 @@ class MapStateResource extends JsonResource
             // Post-deploy receipt so mobile clients can render the
             // toolbox toast and refresh the deploy-button state.
             'loot_deploy_result' => $state['loot_deploy_result'] ?? null,
+            // One-shot reward event emitted by map actions that finish
+            // discovering every tile currently in the world.
+            'fog_completion_reward' => $state['fog_completion_reward'] ?? null,
         ];
     }
 }

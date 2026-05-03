@@ -265,6 +265,13 @@ interface PlaceResult {
     remaining_quantity: number;
 }
 
+interface FogCompletionReward {
+    reward_barrels: number;
+    tile_count: number;
+    discovered_count: number;
+    oil_barrels: number;
+}
+
 // ---- Popup event queue ----
 // Replaces the old stack of inline flash banners. Watchers below
 // funnel every flash/error source into a single queue that one
@@ -383,12 +390,27 @@ watch(
     { immediate: true },
 );
 
-// --- Drill result → modal only for sabotage or break events ---
+watch(
+    () => flash.value.fog_completion_reward,
+    (incoming) => {
+        if (incoming && typeof incoming === 'object') {
+            const r = incoming as FogCompletionReward;
+            enqueuePopup({
+                kind: 'success',
+                title: 'Map completed',
+                body: `You mapped every active square on Akzar. ${r.reward_barrels.toLocaleString()} barrels of oil have been added to your stash.`,
+            });
+        }
+    },
+    { immediate: true },
+);
+
+// --- Drill result - modal only for sabotage events ---
 // Normal drill outcomes (the plain +N barrels line) are deliberately
 // NOT shown as a modal — the cell-level .drill-popup animation
 // already surfaces the barrel count directly on the clicked cell.
-// Sabotage outcomes and drill breaks ARE significant enough to warrant
-// a full-screen interrupt so the player can't miss them.
+// Normal wear-breaks are handled by the global BrokenItemModal so the
+// player only gets one repair/abandon prompt.
 watch(
     () => flash.value.drill_result,
     (incoming) => {
@@ -407,10 +429,6 @@ watch(
                 detected: 'A Tripwire Ward saved your rig from a planted device. One ward consumed.',
             };
             let body = messages[r.sabotage_outcome] ?? 'A planted device triggered on your drill.';
-            const sabotageBroke = r.sabotage_outcome === 'drill_broken' || r.sabotage_outcome === 'drill_broken_and_siphoned';
-            if (r.drill_broke && !sabotageBroke) {
-                body += ' Your drill also broke from wear — head to a Tech post to repair or replace it.';
-            }
             enqueuePopup({
                 kind: 'error',
                 title: 'Sabotage triggered',
@@ -418,14 +436,6 @@ watch(
             });
 
             return;
-        }
-
-        if (r.drill_broke) {
-            enqueuePopup({
-                kind: 'error',
-                title: 'Drill broke',
-                body: 'Your drill broke — head to a Tech post to repair or replace it.',
-            });
         }
     },
     { immediate: true },
