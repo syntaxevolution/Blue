@@ -135,7 +135,7 @@ class ItemsCatalogSeeder extends Seeder
             /* ------------------------------------------------------------ */
             /* Tech post — drill tier upgrades + utility */
             /* ------------------------------------------------------------ */
-            ['key' => 'shovel_rig',           'post_type' => 'tech', 'name' => 'Shovel Rig',          'description' => 'A step up from the Dentist Drill. Fewer dry holes.',                                'price_barrels' => 200,   'effects' => ['set_drill_tier' => 2], 'sort_order' => 10],
+            ['key' => 'shovel_rig',           'post_type' => 'tech', 'name' => 'Shovel Rig',          'description' => 'A step up from the Dentist Drill. More bite from every strike.',                   'price_barrels' => 200,   'effects' => ['set_drill_tier' => 2], 'sort_order' => 10],
             ['key' => 'medium_drill',         'post_type' => 'tech', 'name' => 'Medium Drill',        'description' => 'Tracked, gas-powered. Noisy, effective.',                                           'price_barrels' => 900,   'effects' => ['set_drill_tier' => 3], 'sort_order' => 20],
             ['key' => 'heavy_drill',          'post_type' => 'tech', 'name' => 'Heavy Drill',         'description' => 'The big rig. Mounts on a flatbed. Mostly reliable.',                                'price_barrels' => 3500,  'effects' => ['set_drill_tier' => 4], 'sort_order' => 30],
             ['key' => 'industrial_rig',       'post_type' => 'tech', 'name' => 'Industrial Rig',      'description' => 'No more dry points. The ground either gives up or breaks.',                         'price_barrels' => 12000, 'effects' => ['set_drill_tier' => 5], 'sort_order' => 40],

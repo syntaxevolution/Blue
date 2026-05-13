@@ -184,6 +184,11 @@ return [
             'standard' => [4, 8],
             'gusher' => [12, 25],
         ],
+        // equipment rules:
+        // - yield_multiplier scales the rolled barrels.
+        // - eliminates_dry promotes dry points to trickle.
+        // - guarantees_standard_plus promotes the first N player/field/day
+        //   drills to at least standard before yield is rolled.
         'equipment' => [
             1 => ['name' => 'Dentist Drill',  'yield_multiplier' => 1.0, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],
             2 => ['name' => 'Shovel Rig',     'yield_multiplier' => 1.3, 'eliminates_dry' => false, 'guarantees_standard_plus' => 0],

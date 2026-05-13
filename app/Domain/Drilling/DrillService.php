@@ -32,8 +32,9 @@ use Illuminate\Support\Facades\DB;
  *     on the same oil field per calendar day (server time). Different
  *     oil fields have independent counters. Counters reset at midnight
  *     implicitly — tomorrow's date won't match today's row.
- *   - Yield is rolled via RngService against drilling.yields[quality]
- *     and multiplied by the player's drill tier yield_multiplier
+ *   - Drill tier may upgrade the point's effective quality, then yield
+ *     is rolled via RngService against drilling.yields[quality] and
+ *     multiplied by the player's drill tier yield_multiplier
  *   - Barrels land in the player's oil_barrels balance
  *   - The point is marked drilled_at=now() and becomes unusable until
  *     OilFieldRegenJob resets it at the next regen window
@@ -48,6 +49,13 @@ use Illuminate\Support\Facades\DB;
  */
 class DrillService
 {
+    private const QUALITY_ORDER = [
+        'dry' => 0,
+        'trickle' => 1,
+        'standard' => 2,
+        'gusher' => 3,
+    ];
+
     public function __construct(
         private readonly GameConfigResolver $config,
         private readonly RngService $rng,
@@ -218,7 +226,8 @@ class DrillService
                 $barrels = 0;
             } else {
                 $yieldEventKey = 'drill-yield-'.$player->id.'-'.$field->id.'-'.$gridX.'-'.$gridY.'-'.now()->timestamp;
-                $rawBarrels = $this->computeYield($point->quality, $player->drill_tier, $yieldEventKey);
+                $effectiveQuality = $this->effectiveQuality((string) $point->quality, (int) $player->drill_tier, $currentDailyCount);
+                $rawBarrels = $this->computeYield($effectiveQuality, $player->drill_tier, $yieldEventKey);
                 // Apply passive yield bonuses (e.g., lucky_charm +5%).
                 $bonusPct = $this->passiveBonus->yieldBonusPct($player);
                 $barrels = (int) floor($rawBarrels * (1.0 + $bonusPct));
@@ -286,7 +295,9 @@ class DrillService
 
             // update() already mutated oil_barrels and moves_current in-memory.
             return [
-                'quality' => $trapFiredForThisDriller ? 'sabotaged' : $point->quality,
+                'quality' => $trapFiredForThisDriller
+                    ? 'sabotaged'
+                    : ($effectiveQuality ?? (string) $point->quality),
                 'barrels' => $barrels,
                 'new_balance' => (int) $player->oil_barrels,
                 'moves_remaining' => (int) $player->moves_current,
@@ -338,6 +349,38 @@ class DrillService
         }
 
         return null;
+    }
+
+    /**
+     * Apply drill-tier quality rules before rolling yield.
+     *
+     * `guarantees_standard_plus` means the first N drills this player
+     * takes on this field today are promoted to at least standard.
+     * `eliminates_dry` then promotes any remaining dry result to trickle.
+     */
+    private function effectiveQuality(string $quality, int $drillTier, int $drillsAlreadyUsedOnField): string
+    {
+        if (! array_key_exists($quality, self::QUALITY_ORDER)) {
+            $quality = 'dry';
+        }
+
+        $guaranteedStandardPulls = (int) $this->config->get("drilling.equipment.{$drillTier}.guarantees_standard_plus", 0);
+        if ($guaranteedStandardPulls > 0 && $drillsAlreadyUsedOnField < $guaranteedStandardPulls) {
+            return $this->raiseQualityTo($quality, 'standard');
+        }
+
+        if ((bool) $this->config->get("drilling.equipment.{$drillTier}.eliminates_dry", false) && $quality === 'dry') {
+            return 'trickle';
+        }
+
+        return $quality;
+    }
+
+    private function raiseQualityTo(string $quality, string $minimum): string
+    {
+        return self::QUALITY_ORDER[$quality] < self::QUALITY_ORDER[$minimum]
+            ? $minimum
+            : $quality;
     }
 
     /**
