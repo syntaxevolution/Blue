@@ -38,6 +38,7 @@ class MapStateResource extends JsonResource
             'tile_detail' => $state['tile_detail'] ?? null,
             'neighbors' => $state['neighbors'],
             'discovered_count' => $state['discovered_count'],
+            'tile_count' => $state['tile_count'] ?? null,
             'bank_cap' => $state['bank_cap'],
             // Passthrough auxiliary state the builder emits — mobile
             // clients need these to render the toolbox HUD, the

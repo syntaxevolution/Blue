@@ -2,6 +2,7 @@
 
 namespace App\Domain\World;
 
+use App\Domain\Config\GameConfigResolver;
 use App\Domain\Notifications\ActivityLogService;
 use App\Models\Player;
 use App\Models\Tile;
@@ -25,7 +26,9 @@ use Illuminate\Support\Facades\DB;
  */
 class FogOfWarService
 {
-    private const COMPLETION_REWARD_BARRELS = 10_000;
+    public function __construct(
+        private readonly GameConfigResolver $config,
+    ) {}
 
     /**
      * Mark a single tile as discovered for a player. Idempotent —
@@ -142,7 +145,8 @@ class FogOfWarService
                 return null;
             }
 
-            $newBalance = (int) $player->oil_barrels + self::COMPLETION_REWARD_BARRELS;
+            $rewardBarrels = (int) $this->config->get('world.fog_completion_reward_barrels', 10_000);
+            $newBalance = (int) $player->oil_barrels + $rewardBarrels;
             $player->update([
                 'oil_barrels' => $newBalance,
                 'fog_completion_awarded_tile_count' => $tileCount,
@@ -151,9 +155,9 @@ class FogOfWarService
             app(ActivityLogService::class)->record(
                 (int) $player->user_id,
                 'fog.completed',
-                'You mapped the whole frontier - 10,000 barrels awarded',
+                number_format($rewardBarrels).' barrels awarded for mapping the whole frontier',
                 [
-                    'reward_barrels' => self::COMPLETION_REWARD_BARRELS,
+                    'reward_barrels' => $rewardBarrels,
                     'tile_count' => $tileCount,
                     'discovered_count' => $discoveredCount,
                 ],
@@ -161,7 +165,7 @@ class FogOfWarService
             );
 
             return [
-                'reward_barrels' => self::COMPLETION_REWARD_BARRELS,
+                'reward_barrels' => $rewardBarrels,
                 'tile_count' => $tileCount,
                 'discovered_count' => $discoveredCount,
                 'oil_barrels' => $newBalance,

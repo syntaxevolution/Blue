@@ -62,8 +62,14 @@ class MapController extends Controller
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+        $fogReward = $this->fogOfWar->awardCompletionIfEligible($player->id);
 
-        return new MapStateResource($this->mapState->build($player));
+        $state = $this->mapState->build($player->fresh());
+        if ($fogReward !== null) {
+            $state['fog_completion_reward'] = $fogReward;
+        }
+
+        return new MapStateResource($state);
     }
 
     public function move(TravelRequest $request): MapStateResource|JsonResponse

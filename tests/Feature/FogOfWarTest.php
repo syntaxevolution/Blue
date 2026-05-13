@@ -140,6 +140,29 @@ it('grants the fog completion reward once for the current world size', function 
         ->count())->toBe(1);
 });
 
+it('awards an already-complete fog map when the player opens the map', function () {
+    $user = User::factory()->create();
+    $player = app(WorldService::class)->spawnPlayer($user->id);
+    $fog = app(FogOfWarService::class);
+
+    $tileCount = Tile::query()->count();
+    $fog->markDiscoveredMany($player->id, Tile::query()->pluck('id')->all());
+
+    $response = $this->actingAs($user)->get('/map');
+
+    $response->assertRedirect(route('map.show'));
+    $response->assertSessionHas('fog_completion_reward', [
+        'reward_barrels' => 10_000,
+        'tile_count' => $tileCount,
+        'discovered_count' => $tileCount,
+        'oil_barrels' => 10_000,
+    ]);
+    expect($player->fresh()->oil_barrels)->toBe(10_000);
+
+    $this->actingAs($user)->get('/map')->assertOk();
+    expect($player->fresh()->oil_barrels)->toBe(10_000);
+});
+
 it('grants the fog completion reward again after the world expands and new tiles are discovered', function () {
     $user = User::factory()->create();
     $player = app(WorldService::class)->spawnPlayer($user->id);

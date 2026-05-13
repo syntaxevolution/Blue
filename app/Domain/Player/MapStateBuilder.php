@@ -172,6 +172,7 @@ class MapStateBuilder
                 },
             ])->values()->all(),
             'discovered_count' => $this->fogOfWar->countDiscovered($player->id),
+            'tile_count' => Tile::query()->count(),
             'bank_cap' => $this->moveRegen->bankCapFor($player),
         ];
     }

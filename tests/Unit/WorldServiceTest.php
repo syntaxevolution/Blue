@@ -12,11 +12,12 @@ function makeWorldService(): WorldService
     $config = new Repository([
         'game' => require __DIR__.'/../../config/game.php',
     ]);
+    $gameConfig = new GameConfigResolver($config);
 
     return new WorldService(
-        new GameConfigResolver($config),
+        $gameConfig,
         new RngService(),
-        new FogOfWarService(),
+        new FogOfWarService($gameConfig),
         new ActivityLogService(),
     );
 }
@@ -46,13 +47,13 @@ it('exposes the growth trigger parameters from config', function () {
     $growth = makeWorldService()->getWorldInfo()['growth'];
 
     expect($growth['trigger_players_per_tile'])->toBe(0.015);
-    expect($growth['expansion_ring_width'])->toBe(10);
+    expect($growth['expansion_ring_width'])->toBe(1);
 });
 
 it('exposes the abandonment decay parameters from config', function () {
     $abandonment = makeWorldService()->getWorldInfo()['abandonment'];
 
-    expect($abandonment['days_inactive'])->toBe(30);
+    expect($abandonment['days_inactive'])->toBe(90);
     expect($abandonment['ruin_loot_min'])->toBe(0.5);
     expect($abandonment['ruin_loot_max'])->toBe(2.0);
 });

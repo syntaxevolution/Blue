@@ -394,6 +394,7 @@ return [
     */
     'world' => [
         'initial_radius' => 25,
+        'fog_completion_reward_barrels' => 10000,
         'spawn_band_radius' => 12,
         'density' => [
             'oil_fields_per_tile' => 0.125,

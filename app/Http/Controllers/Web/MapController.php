@@ -58,10 +58,15 @@ class MapController extends Controller
         private readonly FogOfWarService $fogOfWar,
     ) {}
 
-    public function show(Request $request): Response
+    public function show(Request $request): Response|RedirectResponse
     {
         $user = $request->user();
         $player = $user->player ?? $this->world->spawnPlayer($user->id);
+
+        $fogReward = $this->fogOfWar->awardCompletionIfEligible($player->id);
+        if ($fogReward !== null) {
+            return redirect()->route('map.show')->with('fog_completion_reward', $fogReward);
+        }
 
         return Inertia::render('Game/Map', [
             'state' => $this->mapState->build($player),

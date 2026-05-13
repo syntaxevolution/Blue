@@ -212,6 +212,7 @@ interface MapState {
     tile_detail: TileDetail;
     neighbors: Neighbor[];
     discovered_count: number;
+    tile_count: number | null;
     bank_cap: number;
     transport_catalog?: Record<string, TransportCatalogEntry>;
     immunity_hours?: number;
@@ -1650,7 +1651,9 @@ function formatIntelPct(range: SpyIntelRange): string {
                         </div>
                     </button>
 
-                    <div class="mt-4 text-zinc-500 text-xs text-center">Tiles discovered: {{ state.discovered_count }}</div>
+                    <div class="mt-4 text-zinc-500 text-xs text-center">
+                        Tiles discovered: {{ state.discovered_count }}<template v-if="state.tile_count"> / {{ state.tile_count }}</template>
+                    </div>
                 </div>
             </div>
         </div>

@@ -112,6 +112,7 @@ it('GET /map auto-spawns a user with no player and renders the map view', functi
         ->has('state.player.moves_current')
         ->has('state.current_tile.x')
         ->has('state.neighbors')
+        ->where('state.tile_count', Tile::query()->count())
     );
 
     expect($user->fresh()->player)->not->toBeNull();
@@ -172,6 +173,7 @@ it('GET /api/v1/map returns the map state with a valid token', function () {
             'current_tile' => ['x', 'y', 'type'],
             'neighbors',
             'discovered_count',
+            'tile_count',
             'bank_cap',
         ],
     ]);
