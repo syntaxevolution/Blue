@@ -41,7 +41,7 @@ use Illuminate\Support\Facades\DB;
  *   unlocks_transport           : string         (transport item — listed in config)
  *   unlocks_teleport            : bool           (purchase teleporter)
  *   unlocks_base_teleport       : bool           (purchase Homing Flare)
- *   deployable_base_move        : 'self'|'enemy' (stackable: Foundation Charge / Abduction Anchor)
+ *   deployable_base_move        : 'self'|'enemy' (single-purchase reusable base teleport tools)
  *   grant_base_move_protection  : bool           (Deadbolt Plinth — flag on Player row)
  *
  * Everything runs inside a DB::transaction with lockForUpdate on the
@@ -146,6 +146,7 @@ class ShopService
         'unlocks_transport',
         'unlocks_teleport',
         'unlocks_base_teleport',
+        'deployable_base_move',
         'grant_base_move_protection',
         'drill_yield_bonus_pct',
         'daily_drill_limit_bonus',
@@ -323,8 +324,7 @@ class ShopService
 
         // unlocks_base_teleport and deployable_base_move have no
         // Player row mutation — they're gated by player_items lookups
-        // in BaseTeleportService (single-purchase / stackable-consumable
-        // respectively).
+        // in BaseTeleportService. Both are reusable single-purchase tools.
 
         $player->save();
     }

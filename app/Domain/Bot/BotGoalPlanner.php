@@ -1112,8 +1112,6 @@ class BotGoalPlanner
         // config so admins can tune bot hoarding without a deploy.
         // Defaults kept matching the original inline constants.
         $sabotageStockpileCap = (int) $this->config->get('bots.stockpile_caps.sabotage_deployables', 3);
-        $foundationChargeStockpileCap = (int) $this->config->get('bots.stockpile_caps.foundation_charge', 2);
-
         $strongEnough = $this->isStrongEnoughForSabotage($bot);
 
         foreach ($items as $item) {
@@ -1164,17 +1162,8 @@ class BotGoalPlanner
                 if ($owned >= $sabotageStockpileCap) {
                     continue;
                 }
-            } elseif ($isFoundationCharge) {
-                // Stackable panic-buy: separate cap from sabotage
-                // stockpile so a defensive bot can still grab a
-                // charge even while sitting on 3 Gremlin Coils.
-                $owned = (int) ($ownedQuantities[$item->key] ?? 0);
-                if ($owned >= $foundationChargeStockpileCap) {
-                    continue;
-                }
             } elseif (in_array($item->key, $ownedKeys, true)) {
-                // Non-stackable upgrades (including Homing Flare, which
-                // is a single-purchase reusable tool): never re-buy.
+                // Non-stackable upgrades and reusable tools: never re-buy.
                 continue;
             }
 

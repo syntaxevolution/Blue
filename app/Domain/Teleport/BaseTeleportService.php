@@ -23,15 +23,15 @@ use Illuminate\Support\Facades\DB;
  *                        Single-purchase (player_items quantity stays
  *                        at 1). Each use deducts moves + barrels.
  *
- *   Foundation Charge  — one-shot relocation of your OWN base to the
- *                        wasteland tile you're standing on. Stackable,
- *                        consumed on success.
+ *   Foundation Charge  — reusable relocation of your OWN base to the
+ *                        wasteland tile you're standing on. Single
+ *                        purchase; never consumed.
  *
- *   Abduction Anchor   — one-shot relocation of a RIVAL's base to
- *                        your current wasteland tile. Stackable,
- *                        consumed on success ONLY. Requires a fresh
- *                        successful spy on the target and is blocked
- *                        by same-MDN, immunity, and Deadbolt Plinth.
+ *   Abduction Anchor   — reusable relocation of a RIVAL's base to
+ *                        your current wasteland tile. Single purchase;
+ *                        never consumed. Requires a fresh successful
+ *                        spy on the target and is blocked by same-MDN,
+ *                        immunity, and Deadbolt Plinth.
  *
  * Every write happens inside a DB transaction. Lock acquisition
  * follows a strict ascending-ID order for both players AND tiles
@@ -43,9 +43,7 @@ use Illuminate\Support\Facades\DB;
  *     tile locks by ID so concurrent Foundation Charges by two
  *     players onto each other's former base tiles cannot cycle.
  *
- * All guards run BEFORE any decrement / tile-type mutation so a
- * rejection leaves state untouched — user spec: "not consumed" on
- * failed use.
+ * All guards run BEFORE any tile-type mutation so a rejection leaves state untouched.
  */
 class BaseTeleportService
 {
@@ -200,8 +198,6 @@ class BaseTeleportService
                 'moves_current' => (int) $player->moves_current - $moveCost,
             ]);
 
-            $this->decrementStack((int) $inventoryRow->id);
-
             return $destination->fresh();
         });
     }
@@ -229,8 +225,8 @@ class BaseTeleportService
      * Abduction Anchors at each other simultaneously.
      *
      * On success: old target base → wasteland, current tile → base,
-     * target.base_tile_id updated, one abduction_anchor consumed, and
-     * a BaseRelocated event dispatched to the victim so they see a
+     * target.base_tile_id updated, and a BaseRelocated event dispatched
+     * to the victim so they see a
      * toast + activity log entry with their new coordinates.
      *
      * @return array{new_base: Tile, target_username: string}
@@ -338,8 +334,6 @@ class BaseTeleportService
             $player->update([
                 'moves_current' => (int) $player->moves_current - $moveCost,
             ]);
-
-            $this->decrementStack((int) $inventoryRow->id);
 
             // Victim-side activity log so offline players see the
             // relocation and new coordinates on next login. Broadcast
@@ -558,21 +552,4 @@ class BaseTeleportService
         return $out;
     }
 
-    /**
-     * Atomic SQL decrement on a player_items row. The caller has
-     * already locked the row via lockForUpdate, so this could use a
-     * PHP-side `quantity - 1` safely, but the SQL form is more
-     * defensive and removes the need to pass the stale quantity in.
-     */
-    private function decrementStack(int $rowId): void
-    {
-        DB::table('player_items')->where('id', $rowId)->decrement('quantity');
-
-        // Delete zero-quantity rows so the Toolbox HUD filters them
-        // out and the auth-share query doesn't render a ghost entry.
-        DB::table('player_items')
-            ->where('id', $rowId)
-            ->where('quantity', '<=', 0)
-            ->delete();
-    }
 }

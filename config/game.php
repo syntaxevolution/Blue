@@ -531,11 +531,12 @@ return [
     |                        toolbox to snap back to your own base, at a
     |                        per-use cost of moves + barrels. Unlimited
     |                        uses for as long as you own it.
-    |   foundation_charge  — stackable consumable. Relocates your OWN
+    |   foundation_charge  — single-purchase reusable tool. Relocates your OWN
     |                        base to the wasteland tile you're standing
-    |                        on. One charge = one move.
-    |   abduction_anchor   — stackable consumable. Relocates a RIVAL's
-    |                        base to your current wasteland tile. Requires
+    |                        on. Single purchase; per-use move cost.
+    |   abduction_anchor   — single-purchase reusable tool. Relocates a RIVAL's
+    |                        base to your current wasteland tile. Single
+    |                        purchase; requires
     |                        a successful spy on the target within the
     |                        configured freshness window. Blocked by
     |                        same-MDN, newbie immunity, and the target's
@@ -684,11 +685,9 @@ return [
         // Per-item stockpile caps for stackable consumables the bot
         // planner will buy from the general store. Keeps bots from
         // converting their whole barrel reserve into a single class
-        // of item. Two separate caps so the Foundation Charge
-        // panic-buy can't displace a healthy Gremlin Coil stockpile.
+        // of item.
         'stockpile_caps' => [
             'sabotage_deployables' => 3,
-            'foundation_charge' => 2,
         ],
 
         // Strength gate for ALL sabotage activities (drill point

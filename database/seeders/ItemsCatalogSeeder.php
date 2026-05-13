@@ -231,27 +231,26 @@ class ItemsCatalogSeeder extends Seeder
             // rejected with a friendly error.
             ['key' => 'homing_flare',      'post_type' => 'general', 'name' => 'Homing Flare',       'description' => 'Wrist-mounted beacon that yanks you home by the spine. Each flare burns 5 moves and 50 barrels — the shortcut is not free, it is just shorter. Owning one grants unlimited use.', 'price_barrels' => $homingFlareCost,      'effects' => ['unlocks_base_teleport' => true],                 'sort_order' => 500],
 
-            // Foundation Charge: stackable one-shot consumable. Use
+            // Foundation Charge: single-purchase reusable tool. Use
             // from the toolbox while standing on a wasteland tile to
-            // relocate your OWN base to that tile. Each use decrements
-            // quantity by 1 via BaseTeleportService::moveOwnBase().
-            // Not in SINGLE_PURCHASE_EFFECT_KEYS — stack freely.
-            ['key' => 'foundation_charge', 'post_type' => 'general', 'name' => 'Foundation Charge',  'description' => 'A crate of demolition glyphs that unbolts your base from the ground and bolts it down wherever you are. One-shot. Only works on honest wasteland.',                                 'price_barrels' => $foundationChargeCost, 'effects' => ['deployable_base_move' => 'self'],                'sort_order' => 510],
+            // relocate your OWN base to that tile. Quantity never
+            // decrements.
+            // deployable_base_move is single-purchase.
+            ['key' => 'foundation_charge', 'post_type' => 'general', 'name' => 'Foundation Charge',  'description' => 'A crate of demolition glyphs that unbolts your base from the ground and bolts it down wherever you are. Reusable. Only works on honest wasteland.',                                'price_barrels' => $foundationChargeCost, 'effects' => ['deployable_base_move' => 'self'],                'sort_order' => 510],
 
-            // Abduction Anchor: stackable one-shot consumable. Use
+            // Abduction Anchor: single-purchase reusable tool. Use
             // from the toolbox while on a wasteland tile AND with a
             // successful spy on the target inside the freshness
             // window. Relocates the target's base to your current
             // tile. Guarded against same-MDN, immunity, and the
-            // target's Deadbolt Plinth. Consumes one on success only.
-            ['key' => 'abduction_anchor',  'post_type' => 'general', 'name' => 'Abduction Anchor',   'description' => "A harpoon of surveyed coordinates. Drags a rival's base to your feet — provided your intel on them is fresh. Loud, expensive, unforgettable.",                                         'price_barrels' => $abductionAnchorCost,  'effects' => ['deployable_base_move' => 'enemy'],               'sort_order' => 520],
+            // target's Deadbolt Plinth. Quantity never decrements.
+            ['key' => 'abduction_anchor',  'post_type' => 'general', 'name' => 'Abduction Anchor',   'description' => "A reusable harpoon of surveyed coordinates. Drags a rival's base to your feet — provided your intel on them is fresh. Loud, expensive, unforgettable.",                               'price_barrels' => $abductionAnchorCost,  'effects' => ['deployable_base_move' => 'enemy'],               'sort_order' => 520],
 
             // Deadbolt Plinth: single-purchase permanent passive.
             // Applied via ShopService::applyEffects → sets
-            // players.base_move_protected = true. Deliberately NOT
-            // recorded in player_items (recordOwnership is bypassed)
-            // so the toolbox HUD stays lean — it's a set-and-forget
-            // shield, not a tool the player needs to fiddle with.
+            // players.base_move_protected = true. It is still recorded
+            // in player_items so the single-purchase guard and owned
+            // list agree, but the toolbox classifier hides it.
             ['key' => 'deadbolt_plinth',   'post_type' => 'general', 'name' => 'Deadbolt Plinth',    'description' => 'A chunk of counter-harmonic granite wedged under your base. Makes your foundation refuse to move for anyone but you. Forever.',                                                      'price_barrels' => $deadboltPlinthCost,   'effects' => ['grant_base_move_protection' => true],            'sort_order' => 530],
         ];
 

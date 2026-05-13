@@ -430,7 +430,7 @@ function fireAbductionAnchor(target: AbductionTarget): void {
                                 type="button"
                                 class="shrink-0 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-950 transition"
                                 :disabled="!onWasteland || busyActionKey !== null"
-                                :title="onWasteland ? 'Bolt your base to this tile (one-shot)' : 'Travel to a wasteland tile to use this'"
+                                :title="onWasteland ? 'Bolt your base to this tile' : 'Travel to a wasteland tile to use this'"
                                 @click="fireFoundationCharge(item)"
                             >
                                 Use Here

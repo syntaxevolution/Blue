@@ -63,6 +63,12 @@ function moveToWasteland(Player $player): Tile
     return $wasteland;
 }
 
+function moveToGeneralPostForBaseTeleport(Player $player): void
+{
+    $post = Post::query()->where('post_type', 'general')->firstOrFail();
+    $player->update(['current_tile_id' => $post->tile_id]);
+}
+
 /* ---------------------------------------------------------------- */
 /* Homing Flare — teleportSelfToBase */
 /* ---------------------------------------------------------------- */
@@ -159,18 +165,21 @@ it('foundation charge relocates the player base to their current wasteland tile'
     expect(Tile::find($oldBaseId)->type)->toBe('wasteland');
 });
 
-it('foundation charge decrements stack and deletes the row at zero', function () {
+it('foundation charge is reusable and never decrements quantity', function () {
     $player = baseTeleportSpawnPlayer();
     grantItem($player, 'foundation_charge', quantity: 1);
     moveToWasteland($player);
 
     app(BaseTeleportService::class)->moveOwnBase($player->id);
 
+    moveToWasteland($player->fresh());
+    app(BaseTeleportService::class)->moveOwnBase($player->id);
+
     $row = DB::table('player_items')
         ->where('player_id', $player->id)
         ->where('item_key', 'foundation_charge')
         ->first();
-    expect($row)->toBeNull();
+    expect((int) $row->quantity)->toBe(1);
 });
 
 it('foundation charge rejects when not on a wasteland tile', function () {
@@ -245,9 +254,9 @@ it('abduction anchor relocates an enemy base to the caller current tile', functi
     );
 });
 
-it('abduction anchor is consumed only on success', function () {
+it('abduction anchor is reusable and never decrements quantity', function () {
     $attacker = baseTeleportSpawnPlayer();
-    grantItem($attacker, 'abduction_anchor', quantity: 2);
+    grantItem($attacker, 'abduction_anchor', quantity: 1);
     moveToWasteland($attacker);
     $target = baseTeleportSpawnTarget($attacker);
     $target->update(['base_move_protected' => true]);
@@ -262,7 +271,16 @@ it('abduction anchor is consumed only on success', function () {
         ->where('player_id', $attacker->id)
         ->where('item_key', 'abduction_anchor')
         ->value('quantity');
-    expect($quantity)->toBe(2);
+    expect((int) $quantity)->toBe(1);
+
+    $target->update(['base_move_protected' => false]);
+    app(BaseTeleportService::class)->moveEnemyBase($attacker->id, $target->id);
+
+    $quantity = DB::table('player_items')
+        ->where('player_id', $attacker->id)
+        ->where('item_key', 'abduction_anchor')
+        ->value('quantity');
+    expect((int) $quantity)->toBe(1);
 });
 
 it('abduction anchor rejects without a fresh successful spy', function () {
@@ -384,3 +402,24 @@ it('deadbolt plinth purchase sets base_move_protected and is not in the toolbox 
 
     expect($player->fresh()->base_move_protected)->toBeTrue();
 });
+
+it('base teleport toolbox items can only be purchased once', function (string $itemKey) {
+    $player = baseTeleportSpawnPlayer(barrels: 100000);
+    moveToGeneralPostForBaseTeleport($player);
+
+    app(ShopService::class)->purchase($player->id, $itemKey);
+
+    expect(fn () => app(ShopService::class)->purchase($player->id, $itemKey))
+        ->toThrow(CannotPurchaseException::class, 'can only be purchased once');
+
+    $quantity = DB::table('player_items')
+        ->where('player_id', $player->id)
+        ->where('item_key', $itemKey)
+        ->value('quantity');
+    expect((int) $quantity)->toBe(1);
+})->with([
+    'homing_flare',
+    'foundation_charge',
+    'abduction_anchor',
+    'deadbolt_plinth',
+]);
